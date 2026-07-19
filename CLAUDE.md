@@ -70,6 +70,9 @@ Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
 follows per CORE-DESIGN sequence step 6.
 
+After each merged increment, update this "Current position in the
+sequence" section to reflect what's done and what's next.
+
 ## Conventions
 
 - Branch: `rework`. Commits small and single-purpose; message states
