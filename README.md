@@ -68,8 +68,13 @@ chmod 600 .env
 ## 4. First run and account creation
 
 ```bash
+venv/bin/python migrate.py init finance.db
 venv/bin/python app.py
 ```
+
+`migrate.py init` is the only supported way to create a fresh database.
+Application startup never creates or alters schema; if migrations are
+pending, it stops with the exact `migrate.py apply` command to run.
 
 Open `http://<pi-ip>:8080` from any device on your network. The first
 visit shows a one-time setup screen — create both accounts (names,
@@ -195,7 +200,24 @@ drift issues.
   db.commit()"
   ```
 - **Update the code**: copy new files over, then
-  `sudo systemctl restart pifinance`.
+  back up the database, run `venv/bin/python migrate.py apply finance.db`,
+  and `sudo systemctl restart pifinance`.
+
+## Development checks
+
+All automated tests create synthetic databases in temporary directories:
+
+```bash
+venv/bin/python -m unittest discover -s tests -v
+```
+
+The migration-aware numerical gate compares old code on an untouched copy
+with new code on a separately migrated copy:
+
+```bash
+venv/bin/python gate.py run --db dev.db --old OLD_REF --new NEW_REF \
+  --expect notes/EXPECTED_DIFF.json
+```
 
 ## Troubleshooting
 

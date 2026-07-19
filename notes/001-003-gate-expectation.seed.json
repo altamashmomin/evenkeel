@@ -1,0 +1,10 @@
+{
+  "note": "Full v1-to-#003 synthetic rehearsal (seed=42, months=8). Users become members, 176 shared transactions become 352 split rows, migrations #001-#003 are recorded, and links begins empty. Balance and all monthly totals must remain absent from this diff.",
+  "diffs": [
+    {"path": "row_counts.users", "old": 2, "new": null},
+    {"path": "row_counts.members", "old": null, "new": 2},
+    {"path": "row_counts.splits", "old": null, "new": 352},
+    {"path": "row_counts.schema_version", "old": null, "new": 3},
+    {"path": "row_counts.links", "old": null, "new": 0}
+  ]
+}

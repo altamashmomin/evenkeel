@@ -73,8 +73,17 @@ approved, session two awaiting review):
   gated with zero balance/monthly change (notes/002-gate-expectation)
 - Migration #003 — `links` table, unwired; gated (one empty table)
 
-Next: verb extraction, one route per session, starting with `settle_up`
-(CORE-DESIGN sequence step 5; steps run against migrated dev copies).
+Hardening on `codex/rework-hardening` (awaiting review):
+- App and sync no longer create schema; `migrate.py init` is the explicit
+  fresh-install path and runtime startup checks migration history read-only.
+- The gate now compares old code + untouched DB against new code + a
+  separately migrated copy, using the version's own derivations.
+- Synthetic regression tests cover migration rollback/order, immutable
+  startup failure, numerical identity, and deliberate gate failures.
+
+Next: review the hardening increments. Do not begin verb extraction until
+they are accepted and the documented N-member/float contradictions have an
+explicit disposition.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
