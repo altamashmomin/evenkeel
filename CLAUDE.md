@@ -60,18 +60,21 @@ Pre-step-0: the Pi is not yet deployed (hardware pending). Everything so
 far lives on `rework`, unmerged — merging waits for the Pi deploy and the
 `v1.0` tag at the deployed state.
 
-Done (session one, on `rework`, reviewed and approved):
+Done (sessions one and two, on `rework`; session one reviewed and
+approved, session two awaiting review):
 - Migration runner `migrate.py` + migration #001 (`schema_version`)
 - The balance gate `gate.py` (snapshot / compare / run, enumerated
   expected diffs)
-- Synthetic seed generator `seed_db.py` (schema imported from app.py)
+- Synthetic seed generator `seed_db.py` (frozen v1.0 DDL, faithful
+  settlements)
+- Migration #002 — `users` → `members` (ids preserved), split column
+  exploded into basis-point `splits` rows, old column dropped; app +
+  sync moved to members/splits with byte-identical API responses;
+  gated with zero balance/monthly change (notes/002-gate-expectation)
+- Migration #003 — `links` table, unwired; gated (one empty table)
 
-Next, in order — all runnable/testable locally against a synthetic seed db:
-
-1. Migration #002 — `users` → `members`; explode the split column into
-   per-member `splits` rows (basis points, sum 10000); drop the old
-   column. Gate must show zero balance change.
-2. Migration #003 — `links` table.
+Next: verb extraction, one route per session, starting with `settle_up`
+(CORE-DESIGN sequence step 5; steps run against migrated dev copies).
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
