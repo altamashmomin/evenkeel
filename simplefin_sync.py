@@ -104,10 +104,15 @@ def sync() -> None:
 
     db = sqlite3.connect(DB_PATH)
     db.execute("PRAGMA busy_timeout = 5000")
-    user_ids = {r[0] for r in db.execute("SELECT id FROM users")}
-    if PAID_BY not in user_ids:
-        sys.exit(f"error: SYNC_PAID_BY={PAID_BY} is not a user in the app database. "
+    member_ids = [r[0] for r in db.execute(
+        "SELECT id FROM members WHERE active = 1 ORDER BY id")]
+    if PAID_BY not in member_ids:
+        sys.exit(f"error: SYNC_PAID_BY={PAID_BY} is not a member in the app database. "
                  "Finish the app's first-run setup, then set SYNC_PAID_BY in .env.")
+    if len(member_ids) != 2:
+        sys.exit(f"error: {len(member_ids)} active members — the shared-50/50 import "
+                 "default needs exactly two. Adjust the sync before changing the household.")
+    other_id = member_ids[0] if PAID_BY == member_ids[1] else member_ids[1]
 
     inserted = skipped_deposit = skipped_dupe = 0
     for account in data.get("accounts", []):
@@ -125,12 +130,17 @@ def sync() -> None:
             cur = db.execute(
                 """INSERT INTO transactions
                    (txn_date, amount_cents, description, category, paid_by,
-                    is_shared, payer_share_pct, source, external_id)
-                   VALUES (?, ?, ?, 'Other', ?, 1, 50, 'simplefin', ?)
+                    is_shared, source, external_id)
+                   VALUES (?, ?, ?, 'Other', ?, 1, 'simplefin', ?)
                    ON CONFLICT(external_id) DO NOTHING""",
                 (txn_date, abs(cents), desc[:200], PAID_BY, external_id),
             )
             if cur.rowcount:
+                db.executemany(
+                    "INSERT INTO splits (transaction_id, member_id, share_bp) "
+                    "VALUES (?, ?, ?)",
+                    [(cur.lastrowid, PAID_BY, 5000), (cur.lastrowid, other_id, 5000)],
+                )
                 inserted += 1
                 print(f"  + {txn_date}  {abs(cents)/100:>9.2f}  {desc[:48]}  [{acct_name}]")
             else:

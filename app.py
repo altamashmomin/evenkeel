@@ -1,4 +1,4 @@
-"""Pi Finance — a two-person household finance app.
+"""Pi Finance — a household finance app.
 
 Flask + SQLite, no build step. See README.md for setup.
 """
@@ -41,11 +41,13 @@ DEFAULT_CATEGORIES = [
 ]
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS members (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT UNIQUE NOT NULL,
     display_name  TEXT NOT NULL,
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+    active        INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
@@ -54,15 +56,20 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount_cents    INTEGER NOT NULL CHECK (amount_cents > 0),
     description     TEXT NOT NULL,
     category        TEXT NOT NULL DEFAULT 'Other',
-    paid_by         INTEGER NOT NULL REFERENCES users(id),
-    is_shared       INTEGER NOT NULL DEFAULT 1,    -- 0/1
-    payer_share_pct REAL NOT NULL DEFAULT 50
-                    CHECK (payer_share_pct >= 0 AND payer_share_pct <= 100),
+    paid_by         INTEGER NOT NULL REFERENCES members(id),
+    is_shared       INTEGER NOT NULL DEFAULT 1,    -- 0/1; 1 <=> splits rows exist
     source          TEXT NOT NULL DEFAULT 'manual', -- manual | bill | simplefin | settlement
     external_id     TEXT UNIQUE,                   -- dedupe key for automated sources
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_txn_date ON transactions(txn_date);
+
+CREATE TABLE IF NOT EXISTS splits (
+    transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+    member_id      INTEGER NOT NULL REFERENCES members(id),
+    share_bp       INTEGER NOT NULL CHECK (share_bp BETWEEN 0 AND 10000),
+    PRIMARY KEY (transaction_id, member_id)
+);
 
 CREATE TABLE IF NOT EXISTS bills (
     id           INTEGER PRIMARY KEY,
@@ -93,7 +100,7 @@ CREATE TABLE IF NOT EXISTS goals (
 CREATE TABLE IF NOT EXISTS goal_contributions (
     id           INTEGER PRIMARY KEY,
     goal_id      INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
-    user_id      INTEGER NOT NULL REFERENCES users(id),
+    user_id      INTEGER NOT NULL REFERENCES members(id),
     amount_cents INTEGER NOT NULL CHECK (amount_cents != 0),
     c_date       TEXT NOT NULL,
     note         TEXT
@@ -160,7 +167,11 @@ def login_required(fn):
 
 
 def get_users(db):
-    return db.execute("SELECT id, username, display_name FROM users ORDER BY id").fetchall()
+    """Active household members. (Name kept from v1.0; rows now come from
+    the members table — departed members stay in the data with active=0.)"""
+    return db.execute(
+        "SELECT id, username, display_name FROM members WHERE active = 1 ORDER BY id"
+    ).fetchall()
 
 
 def parse_iso_date(s, field="date"):
@@ -170,7 +181,21 @@ def parse_iso_date(s, field="date"):
         raise ValueError(f"invalid {field} (expected YYYY-MM-DD)")
 
 
-def txn_to_json(r):
+def payer_share_pct(db, txn_id, paid_by):
+    """The payer's share as a percentage, derived from split rows.
+
+    Kept in API responses for byte-compatibility with v1.0: the payer's
+    share_bp / 100 for shared rows, the old default of 50 for unshared rows
+    (which have no split rows at all).
+    """
+    row = db.execute(
+        "SELECT share_bp FROM splits WHERE transaction_id = ? AND member_id = ?",
+        (txn_id, paid_by),
+    ).fetchone()
+    return row["share_bp"] / 100 if row else 50.0
+
+
+def txn_to_json(db, r):
     return {
         "id": r["id"],
         "date": r["txn_date"],
@@ -179,17 +204,43 @@ def txn_to_json(r):
         "category": r["category"],
         "paid_by": r["paid_by"],
         "is_shared": bool(r["is_shared"]),
-        "payer_share_pct": r["payer_share_pct"],
+        "payer_share_pct": payer_share_pct(db, r["id"], r["paid_by"]),
         "source": r["source"],
     }
 
 
-def compute_balance(db):
-    """Net balance across all shared transactions.
+def write_splits(db, txn_id, paid_by, is_shared, pct):
+    """Replace a transaction's split rows from a payer-share percentage.
 
-    For each shared transaction the payer covered 100% up front but is only
-    responsible for payer_share_pct%, so the other person owes
-    amount * (100 - payer_share_pct) / 100.
+    The kernel of the future set_splits verb: unshared rows get no split
+    rows; shared rows get one row per member, basis points summing to 10000.
+    The two-person closed form matches the routes that call it — the routes
+    themselves still assume the deployed two-member household until verb
+    extraction adds proper submission criteria.
+    """
+    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
+    if not is_shared:
+        return
+    payer_bp = round(pct * 100)
+    others = [u["id"] for u in get_users(db) if u["id"] != paid_by]
+    db.execute(
+        "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
+        (txn_id, paid_by, payer_bp),
+    )
+    db.execute(
+        "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
+        (txn_id, others[0], 10000 - payer_bp),
+    )
+
+
+def compute_balance(db):
+    """Who-owes-whom, computed on read from split rows (CORE-DESIGN
+    Derivations).
+
+    The payer of a shared transaction covered 100% up front; every other
+    member owes round(amount_cents * share_bp / 10000) for their split row.
+    Pairwise nets reduce to the closed form below for two members; one
+    member (or none) reports settled/waiting.
     Returns a dict describing who owes whom, in dollars.
     """
     users = get_users(db)
@@ -198,13 +249,16 @@ def compute_balance(db):
     u1, u2 = users[0], users[1]
     net = 0  # positive => u2 owes u1 (in cents)
     rows = db.execute(
-        "SELECT amount_cents, paid_by, payer_share_pct FROM transactions WHERE is_shared = 1"
+        """SELECT t.amount_cents, t.paid_by, s.member_id, s.share_bp
+           FROM transactions t
+           JOIN splits s ON s.transaction_id = t.id
+           WHERE s.member_id != t.paid_by"""
     ).fetchall()
     for r in rows:
-        other_owes = round(r["amount_cents"] * (100 - r["payer_share_pct"]) / 100)
-        if r["paid_by"] == u1["id"]:
+        other_owes = round(r["amount_cents"] * r["share_bp"] / 10000)
+        if r["paid_by"] == u1["id"] and r["member_id"] == u2["id"]:
             net += other_owes
-        elif r["paid_by"] == u2["id"]:
+        elif r["paid_by"] == u2["id"] and r["member_id"] == u1["id"]:
             net -= other_owes
     if net == 0:
         return {
@@ -229,7 +283,7 @@ def compute_balance(db):
 @app.get("/api/status")
 def status():
     db = get_db()
-    count = db.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+    count = db.execute("SELECT COUNT(*) AS c FROM members").fetchone()["c"]
     out = {"setup_required": count == 0, "logged_in": "user_id" in session}
     if out["logged_in"]:
         out["user_id"] = session["user_id"]
@@ -240,7 +294,7 @@ def status():
 def setup():
     """One-time creation of exactly two accounts. Disabled once users exist."""
     db = get_db()
-    if db.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"] > 0:
+    if db.execute("SELECT COUNT(*) AS c FROM members").fetchone()["c"] > 0:
         return jsonify({"error": "setup already completed"}), 403
     data = request.get_json(silent=True) or {}
     users = data.get("users")
@@ -258,11 +312,13 @@ def setup():
         if username in seen:
             return bad_request("usernames must be different")
         seen.add(username)
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
     for u in users:
         db.execute(
-            "INSERT INTO users (username, display_name, password_hash) VALUES (?, ?, ?)",
+            "INSERT INTO members (username, display_name, password_hash, created_at) "
+            "VALUES (?, ?, ?, ?)",
             (u["username"].strip().lower(), u["display_name"].strip(),
-             generate_password_hash(u["password"])),
+             generate_password_hash(u["password"]), now),
         )
     db.commit()
     return jsonify({"ok": True})
@@ -274,7 +330,9 @@ def login():
     username = (data.get("username") or "").strip().lower()
     password = data.get("password") or ""
     db = get_db()
-    row = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    row = db.execute(
+        "SELECT * FROM members WHERE username = ? AND active = 1", (username,)
+    ).fetchone()
     if row is None or not check_password_hash(row["password_hash"], password):
         return jsonify({"error": "wrong username or password"}), 401
     session.permanent = True
@@ -300,7 +358,11 @@ def me():
 # ---------------------------------------------------------------- transactions
 
 def validate_txn_payload(db, data, partial=False):
-    """Returns dict of column->value for insert/update. Raises ValueError."""
+    """Returns dict of column->value for insert/update. Raises ValueError.
+
+    payer_share_pct is still the API's vocabulary but no longer a column —
+    callers pop it from the result and hand it to write_splits.
+    """
     out = {}
     if "date" in data or not partial:
         out["txn_date"] = parse_iso_date(data.get("date"), "date")
@@ -347,7 +409,7 @@ def list_transactions():
         params.append(month)
     q += " ORDER BY txn_date DESC, id DESC LIMIT 500"
     rows = db.execute(q, params).fetchall()
-    return jsonify([txn_to_json(r) for r in rows])
+    return jsonify([txn_to_json(db, r) for r in rows])
 
 
 @app.post("/api/transactions")
@@ -359,39 +421,50 @@ def create_transaction():
         cols = validate_txn_payload(db, data)
     except ValueError as e:
         return bad_request(str(e))
+    pct = cols.pop("payer_share_pct", 50)
     cols["source"] = "settlement" if data.get("source") == "settlement" else "manual"
     keys = ", ".join(cols)
     marks = ", ".join("?" for _ in cols)
     cur = db.execute(f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
+    write_splits(db, cur.lastrowid, cols["paid_by"], cols["is_shared"], pct)
     db.commit()
     row = db.execute("SELECT * FROM transactions WHERE id = ?", (cur.lastrowid,)).fetchone()
-    return jsonify(txn_to_json(row)), 201
+    return jsonify(txn_to_json(db, row)), 201
 
 
 @app.put("/api/transactions/<int:txn_id>")
 @login_required
 def update_transaction(txn_id):
     db = get_db()
-    if db.execute("SELECT id FROM transactions WHERE id = ?", (txn_id,)).fetchone() is None:
+    existing = db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+    if existing is None:
         return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     try:
         cols = validate_txn_payload(db, data, partial=True)
     except ValueError as e:
         return bad_request(str(e))
-    if not cols:
+    pct = cols.pop("payer_share_pct", None)
+    if not cols and pct is None:
         return bad_request("nothing to update")
-    sets = ", ".join(f"{k} = ?" for k in cols)
-    db.execute(f"UPDATE transactions SET {sets} WHERE id = ?", [*cols.values(), txn_id])
-    db.commit()
+    if pct is None:
+        # Share not part of this edit: the current payer's share travels,
+        # exactly as the old column did when other fields changed.
+        pct = payer_share_pct(db, txn_id, existing["paid_by"])
+    if cols:
+        sets = ", ".join(f"{k} = ?" for k in cols)
+        db.execute(f"UPDATE transactions SET {sets} WHERE id = ?", [*cols.values(), txn_id])
     row = db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
-    return jsonify(txn_to_json(row))
+    write_splits(db, txn_id, row["paid_by"], row["is_shared"], pct)
+    db.commit()
+    return jsonify(txn_to_json(db, row))
 
 
 @app.delete("/api/transactions/<int:txn_id>")
 @login_required
 def delete_transaction(txn_id):
     db = get_db()
+    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
     cur = db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
     db.commit()
     if cur.rowcount == 0:
@@ -539,11 +612,12 @@ def pay_bill(bill_id):
     cur = db.execute(
         """INSERT INTO transactions
            (txn_date, amount_cents, description, category, paid_by,
-            is_shared, payer_share_pct, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'bill')""",
+            is_shared, source)
+           VALUES (?, ?, ?, ?, ?, ?, 'bill')""",
         (today, bill["amount_cents"], f"{bill['name']} ({period})",
-         bill["category"], paid_by, is_shared, pct),
+         bill["category"], paid_by, is_shared),
     )
+    write_splits(db, cur.lastrowid, paid_by, is_shared, pct)
     db.execute(
         "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) VALUES (?, ?, ?, ?)",
         (bill_id, period, today, cur.lastrowid),
@@ -564,6 +638,7 @@ def unpay_bill(bill_id):
     if payment is None:
         return jsonify({"error": "no payment for this period"}), 404
     if payment["txn_id"]:
+        db.execute("DELETE FROM splits WHERE transaction_id = ?", (payment["txn_id"],))
         db.execute("DELETE FROM transactions WHERE id = ?", (payment["txn_id"],))
     db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
     db.commit()
@@ -665,7 +740,7 @@ def contributions(goal_id):
     db = get_db()
     rows = db.execute(
         """SELECT gc.*, u.display_name FROM goal_contributions gc
-           JOIN users u ON u.id = gc.user_id
+           JOIN members u ON u.id = gc.user_id
            WHERE gc.goal_id = ? ORDER BY gc.c_date DESC, gc.id DESC""",
         (goal_id,),
     ).fetchall()
@@ -695,7 +770,7 @@ def dashboard():
     unpaid = [b for b in upcoming if not b["paid_this_period"]]
     goals = [goal_to_json(db, r) for r in
              db.execute("SELECT * FROM goals ORDER BY created_at, id").fetchall()]
-    recent = [txn_to_json(r) for r in db.execute(
+    recent = [txn_to_json(db, r) for r in db.execute(
         "SELECT * FROM transactions ORDER BY txn_date DESC, id DESC LIMIT 6").fetchall()]
     return jsonify({
         "month": month,
