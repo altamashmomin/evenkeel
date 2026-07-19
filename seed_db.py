@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Synthetic seed database for Ledger tests and rehearsals.
 
-Creates a database with the CURRENT deployed schema (imported straight from
-app.py — no duplicated DDL to drift) and fills it with fake people and
-plausible fake transactions. Never real data; deterministic for a given
---seed so runs are reproducible.
+Creates a database with the DEPLOYED (v1.0) schema and fills it with fake
+people and plausible fake transactions. Never real data; deterministic for
+a given --seed so runs are reproducible.
+
+The DDL below is the deployed schema frozen verbatim from v1.0 app.py —
+deliberately NOT imported from app.py, because the seed's job is to mirror
+what the Pi runs today so migrations can be rehearsed against it. As the
+Pi's schema advances, regenerate fixtures by seeding this v1.0 shape and
+running `migrate.py apply` on the result.
 
 Usage:
     python seed_db.py <path> [--seed N] [--months N]
@@ -17,6 +22,67 @@ import random
 import sqlite3
 import sys
 from datetime import date, timedelta
+
+# The deployed v1.0 schema, frozen (see module docstring).
+V1_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY,
+    username      TEXT UNIQUE NOT NULL,
+    display_name  TEXT NOT NULL,
+    password_hash TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+    id              INTEGER PRIMARY KEY,
+    txn_date        TEXT NOT NULL,                 -- ISO date YYYY-MM-DD
+    amount_cents    INTEGER NOT NULL CHECK (amount_cents > 0),
+    description     TEXT NOT NULL,
+    category        TEXT NOT NULL DEFAULT 'Other',
+    paid_by         INTEGER NOT NULL REFERENCES users(id),
+    is_shared       INTEGER NOT NULL DEFAULT 1,    -- 0/1
+    payer_share_pct REAL NOT NULL DEFAULT 50
+                    CHECK (payer_share_pct >= 0 AND payer_share_pct <= 100),
+    source          TEXT NOT NULL DEFAULT 'manual', -- manual | bill | simplefin | settlement
+    external_id     TEXT UNIQUE,                   -- dedupe key for automated sources
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_txn_date ON transactions(txn_date);
+
+CREATE TABLE IF NOT EXISTS bills (
+    id           INTEGER PRIMARY KEY,
+    name         TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    due_day      INTEGER NOT NULL CHECK (due_day BETWEEN 1 AND 31),
+    category     TEXT NOT NULL DEFAULT 'Bills',
+    active       INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS bill_payments (
+    id      INTEGER PRIMARY KEY,
+    bill_id INTEGER NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+    period  TEXT NOT NULL,                          -- YYYY-MM
+    paid_on TEXT NOT NULL,
+    txn_id  INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+    UNIQUE (bill_id, period)
+);
+
+CREATE TABLE IF NOT EXISTS goals (
+    id           INTEGER PRIMARY KEY,
+    name         TEXT NOT NULL,
+    target_cents INTEGER NOT NULL CHECK (target_cents > 0),
+    target_date  TEXT,
+    created_at   TEXT NOT NULL DEFAULT (date('now'))
+);
+
+CREATE TABLE IF NOT EXISTS goal_contributions (
+    id           INTEGER PRIMARY KEY,
+    goal_id      INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id),
+    amount_cents INTEGER NOT NULL CHECK (amount_cents != 0),
+    c_date       TEXT NOT NULL,
+    note         TEXT
+);
+"""
 
 MEMBERS = [
     ("avery", "Avery"),
@@ -123,16 +189,18 @@ def seed(conn, rng, months_back):
                  shared, pct, source, external_id))
             n_txn += 1
 
-        # An occasional settle-up, shaped like the app writes them.
+        # An occasional settle-up, shaped exactly like the app writes them:
+        # paid by the ower with payer share 0%, so the full amount credits
+        # the other person (see static/app.js, the settle dialog).
         if rng.random() < 0.4:
             settle_day = start.replace(day=min(27, days_in_month))
             if settle_day <= date.today():
-                payer = rng.choice(user_ids)
+                ower = rng.choice(user_ids)
                 conn.execute(
                     """INSERT INTO transactions (txn_date, amount_cents, description,
                            category, paid_by, is_shared, payer_share_pct, source)
-                       VALUES (?, ?, 'Settle up', 'Other', ?, 1, 100, 'settlement')""",
-                    (settle_day.isoformat(), rng.randint(5000, 60000), payer))
+                       VALUES (?, ?, 'Settlement', 'Settlement', ?, 1, 0, 'settlement')""",
+                    (settle_day.isoformat(), rng.randint(5000, 60000), ower))
                 n_txn += 1
 
     # Goals with contributions from both people.
@@ -168,12 +236,8 @@ def main():
         sys.exit(f"error: {args.path} already exists — delete it first if you "
                  "meant to reseed")
 
-    # Create the schema exactly as the deployed app does: import app.py with
-    # DATABASE_PATH pointed at the new file; its init_db() runs on import.
-    os.environ["DATABASE_PATH"] = os.path.abspath(args.path)
-    import app  # noqa: F401
-
     conn = sqlite3.connect(args.path)
+    conn.executescript(V1_SCHEMA)
     conn.execute("PRAGMA foreign_keys = ON")
     rng = random.Random(args.seed)
     with conn:
