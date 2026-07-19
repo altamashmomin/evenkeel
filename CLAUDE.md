@@ -88,9 +88,15 @@ into `rework` (July 19, 2026):
 - The four review dispositions are settled — recorded under "Hardening
   dispositions" in CORE-DESIGN.md.
 
-Next: verb extraction, one route per session, starting with `settle_up`
-(runs against migrated dev copies; merging to `main` still waits for the
-Pi deploy and the `v1.0` tag).
+Verb extraction underway (one route per session):
+- `settle_up` extracted (July 19, 2026): migration #004 (`audit_log`),
+  `actions.py` registry born, settlement route is a thin caller; the
+  verb writes row + splits + `settles` links + audit atomically. Gated
+  (one empty table, zero number change); suite at 22 tests.
+
+Next: `mark_bill_paid` extraction (CORE-DESIGN step 5 order: bills,
+goals, transaction edits, then `record_transaction` last). Merging to
+`main` still waits for the Pi deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
