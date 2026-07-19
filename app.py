@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from derivations import compute_balance as derive_balance, spending_summary
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -158,47 +159,28 @@ def write_splits(db, txn_id, paid_by, is_shared, pct):
 
 
 def compute_balance(db):
-    """Who-owes-whom, computed on read from split rows (CORE-DESIGN
-    Derivations).
-
-    The payer of a shared transaction covered 100% up front; every other
-    member owes round(amount_cents * share_bp / 10000) for their split row.
-    Pairwise nets reduce to the closed form below for two members; one
-    member (or none) reports settled/waiting.
-    Returns a dict describing who owes whom, in dollars.
-    """
-    users = get_users(db)
-    if len(users) < 2:
+    """Present the canonical cent-based balance in the deployed API shape."""
+    result = derive_balance(db)
+    if result["state"] == "waiting":
         return {"settled": True, "amount": 0, "message": "Waiting for setup"}
-    u1, u2 = users[0], users[1]
-    net = 0  # positive => u2 owes u1 (in cents)
-    rows = db.execute(
-        """SELECT t.amount_cents, t.paid_by, s.member_id, s.share_bp
-           FROM transactions t
-           JOIN splits s ON s.transaction_id = t.id
-           WHERE s.member_id != t.paid_by"""
-    ).fetchall()
-    for r in rows:
-        other_owes = round(r["amount_cents"] * r["share_bp"] / 10000)
-        if r["paid_by"] == u1["id"] and r["member_id"] == u2["id"]:
-            net += other_owes
-        elif r["paid_by"] == u2["id"] and r["member_id"] == u1["id"]:
-            net -= other_owes
-    if net == 0:
+    users = result["members"][:2]
+    if result["state"] == "settled":
         return {
             "settled": True, "amount": 0,
             "owes": None, "owed": None,
             "message": "All settled up",
-            "users": [{"id": u["id"], "name": u["display_name"]} for u in (u1, u2)],
+            "users": [{"id": u["id"], "name": u["display_name"]} for u in users],
         }
-    ower, owed = (u2, u1) if net > 0 else (u1, u2)
+    ower, owed = result["ower"], result["owed"]
+    amount_cents = result["amount_cents"]
     return {
         "settled": False,
-        "amount": dollars(abs(net)),
+        "amount": dollars(amount_cents),
         "owes": {"id": ower["id"], "name": ower["display_name"]},
         "owed": {"id": owed["id"], "name": owed["display_name"]},
-        "message": f"{ower['display_name']} owes {owed['display_name']} ${dollars(abs(net)):,.2f}",
-        "users": [{"id": u["id"], "name": u["display_name"]} for u in (u1, u2)],
+        "message": f"{ower['display_name']} owes {owed['display_name']} "
+                   f"${dollars(amount_cents):,.2f}",
+        "users": [{"id": u["id"], "name": u["display_name"]} for u in users],
     }
 
 
@@ -682,13 +664,7 @@ def contributions(goal_id):
 def dashboard():
     db = get_db()
     month = request.args.get("month") or current_period()
-    spend_rows = db.execute(
-        """SELECT category, SUM(amount_cents) AS total FROM transactions
-           WHERE substr(txn_date, 1, 7) = ? AND source != 'settlement'
-           GROUP BY category ORDER BY total DESC""",
-        (month,),
-    ).fetchall()
-    total = sum(r["total"] for r in spend_rows)
+    spending = spending_summary(db, month)[month]
     bills = db.execute("SELECT * FROM bills WHERE active = 1 ORDER BY due_day").fetchall()
     upcoming = [bill_to_json(db, b, month) for b in bills]
     unpaid = [b for b in upcoming if not b["paid_this_period"]]
@@ -698,9 +674,10 @@ def dashboard():
         "SELECT * FROM transactions ORDER BY txn_date DESC, id DESC LIMIT 6").fetchall()]
     return jsonify({
         "month": month,
-        "month_total": dollars(total),
+        "month_total": dollars(spending["total_cents"]),
         "by_category": [
-            {"category": r["category"], "amount": dollars(r["total"])} for r in spend_rows
+            {"category": row["category"], "amount": dollars(row["amount_cents"])}
+            for row in spending["by_category"]
         ],
         "balance": compute_balance(db),
         "unpaid_bills": unpaid,

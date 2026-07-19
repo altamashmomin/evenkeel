@@ -1,49 +1,32 @@
 #!/usr/bin/env python3
-"""The balance gate (CORE-DESIGN "The balance gate", sequence step 4).
+"""Ledger's immutable old-code/old-DB vs new-code/migrated-DB gate.
 
-Shadow-compares two code versions against a copy of the database. Old code
-and new code must agree on:
-
-  - the who-owes-whom balance, to the cent
-  - monthly spend totals for every month present in the data
-  - per-table row counts
-
-An increment that intends to change a number declares the exact expected
-diff in a JSON file; the gate passes only if the observed diff equals the
-enumerated diff — nothing more, nothing less. With no expectation file,
-only a zero diff passes.
+Checks the who-owes-whom balance to the cent, each monthly spending total,
+and every application-table row count. New code is evaluated through its
+canonical ``derivations.py``. The frozen v1 reference predates that module,
+so its totals are obtained by invoking its own dashboard for each month.
 
 Usage:
     python gate.py snapshot --db DB [--code DIR] [--out FILE]
-        Compute the gate numbers for DB using the code checkout at DIR
-        (default: this repo). Writes canonical JSON.
-
     python gate.py compare OLD.json NEW.json [--expect FILE]
-        Diff two snapshots. Exit 0 iff the diff exactly matches the
-        expectation file (default expectation: no diff).
-
     python gate.py run --db DB --old REF --new REF [--expect FILE]
-        Convenience: git-worktree checkouts of both refs, snapshot each,
-        compare. REF is any git commit-ish.
 
-Expectation file format:
-    {"note": "why these numbers move",
-     "diffs": [{"path": "row_counts.splits", "old": null, "new": 340}, ...]}
-
-The balance is taken from the code version's own compute_balance (app.py
-today; the named derivation function once it exists). Monthly totals and
-row counts are computed by SQL directly against the database — they are
-data facts, identical semantics for both sides. DB must never be
-finance.db; run against a copy.
+``run`` makes independent old/new copies of DB, applies the new ref's
+migrations only to the new copy, snapshots both, and compares them. Neither
+the supplied DB nor any database named finance.db is ever mutated.
 """
 import argparse
 import importlib
+import importlib.util
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
+from decimal import Decimal
+from pathlib import Path
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -55,199 +38,282 @@ def fail(msg):
 def check_db_path(path):
     if os.path.basename(path) == "finance.db":
         fail("refusing to touch finance.db — run against a copy (CLAUDE.md rule 6)")
-    if not os.path.exists(path):
+    if not os.path.isfile(path):
         fail(f"database not found: {path}")
 
 
-# ---------------------------------------------------------------- snapshot
+def read_only_connection(path):
+    uri = f"{Path(path).resolve().as_uri()}?mode=ro"
+    return sqlite3.connect(uri, uri=True)
 
-def balance_cents(code_dir, db_path):
-    """The who-owes-whom number as the code at code_dir computes it.
 
-    Canonical form: {"cents": int >= 0, "ower_id": id|None, "owed_id": id|None}.
-    Settled (or <2 members) is cents 0 with null ids.
-    """
-    sys.path.insert(0, code_dir)
-    os.environ["DATABASE_PATH"] = os.path.abspath(db_path)
+def cents_from_display(value):
+    return int((Decimal(str(value)) * 100).to_integral_value())
+
+
+def row_counts(db_path):
+    conn = read_only_connection(db_path)
     try:
-        app = importlib.import_module("app")
+        tables = [row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        return {table: conn.execute(
+            f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] for table in tables}
     finally:
-        sys.path.pop(0)
+        conn.close()
+
+
+def load_module(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def canonical_new_snapshot(code_dir, db_path):
+    derivations = load_module(
+        os.path.join(code_dir, "derivations.py"), "ledger_gate_derivations")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        result = app.compute_balance(conn)
+        balance = derivations.compute_balance(conn)
+        spending = derivations.spending_summary(conn)
     finally:
         conn.close()
-    if result.get("settled") or not result.get("owes"):
-        return {"cents": 0, "ower_id": None, "owed_id": None}
+    if balance["state"] == "owing":
+        balance_snapshot = {
+            "cents": balance["amount_cents"],
+            "ower_id": balance["ower"]["id"],
+            "owed_id": balance["owed"]["id"],
+        }
+    else:
+        balance_snapshot = {"cents": 0, "ower_id": None, "owed_id": None}
     return {
-        "cents": int(round(result["amount"] * 100)),
-        "ower_id": result["owes"]["id"],
-        "owed_id": result["owed"]["id"],
+        "balance": balance_snapshot,
+        "monthly_totals": {
+            month: values["total_cents"] for month, values in spending.items()
+        },
     }
 
 
-def monthly_totals(conn):
-    """Spend total in cents per month present, dashboard semantics
-    (settlements excluded)."""
-    rows = conn.execute(
-        """SELECT substr(txn_date, 1, 7) AS month, SUM(amount_cents) AS total
-           FROM transactions WHERE source != 'settlement'
-           GROUP BY month ORDER BY month"""
-    ).fetchall()
-    return {month: total for month, total in rows}
+def import_legacy_app(code_dir, db_path):
+    previous_db = os.environ.get("DATABASE_PATH")
+    os.environ["DATABASE_PATH"] = os.path.abspath(db_path)
+    sys.path.insert(0, code_dir)
+    sys.modules.pop("app", None)
+    try:
+        return importlib.import_module("app")
+    finally:
+        sys.path.pop(0)
+        if previous_db is None:
+            os.environ.pop("DATABASE_PATH", None)
+        else:
+            os.environ["DATABASE_PATH"] = previous_db
 
 
-def row_counts(conn):
-    tables = [r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' "
-        "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
-    return {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]  # noqa: S608
-            for t in tables}
+def legacy_months(conn):
+    return [row[0] for row in conn.execute(
+        "SELECT DISTINCT substr(txn_date, 1, 7) FROM transactions ORDER BY 1")]
+
+
+def canonical_legacy_snapshot(code_dir, db_path):
+    """Evaluate v1 through v1's own balance and dashboard code."""
+    legacy = import_legacy_app(code_dir, db_path)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        balance = legacy.compute_balance(conn)
+        months = legacy_months(conn)
+        people_table = "users" if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone() else "members"
+        actor = conn.execute(f"SELECT id FROM {people_table} ORDER BY id LIMIT 1").fetchone()
+        actor_id = actor["id"] if actor else 0
+    finally:
+        conn.close()
+
+    if balance.get("settled") or not balance.get("owes"):
+        balance_snapshot = {"cents": 0, "ower_id": None, "owed_id": None}
+    else:
+        balance_snapshot = {
+            "cents": cents_from_display(balance["amount"]),
+            "ower_id": balance["owes"]["id"],
+            "owed_id": balance["owed"]["id"],
+        }
+
+    totals = {}
+    original_current_period = legacy.current_period
+    try:
+        for month in months:
+            legacy.current_period = lambda value=month: value
+            with legacy.app.test_request_context("/api/dashboard"):
+                legacy.session["user_id"] = actor_id
+                response = legacy.dashboard()
+                if isinstance(response, tuple):
+                    response = response[0]
+                totals[month] = cents_from_display(response.get_json()["month_total"])
+    finally:
+        legacy.current_period = original_current_period
+    return {"balance": balance_snapshot, "monthly_totals": totals}
+
+
+def code_snapshot(code_dir, db_path):
+    """Evaluate code against a disposable copy; never mutate db_path."""
+    with tempfile.TemporaryDirectory(prefix="gate-eval-") as tmp:
+        evaluation_db = os.path.join(tmp, "evaluation.db")
+        shutil.copy2(db_path, evaluation_db)
+        if os.path.isfile(os.path.join(code_dir, "derivations.py")):
+            values = canonical_new_snapshot(code_dir, evaluation_db)
+        else:
+            values = canonical_legacy_snapshot(code_dir, evaluation_db)
+    values["row_counts"] = row_counts(db_path)
+    return values
+
+
+def write_snapshot(snapshot, out_path=None):
+    text = json.dumps(snapshot, indent=2, sort_keys=True)
+    if out_path:
+        with open(out_path, "w") as output:
+            output.write(text + "\n")
+    else:
+        print(text)
 
 
 def cmd_snapshot(args):
     check_db_path(args.db)
     code_dir = os.path.abspath(args.code)
-    if not os.path.exists(os.path.join(code_dir, "app.py")):
+    if not os.path.isfile(os.path.join(code_dir, "app.py")):
         fail(f"no app.py in code dir: {code_dir}")
-    conn = sqlite3.connect(args.db)
-    try:
-        snap = {
-            "balance": balance_cents(code_dir, args.db),
-            "monthly_totals": monthly_totals(conn),
-            "row_counts": row_counts(conn),
-        }
-    finally:
-        conn.close()
-    text = json.dumps(snap, indent=2, sort_keys=True)
-    if args.out:
-        with open(args.out, "w") as f:
-            f.write(text + "\n")
-    else:
-        print(text)
+    write_snapshot(code_snapshot(code_dir, args.db), args.out)
 
 
-# ---------------------------------------------------------------- compare
-
-def flatten(snap):
-    out = {}
-    for section, values in snap.items():
+def flatten(snapshot):
+    flattened = {}
+    for section, values in snapshot.items():
         if isinstance(values, dict):
-            for key, v in values.items():
-                out[f"{section}.{key}"] = v
+            for key, value in values.items():
+                flattened[f"{section}.{key}"] = value
         else:
-            out[section] = values
-    return out
+            flattened[section] = values
+    return flattened
 
 
 def diff_snapshots(old, new):
-    """List of {path, old, new} for every value that differs. Missing = null."""
     old_flat, new_flat = flatten(old), flatten(new)
-    diffs = []
-    for path in sorted(set(old_flat) | set(new_flat)):
-        o, n = old_flat.get(path), new_flat.get(path)
-        if o != n:
-            diffs.append({"path": path, "old": o, "new": n})
-    return diffs
+    return [
+        {"path": path, "old": old_flat.get(path), "new": new_flat.get(path)}
+        for path in sorted(set(old_flat) | set(new_flat))
+        if old_flat.get(path) != new_flat.get(path)
+    ]
 
 
 def canonical(diffs):
-    return sorted(json.dumps(d, sort_keys=True) for d in diffs)
+    return sorted(json.dumps(diff, sort_keys=True) for diff in diffs)
 
 
 def cmd_compare(args):
-    with open(args.old) as f:
-        old = json.load(f)
-    with open(args.new) as f:
-        new = json.load(f)
-    expected = []
-    note = None
+    with open(args.old) as old_file:
+        old = json.load(old_file)
+    with open(args.new) as new_file:
+        new = json.load(new_file)
+    expected, note = [], None
     if args.expect:
-        with open(args.expect) as f:
-            expectation = json.load(f)
+        with open(args.expect) as expectation_file:
+            expectation = json.load(expectation_file)
         expected = expectation.get("diffs", [])
         note = expectation.get("note")
     observed = diff_snapshots(old, new)
-
     if canonical(observed) == canonical(expected):
         if observed:
-            print(f"GATE PASS — observed diff matches the enumerated "
-                  f"expectation exactly ({len(observed)} entries)"
-                  + (f": {note}" if note else ""))
+            print("GATE PASS — observed diff matches the enumerated expectation "
+                  f"exactly ({len(observed)} entries)" + (f": {note}" if note else ""))
         else:
             print("GATE PASS — old and new agree to the cent "
                   f"({len(flatten(old))} values compared, zero diff)")
         return
 
-    expected_set = set(canonical(expected))
-    observed_set = set(canonical(observed))
+    expected_set, observed_set = set(canonical(expected)), set(canonical(observed))
     print("GATE FAIL", file=sys.stderr)
     for entry in sorted(observed_set - expected_set):
-        d = json.loads(entry)
-        print(f"  unexpected: {d['path']}  old={d['old']}  new={d['new']}",
+        diff = json.loads(entry)
+        print(f"  unexpected: {diff['path']}  old={diff['old']}  new={diff['new']}",
               file=sys.stderr)
     for entry in sorted(expected_set - observed_set):
-        d = json.loads(entry)
-        print(f"  expected but not observed: {d['path']}  "
-              f"old={d['old']}  new={d['new']}", file=sys.stderr)
-    sys.exit(1)
+        diff = json.loads(entry)
+        print(f"  expected but not observed: {diff['path']}  "
+              f"old={diff['old']}  new={diff['new']}", file=sys.stderr)
+    raise SystemExit(1)
 
 
-# ---------------------------------------------------------------- run
+def add_worktree(ref, path):
+    subprocess.run(
+        ["git", "-C", REPO_DIR, "worktree", "add", "--detach", path, ref],
+        check=True, capture_output=True, text=True)
+
+
+def remove_worktree(path):
+    subprocess.run(
+        ["git", "-C", REPO_DIR, "worktree", "remove", "--force", path],
+        check=True, capture_output=True, text=True)
+
 
 def cmd_run(args):
     check_db_path(args.db)
-    with tempfile.TemporaryDirectory(prefix="gate-") as tmp:
-        snaps = {}
-        for side, ref in (("old", args.old), ("new", args.new)):
-            worktree = os.path.join(tmp, side)
-            subprocess.run(
-                ["git", "-C", REPO_DIR, "worktree", "add", "--detach",
-                 worktree, ref],
-                check=True, capture_output=True, text=True)
-            try:
-                snaps[side] = os.path.join(tmp, f"{side}.json")
+    with tempfile.TemporaryDirectory(prefix="gate-run-") as tmp:
+        worktrees = {}
+        added = []
+        try:
+            for side, ref in (("old", args.old), ("new", args.new)):
+                worktrees[side] = os.path.join(tmp, f"code-{side}")
+                add_worktree(ref, worktrees[side])
+                added.append(worktrees[side])
+
+            old_db, new_db = os.path.join(tmp, "old.db"), os.path.join(tmp, "new.db")
+            shutil.copy2(args.db, old_db)
+            shutil.copy2(args.db, new_db)
+            new_migrate = os.path.join(worktrees["new"], "migrate.py")
+            if os.path.isfile(new_migrate):
+                subprocess.run([sys.executable, new_migrate, "apply", new_db], check=True)
+
+            snapshots = {}
+            for side, db_path in (("old", old_db), ("new", new_db)):
+                snapshots[side] = os.path.join(tmp, f"{side}.json")
                 subprocess.run(
-                    [sys.executable, os.path.abspath(__file__), "snapshot",
-                     "--db", args.db, "--code", worktree, "--out", snaps[side]],
-                    check=True)
-            finally:
-                subprocess.run(
-                    ["git", "-C", REPO_DIR, "worktree", "remove", "--force",
-                     worktree],
-                    check=True, capture_output=True, text=True)
-        compare_args = argparse.Namespace(
-            old=snaps["old"], new=snaps["new"], expect=args.expect)
-        print(f"old={args.old}  new={args.new}  db={args.db}")
-        cmd_compare(compare_args)
+                    [sys.executable, os.path.abspath(__file__), "snapshot", "--db", db_path,
+                     "--code", worktrees[side], "--out", snapshots[side]], check=True)
+            print(f"old={args.old} + pre-migration DB  "
+                  f"new={args.new} + migrated copy  source={args.db}")
+            cmd_compare(argparse.Namespace(
+                old=snapshots["old"], new=snapshots["new"], expect=args.expect))
+        finally:
+            for worktree in reversed(added):
+                remove_worktree(worktree)
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Ledger balance gate")
-    sub = ap.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(description="Ledger balance gate")
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    s = sub.add_parser("snapshot", help="compute gate numbers for one code version")
-    s.add_argument("--db", required=True)
-    s.add_argument("--code", default=REPO_DIR, help="code checkout to import (default: this repo)")
-    s.add_argument("--out", help="write JSON here instead of stdout")
-    s.set_defaults(func=cmd_snapshot)
+    snapshot = sub.add_parser("snapshot", help="compute one immutable snapshot")
+    snapshot.add_argument("--db", required=True)
+    snapshot.add_argument("--code", default=REPO_DIR)
+    snapshot.add_argument("--out")
+    snapshot.set_defaults(func=cmd_snapshot)
 
-    c = sub.add_parser("compare", help="diff two snapshots against an expectation")
-    c.add_argument("old")
-    c.add_argument("new")
-    c.add_argument("--expect", help="JSON file enumerating the allowed diff")
-    c.set_defaults(func=cmd_compare)
+    compare = sub.add_parser("compare", help="compare snapshots with an expectation")
+    compare.add_argument("old")
+    compare.add_argument("new")
+    compare.add_argument("--expect")
+    compare.set_defaults(func=cmd_compare)
 
-    r = sub.add_parser("run", help="snapshot two git refs and compare")
-    r.add_argument("--db", required=True)
-    r.add_argument("--old", required=True, help="git ref for the old code")
-    r.add_argument("--new", required=True, help="git ref for the new code")
-    r.add_argument("--expect", help="JSON file enumerating the allowed diff")
-    r.set_defaults(func=cmd_run)
+    run = sub.add_parser("run", help="compare old DB/code to migrated new DB/code")
+    run.add_argument("--db", required=True)
+    run.add_argument("--old", required=True)
+    run.add_argument("--new", required=True)
+    run.add_argument("--expect")
+    run.set_defaults(func=cmd_run)
 
-    args = ap.parse_args()
+    args = parser.parse_args()
     args.func(args)
 
 
