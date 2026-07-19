@@ -56,10 +56,12 @@ serves only scale we don't have is refused at the bottom.
    nowhere. An aggregate whose inputs can't be stated in one sentence
    doesn't ship. (This is INCOME-DESIGN's thesis, promoted to a system
    rule.)
-5. **Links are additive and reversible.** Relationships between rows —
-   refund to purchase, settlement to what it settles, bill to the payment
-   that satisfied it — live in the `links` table. Creating a link mutates
-   nothing; deleting one reverts everything.
+5. **Links are additive and reversible.** Relationships between
+   transactions — refund to purchase, settlement to what it settles —
+   live in the `links` table. Creating a link mutates nothing; deleting
+   one reverts everything. (Bill-to-payment linkage is not a link: the
+   `bill_payments` table already is that relationship — hardening
+   disposition 3.)
 6. **Nothing derived is stored.** Balance, totals, summaries, savings
    rate: computed on read by named functions, and every surface (SPA,
    MCP, future anything) calls the same function. At household scale this
@@ -106,6 +108,20 @@ every shared transaction into explicit per-member split rows. After #002
 there is exactly one representation and the old column is dropped. The
 ambiguity does not survive into the new grammar with a compatibility
 flag.
+
+**Hardening dispositions (July 2026).** Four questions raised by the
+rework-hardening review (docs/REWORK-HARDENING-BRIEF.md), settled:
+(1) *N-member*: the schema is N-ready; routes, sync, setup, and the
+balance presentation remain explicitly two-person as a named, bounded
+transition state that ends as verbs land with submission criteria.
+(2) *Floats*: all money computation is integer cents (`derivations.py`
+guarantees it); dollars-as-floats persist only at the JSON presentation
+edge until a deliberate API-versioning increment retires them.
+(3) *bill_payment link*: dropped from the link vocabulary — the
+`bill_payments` table already is the bill-to-transaction relationship,
+which a transaction-to-transaction link cannot express.
+(4) *Atomic audit*: a verb's audit row commits in the same SQLite
+transaction as its edit, from the first verb extracted.
 
 ## Nouns
 
@@ -154,7 +170,6 @@ CREATE TABLE links (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     link_type   TEXT NOT NULL,   -- 'refund_of' | 'transfer_pair'
                                  -- | 'reimburses' | 'settles'
-                                 -- | 'bill_payment'
     from_id     INTEGER NOT NULL REFERENCES transactions(id),
     to_id       INTEGER NOT NULL REFERENCES transactions(id),
     created_by  TEXT NOT NULL,   -- actor string, same vocabulary as audit
@@ -201,7 +216,7 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `edit_transaction` / `delete_transaction` | UI only | — | Deliberately absent from MCP (AGENT-DESIGN invariant 3) |
 | `set_splits` | UI | shared rows only; shares sum to 10000 | Replaces direct split edits |
 | `settle_up` | UI only | **requires active members ≥ 2** | Writes the settlement and `settles` links to covered rows |
-| `mark_bill_paid` | UI | — | Creates the transaction and a `bill_payment` link in one edit |
+| `mark_bill_paid` | UI | — | Creates the transaction and its `bill_payments` row in one edit |
 | `classify_inflow` | UI, MCP direct | row must be `direction='in'` | Lands with the income build |
 | `create_income_rule` | UI, MCP two-phase | conflict check against existing rules | Two-phase via `pending_actions` when the caller is an agent |
 | `set_rule_enabled` | UI, MCP direct | — | No delete; disabled rules keep history |
@@ -308,9 +323,9 @@ Ordered; the app works after every step; no step depends on a later one.
    summing to 10000 bp per shared transaction — isomorphic to today, so
    the gate must show zero balance change); drop the old column and its
    ambiguity permanently.
-3. **#003 — links.** Create the table. Wire `settles` and
-   `bill_payment` link creation into their verbs going forward;
-   historic backfill is forward-only (see refusals).
+3. **#003 — links.** Create the table. Wire `settles` link creation
+   into its verb going forward; historic backfill is forward-only (see
+   refusals).
 4. **Audit everywhere.** Extend `audit_log` writes to UI and sync paths
    (mechanically: this lands as each verb is extracted, since the verb
    contract includes the audit row).
@@ -361,10 +376,10 @@ invariants.
   import; the engine solves scale this app is architected never to need.
 - **N>2 settlement UX.** The schema is ready; the debt-graph feature
   waits for a real household to want it, and gets its own design doc.
-- **Historic link backfill.** `settles` and `bill_payment` links are
-  created going forward. Reconstructing which past transactions a past
-  settlement covered is archaeology with little payoff; forward-only
-  keeps #003 trivial.
+- **Historic link backfill.** `settles` links are created going
+  forward. Reconstructing which past transactions a past settlement
+  covered is archaeology with little payoff; forward-only keeps #003
+  trivial.
 - **A second repo, a mega-branch, a big-bang cutover.** Covered above;
   listed here so it stays refused.
 

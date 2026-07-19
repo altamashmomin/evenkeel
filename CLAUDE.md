@@ -23,7 +23,10 @@ deployed spelling wins. Roles matter, not names.
 2. Every write path is a named verb in `actions.py`
    (validate → edit → side effects → audit). Routes, sync, and MCP tools
    are thin callers. Do not write INSERT/UPDATE/DELETE in a route.
-3. Money is integer cents. Timestamps are ISO-8601 text. No floats, ever.
+3. Money is integer cents; all computation float-free (`derivations.py`).
+   Dollars-as-floats survive only at the deployed JSON edge until the
+   API-versioning increment (hardening disposition 2). Timestamps are
+   ISO-8601 text.
 4. Nothing derived is stored. Balance, totals, summaries: computed on
    read by named functions; every surface calls the same function.
 5. No code may assume the household has exactly 2 members. Member count
@@ -73,17 +76,21 @@ approved, session two awaiting review):
   gated with zero balance/monthly change (notes/002-gate-expectation)
 - Migration #003 — `links` table, unwired; gated (one empty table)
 
-Hardening on `codex/rework-hardening` (awaiting review):
-- App and sync no longer create schema; `migrate.py init` is the explicit
-  fresh-install path and runtime startup checks migration history read-only.
-- The gate now compares old code + untouched DB against new code + a
-  separately migrated copy, using the version's own derivations.
-- Synthetic regression tests cover migration rollback/order, immutable
-  startup failure, numerical identity, and deliberate gate failures.
+Hardening (from `codex/rework-hardening`) reviewed, accepted, and merged
+into `rework` (July 19, 2026):
+- Schema is migration-owned end to end: `migrate.py init` creates fresh
+  databases, app/sync verify migration history read-only at startup.
+- The gate compares old code + untouched DB against new code + a
+  separately migrated copy, via each version's own derivations.
+- 15 regression tests, including byte-identical API parity (v1 vs
+  current) and the finance.db name guard; `--live` flag added for the
+  Pi's own deploy steps.
+- The four review dispositions are settled — recorded under "Hardening
+  dispositions" in CORE-DESIGN.md.
 
-Next: review the hardening increments. Do not begin verb extraction until
-they are accepted and the documented N-member/float contradictions have an
-explicit disposition.
+Next: verb extraction, one route per session, starting with `settle_up`
+(runs against migrated dev copies; merging to `main` still waits for the
+Pi deploy and the `v1.0` tag).
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
