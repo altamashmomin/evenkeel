@@ -61,11 +61,41 @@ class SettleRouteTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM links WHERE link_type='settles' AND from_id=?",
                 (body["id"],)).fetchone()[0]
             audit = conn.execute(
-                "SELECT actor, action FROM audit_log").fetchall()
+                "SELECT actor, action FROM audit_log WHERE target = ?",
+                (f"transaction:{body['id']}",)).fetchall()
         finally:
             conn.close()
         self.assertGreater(links, 0)
         self.assertEqual([("ui:avery", "settle_up")], audit)
+
+    def test_deleting_a_covered_transaction_also_removes_its_links(self):
+        client = self.app_module.app.test_client()
+        with client.session_transaction() as session:
+            session["user_id"] = 1
+        settled = client.post("/api/transactions", json={
+            "date": date.today().isoformat(), "amount": 1.00,
+            "description": "Settlement — link cleanup", "category": "Settlement",
+            "paid_by": 1, "is_shared": True, "payer_share_pct": 0,
+            "source": "settlement",
+        }).get_json()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            covered_id = conn.execute(
+                "SELECT to_id FROM links WHERE link_type='settles' AND from_id=? "
+                "ORDER BY to_id LIMIT 1", (settled["id"],)).fetchone()[0]
+        finally:
+            conn.close()
+        response = client.delete(f"/api/transactions/{covered_id}")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"ok": True}, response.get_json())
+        conn = sqlite3.connect(self.db_path)
+        try:
+            leftover = conn.execute(
+                "SELECT COUNT(*) FROM links WHERE from_id=? OR to_id=?",
+                (covered_id, covered_id)).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(0, leftover)
 
 
 if __name__ == "__main__":
