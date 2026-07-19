@@ -123,10 +123,11 @@ def settle_up(db, actor, data):
     active members.
     edit — one transaction: the settlement row (source forced to
     'settlement'), its split rows, a 'settles' link to every shared
-    transaction not already covered by a previous settlement (previous
-    settlements included: this settlement closes them too; historic rows
-    from before the links table simply start uncovered — forward-only),
-    and the audit row.
+    transaction dated on or before the settlement and not already covered
+    by a previous settlement (previous settlements included: this one
+    closes them too; rows dated after the settlement stay uncovered for
+    the next one; historic rows from before the links table simply start
+    uncovered — forward-only), and the audit row.
     side effects — none yet.
     Returns the settlement transaction row.
     """
@@ -147,10 +148,10 @@ def settle_up(db, actor, data):
     covered = [r[0] for r in db.execute(
         """SELECT DISTINCT t.id FROM transactions t
            JOIN splits s ON s.transaction_id = t.id
-           WHERE t.id != ? AND NOT EXISTS (
+           WHERE t.id != ? AND t.txn_date <= ? AND NOT EXISTS (
                SELECT 1 FROM links l
                WHERE l.link_type = 'settles' AND l.to_id = t.id)
-           ORDER BY t.id""", (txn_id,)).fetchall()]
+           ORDER BY t.id""", (txn_id, cols["txn_date"])).fetchall()]
     db.executemany(
         "INSERT INTO links (link_type, from_id, to_id, created_by, created_at) "
         "VALUES ('settles', ?, ?, ?, ?)",

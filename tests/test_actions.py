@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -15,10 +16,12 @@ import actions
 import derivations
 
 
-def settle_body(amount, paid_by):
-    # Mirrors what static/app.js posts from the settle dialog.
+def settle_body(amount, paid_by, on=None):
+    # Mirrors what static/app.js posts from the settle dialog (date=today);
+    # seeded rows never postdate today, so a today-dated settlement covers
+    # them all under the on-or-before rule.
     return {
-        "date": "2026-07-01",
+        "date": (on or date.today()).isoformat(),
         "amount": amount,
         "description": "Settlement — test",
         "category": "Settlement",
@@ -85,6 +88,34 @@ class SettleUpTests(unittest.TestCase):
             "SELECT to_id FROM links WHERE link_type = 'settles' AND from_id = ?",
             (second["id"],)).fetchall()]
         self.assertEqual([first["id"]], covered)
+
+    def test_rows_dated_after_settlement_stay_uncovered(self):
+        tomorrow = date.today() + timedelta(days=1)
+        cur = self.db.execute(
+            """INSERT INTO transactions (txn_date, amount_cents, description,
+                   category, paid_by, is_shared, source)
+               VALUES (?, 4000, 'Future groceries', 'Groceries', 1, 1, 'manual')""",
+            (tomorrow.isoformat(),))
+        future_id = cur.lastrowid
+        self.db.executemany(
+            "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
+            [(future_id, 1, 5000), (future_id, 2, 5000)])
+        self.db.commit()
+
+        today_settlement = actions.settle_up(
+            self.db, "ui:avery", settle_body(10.00, 1))
+        covered_today = [l["to_id"] for l in self.db.execute(
+            "SELECT to_id FROM links WHERE link_type = 'settles' AND from_id = ?",
+            (today_settlement["id"],)).fetchall()]
+        self.assertNotIn(future_id, covered_today)
+
+        later_settlement = actions.settle_up(
+            self.db, "ui:blake", settle_body(5.00, 2, on=tomorrow))
+        covered_later = [l["to_id"] for l in self.db.execute(
+            "SELECT to_id FROM links WHERE link_type = 'settles' AND from_id = ?",
+            (later_settlement["id"],)).fetchall()]
+        self.assertEqual(sorted([future_id, today_settlement["id"]]),
+                         sorted(covered_later))
 
     def test_full_settlement_zeroes_the_balance(self):
         balance = derivations.compute_balance(self.db)

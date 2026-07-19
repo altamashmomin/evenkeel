@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -40,7 +41,7 @@ class SettleRouteTests(unittest.TestCase):
         with client.session_transaction() as session:
             session["user_id"] = 1
         response = client.post("/api/transactions", json={
-            "date": "2026-07-02", "amount": 12.34,
+            "date": date.today().isoformat(), "amount": 12.34,
             "description": "Settlement — Avery → Blake",
             "category": "Settlement", "paid_by": 1,
             "is_shared": True, "payer_share_pct": 0,
