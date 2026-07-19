@@ -7,12 +7,14 @@ import os
 import secrets
 import sqlite3
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
 
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import actions
+from actions import (active_members, parse_iso_date, to_cents,
+                     validate_txn_payload, write_splits)
 from derivations import compute_balance as derive_balance, spending_summary
 from schema_runtime import connect_existing, require_current_schema
 
@@ -64,16 +66,6 @@ def close_db(_exc):
 
 # ---------------------------------------------------------------- helpers
 
-def to_cents(value):
-    """Parse a dollar amount (number or string) into integer cents, exactly."""
-    try:
-        d = Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError):
-        raise ValueError("invalid amount")
-    cents = int((d * 100).to_integral_value(rounding="ROUND_HALF_UP"))
-    return cents
-
-
 def dollars(cents):
     return round(cents / 100.0, 2)
 
@@ -91,19 +83,17 @@ def login_required(fn):
     return wrapper
 
 
-def get_users(db):
-    """Active household members. (Name kept from v1.0; rows now come from
-    the members table — departed members stay in the data with active=0.)"""
-    return db.execute(
-        "SELECT id, username, display_name FROM members WHERE active = 1 ORDER BY id"
-    ).fetchall()
+# v1.0 name kept for its many read-side call sites; the canonical query
+# lives with the verbs now (actions.active_members).
+get_users = active_members
 
 
-def parse_iso_date(s, field="date"):
-    try:
-        return date.fromisoformat(s).isoformat()
-    except (TypeError, ValueError):
-        raise ValueError(f"invalid {field} (expected YYYY-MM-DD)")
+def ui_actor(db):
+    """Actor string for the logged-in member: 'ui:<username>'."""
+    member = db.execute(
+        "SELECT username FROM members WHERE id = ?", (session["user_id"],)
+    ).fetchone()
+    return f"ui:{member['username']}" if member else f"ui:{session['user_id']}"
 
 
 def payer_share_pct(db, txn_id, paid_by):
@@ -132,30 +122,6 @@ def txn_to_json(db, r):
         "payer_share_pct": payer_share_pct(db, r["id"], r["paid_by"]),
         "source": r["source"],
     }
-
-
-def write_splits(db, txn_id, paid_by, is_shared, pct):
-    """Replace a transaction's split rows from a payer-share percentage.
-
-    The kernel of the future set_splits verb: unshared rows get no split
-    rows; shared rows get one row per member, basis points summing to 10000.
-    The two-person closed form matches the routes that call it — the routes
-    themselves still assume the deployed two-member household until verb
-    extraction adds proper submission criteria.
-    """
-    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
-    if not is_shared:
-        return
-    payer_bp = round(pct * 100)
-    others = [u["id"] for u in get_users(db) if u["id"] != paid_by]
-    db.execute(
-        "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
-        (txn_id, paid_by, payer_bp),
-    )
-    db.execute(
-        "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
-        (txn_id, others[0], 10000 - payer_bp),
-    )
 
 
 def compute_balance(db):
@@ -263,46 +229,6 @@ def me():
 
 # ---------------------------------------------------------------- transactions
 
-def validate_txn_payload(db, data, partial=False):
-    """Returns dict of column->value for insert/update. Raises ValueError.
-
-    payer_share_pct is still the API's vocabulary but no longer a column —
-    callers pop it from the result and hand it to write_splits.
-    """
-    out = {}
-    if "date" in data or not partial:
-        out["txn_date"] = parse_iso_date(data.get("date"), "date")
-    if "amount" in data or not partial:
-        cents = to_cents(data.get("amount"))
-        if cents <= 0:
-            raise ValueError("amount must be positive")
-        out["amount_cents"] = cents
-    if "description" in data or not partial:
-        desc = (data.get("description") or "").strip()
-        if not desc:
-            raise ValueError("description is required")
-        out["description"] = desc[:200]
-    if "category" in data or not partial:
-        out["category"] = (data.get("category") or "Other").strip()[:60] or "Other"
-    if "paid_by" in data or not partial:
-        uid = data.get("paid_by")
-        ids = {u["id"] for u in get_users(db)}
-        if uid not in ids:
-            raise ValueError("paid_by must be one of the two users")
-        out["paid_by"] = uid
-    if "is_shared" in data or not partial:
-        out["is_shared"] = 1 if data.get("is_shared", True) else 0
-    if "payer_share_pct" in data or not partial:
-        try:
-            pct = float(data.get("payer_share_pct", 50))
-        except (TypeError, ValueError):
-            raise ValueError("payer_share_pct must be a number")
-        if not (0 <= pct <= 100):
-            raise ValueError("payer_share_pct must be between 0 and 100")
-        out["payer_share_pct"] = pct
-    return out
-
-
 @app.get("/api/transactions")
 @login_required
 def list_transactions():
@@ -323,12 +249,22 @@ def list_transactions():
 def create_transaction():
     db = get_db()
     data = request.get_json(silent=True) or {}
+    if data.get("source") == "settlement":
+        # Thin caller: the settle_up verb owns validation, the edit
+        # (row + splits + settles links + audit, one transaction).
+        try:
+            row = actions.settle_up(db, actor=ui_actor(db), data=data)
+        except ValueError as e:
+            return bad_request(str(e))
+        return jsonify(txn_to_json(db, row)), 201
+    # Manual entry stays inline until record_transaction extracts —
+    # deliberately last in the sequence (CORE-DESIGN step 5).
     try:
         cols = validate_txn_payload(db, data)
     except ValueError as e:
         return bad_request(str(e))
     pct = cols.pop("payer_share_pct", 50)
-    cols["source"] = "settlement" if data.get("source") == "settlement" else "manual"
+    cols["source"] = "manual"
     keys = ", ".join(cols)
     marks = ", ".join("?" for _ in cols)
     cur = db.execute(f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
