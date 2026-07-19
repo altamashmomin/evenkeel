@@ -1,0 +1,27 @@
+# Secrets — never commit (CLAUDE.md rule 7)
+.env
+*.token
+
+# Databases — real financial data never enters git
+*.db
+*.db.bak-*
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# SimpleFIN credentials (merged from app .gitignore)
+simplefin_access.url
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
