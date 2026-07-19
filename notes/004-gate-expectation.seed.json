@@ -1,0 +1,7 @@
+{
+  "note": "Migration #004 (audit_log table). One new empty table and its schema_version record — nothing else. Balance and every monthly total identical; audit rows only start arriving when verbs execute, never from the migration.",
+  "diffs": [
+    {"path": "row_counts.audit_log", "old": null, "new": 0},
+    {"path": "row_counts.schema_version", "old": 3, "new": 4}
+  ]
+}

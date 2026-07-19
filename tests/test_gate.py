@@ -14,6 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 import gate
+from schema_runtime import REQUIRED_SCHEMA_VERSION
 
 
 class GateTests(unittest.TestCase):
@@ -58,7 +59,7 @@ class GateTests(unittest.TestCase):
         self.assertNotIn("users", new_counts)
         self.assertEqual(2, new_counts["members"])
         self.assertEqual(352, new_counts["splits"])
-        self.assertEqual(3, new_counts["schema_version"])
+        self.assertEqual(REQUIRED_SCHEMA_VERSION, new_counts["schema_version"])
         self.assertEqual(0, new_counts["links"])
 
     def test_snapshot_does_not_mutate_source_database(self):
