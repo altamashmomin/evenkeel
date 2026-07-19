@@ -102,10 +102,14 @@ def run_py_file(conn, path):
     module.apply(conn)
 
 
-def connect(path):
+def connect(path, enforce_fk=True):
     conn = sqlite3.connect(path)
     conn.isolation_level = None  # explicit BEGIN/COMMIT, no autocommit surprises
-    conn.execute("PRAGMA foreign_keys = ON")
+    # apply runs with foreign keys OFF — the documented SQLite procedure for
+    # table rebuilds (create new, copy, drop old, rename), which would
+    # otherwise fire implicit deletes on child rows. Integrity is enforced
+    # instead by a whole-database foreign_key_check before every COMMIT.
+    conn.execute(f"PRAGMA foreign_keys = {'ON' if enforce_fk else 'OFF'}")
     conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
@@ -135,8 +139,16 @@ def cmd_pending(db_path):
         print(f"  {n:03d}  {d}  ({os.path.basename(p)})")
 
 
+def check_foreign_keys(conn):
+    violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if violations:
+        detail = "; ".join(f"{table} rowid={rowid} -> {parent}"
+                           for table, rowid, parent, _fkid in violations[:10])
+        raise RuntimeError(f"foreign key violations after migration: {detail}")
+
+
 def cmd_apply(db_path):
-    conn = connect(db_path)
+    conn = connect(db_path, enforce_fk=False)
     applied = applied_versions(conn)
     migrations = discover()
     for n in sorted(applied):
@@ -154,6 +166,7 @@ def cmd_apply(db_path):
                 run_sql_file(conn, path)
             else:
                 run_py_file(conn, path)
+            check_foreign_keys(conn)
             conn.execute(
                 "INSERT INTO schema_version (version, applied_at, description) "
                 "VALUES (?, ?, ?)",
@@ -161,7 +174,7 @@ def cmd_apply(db_path):
                  description),
             )
             conn.execute("COMMIT")
-        except Exception:
+        except BaseException:
             conn.execute("ROLLBACK")
             conn.close()
             print(f"FAILED at {number:03d} {description} — rolled back, "
