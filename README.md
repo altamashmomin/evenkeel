@@ -68,13 +68,17 @@ chmod 600 .env
 ## 4. First run and account creation
 
 ```bash
-venv/bin/python migrate.py init finance.db
+venv/bin/python migrate.py init --live finance.db
 venv/bin/python app.py
 ```
 
 `migrate.py init` is the only supported way to create a fresh database.
 Application startup never creates or alters schema; if migrations are
 pending, it stops with the exact `migrate.py apply` command to run.
+The `--live` flag exists because the runner refuses to touch a file named
+`finance.db` without it — development work always targets a copy, and only
+the Pi's own deployment steps (this one, and the update step below, always
+immediately after a backup) may name the live database.
 
 Open `http://<pi-ip>:8080` from any device on your network. The first
 visit shows a one-time setup screen — create both accounts (names,
@@ -200,7 +204,8 @@ drift issues.
   db.commit()"
   ```
 - **Update the code**: copy new files over, then
-  back up the database, run `venv/bin/python migrate.py apply finance.db`,
+  back up the database (`cp finance.db finance.db.bak-$(date +%F)`),
+  run `venv/bin/python migrate.py apply --live finance.db`,
   and `sudo systemctl restart pifinance`.
 
 ## Development checks

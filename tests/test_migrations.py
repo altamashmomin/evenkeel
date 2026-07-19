@@ -77,6 +77,15 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual([1], versions)
         self.assertIsNone(rolled_back)
 
+    def test_finance_db_refused_without_live_flag(self):
+        # The refusal fires on the name alone, before any existence check,
+        # so no file named finance.db is ever created — not even here.
+        result = self.run_cli(
+            "apply", self.tmp_path / "finance.db", check=False)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("refusing to touch finance.db", result.stderr)
+        self.assertFalse((self.tmp_path / "finance.db").exists())
+
     def test_discovery_rejects_numbering_gaps(self):
         migrations_dir = self.tmp_path / "migrations"
         migrations_dir.mkdir()

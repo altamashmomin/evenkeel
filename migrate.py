@@ -35,13 +35,15 @@ def fail(msg):
     sys.exit(f"error: {msg}")
 
 
-def check_safe_name(path):
-    if os.path.basename(path) == "finance.db":
-        fail("refusing to touch finance.db — run against a copy (CLAUDE.md rule 6)")
+def check_safe_name(path, live=False):
+    if os.path.basename(path) == "finance.db" and not live:
+        fail("refusing to touch finance.db — the live database. Local work runs "
+             "against a copy (CLAUDE.md rule 6); Pi deployment passes an explicit "
+             "--live flag after taking a fresh backup")
 
 
-def check_db_path(path):
-    check_safe_name(path)
+def check_db_path(path, live=False):
+    check_safe_name(path, live)
     if not os.path.exists(path):
         fail(f"database not found: {path} (use 'init' to create a fresh database)")
 
@@ -210,9 +212,9 @@ def cmd_apply(db_path):
     conn.close()
 
 
-def cmd_init(db_path):
+def cmd_init(db_path, live=False):
     """Create a new database file and build all schema through migrations."""
-    check_safe_name(db_path)
+    check_safe_name(db_path, live)
     if os.path.exists(db_path):
         fail(f"database already exists: {db_path} (init never overwrites)")
     parent = os.path.dirname(os.path.abspath(db_path))
@@ -225,11 +227,16 @@ def cmd_init(db_path):
 def main():
     ap = argparse.ArgumentParser(description="Ledger migration runner")
     ap.add_argument("command", choices=["init", "status", "pending", "apply"])
-    ap.add_argument("db", help="path to the SQLite database (never finance.db)")
+    ap.add_argument("db", help="path to the SQLite database")
+    ap.add_argument("--live", action="store_true",
+                    help="allow operating on the live finance.db — Pi deployment "
+                         "only, immediately after a fresh backup")
     args = ap.parse_args()
-    if args.command != "init":
-        check_db_path(args.db)
-    {"init": cmd_init, "status": cmd_status, "pending": cmd_pending,
+    if args.command == "init":
+        cmd_init(args.db, live=args.live)
+        return
+    check_db_path(args.db, live=args.live)
+    {"status": cmd_status, "pending": cmd_pending,
      "apply": cmd_apply}[args.command](args.db)
 
 
