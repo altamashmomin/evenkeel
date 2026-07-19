@@ -1,0 +1,9 @@
+{
+  "note": "Migration #002 (users -> members, split column -> splits rows). Structural changes only: users table retired, members carries the same 2 people, every shared transaction (176 in seed 42) becomes exactly 2 split rows, and schema_version records #001+#002. The who-owes-whom balance and every monthly total must show ZERO change — they are deliberately absent from this list. Row counts here are for the synthetic seed (seed=42, months=8); the Pi rehearsal regenerates them from the real database with this same structure.",
+  "diffs": [
+    {"path": "row_counts.users", "old": 2, "new": null},
+    {"path": "row_counts.members", "old": null, "new": 2},
+    {"path": "row_counts.splits", "old": null, "new": 352},
+    {"path": "row_counts.schema_version", "old": null, "new": 2}
+  ]
+}
