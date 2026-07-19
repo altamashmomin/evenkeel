@@ -56,15 +56,22 @@ script doesn't exist yet, building it precedes the increment it gates.
 
 ## Current position in the sequence
 
-Pre-step-0: the Pi is not yet deployed (hardware pending). Build targets
-now, in order — all runnable/testable locally against a synthetic seed db:
+Pre-step-0: the Pi is not yet deployed (hardware pending). Everything so
+far lives on `rework`, unmerged — merging waits for the Pi deploy and the
+`v1.0` tag at the deployed state.
 
-1. Migration runner + `schema_version` (migration #001)
-2. Migration #002 — `users` → `members`; explode the split column into
+Done (session one, on `rework`, reviewed and approved):
+- Migration runner `migrate.py` + migration #001 (`schema_version`)
+- The balance gate `gate.py` (snapshot / compare / run, enumerated
+  expected diffs)
+- Synthetic seed generator `seed_db.py` (schema imported from app.py)
+
+Next, in order — all runnable/testable locally against a synthetic seed db:
+
+1. Migration #002 — `users` → `members`; explode the split column into
    per-member `splits` rows (basis points, sum 10000); drop the old
    column. Gate must show zero balance change.
-3. Migration #003 — `links` table.
-4. The balance gate script itself (shadow compare old vs new).
+2. Migration #003 — `links` table.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
