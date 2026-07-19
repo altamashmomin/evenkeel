@@ -24,7 +24,6 @@ Environment (.env):
 import argparse
 import base64
 import os
-import sqlite3
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -32,6 +31,8 @@ from decimal import Decimal, InvalidOperation
 
 import requests
 from dotenv import load_dotenv
+
+from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
@@ -85,6 +86,7 @@ def to_cents(amount_str) -> int:
 
 
 def sync() -> None:
+    require_current_schema(DB_PATH)
     access_url = read_access_url().rstrip("/")
     start = int(time.time()) - LOOKBACK_DAYS * 86400
     try:
@@ -102,7 +104,7 @@ def sync() -> None:
     for err in data.get("errors", []):
         print(f"simplefin notice: {err}")
 
-    db = sqlite3.connect(DB_PATH)
+    db = connect_existing(DB_PATH)
     db.execute("PRAGMA busy_timeout = 5000")
     member_ids = [r[0] for r in db.execute(
         "SELECT id FROM members WHERE active = 1 ORDER BY id")]

@@ -8,12 +8,13 @@ single transaction together with the row that records it in schema_version
 land atomically or not at all.
 
 Usage:
+    python migrate.py init    <db>     create a fresh DB through migrations
     python migrate.py status  <db>     current version + applied migrations
     python migrate.py pending <db>     migrations not yet applied
     python migrate.py apply   <db>     apply all pending migrations, in order
 
-The database file must already exist (the runner migrates databases, it
-does not create them), and may never be the live finance.db.
+Only ``init`` creates a database file. Every other command requires an
+existing file, and no command may ever target the live finance.db.
 
 A .py migration must define  apply(conn)  taking an open sqlite3 connection;
 it runs inside the runner's transaction and must not commit or rollback.
@@ -34,11 +35,15 @@ def fail(msg):
     sys.exit(f"error: {msg}")
 
 
-def check_db_path(path):
+def check_safe_name(path):
     if os.path.basename(path) == "finance.db":
         fail("refusing to touch finance.db — run against a copy (CLAUDE.md rule 6)")
+
+
+def check_db_path(path):
+    check_safe_name(path)
     if not os.path.exists(path):
-        fail(f"database not found: {path} (the runner does not create databases)")
+        fail(f"database not found: {path} (use 'init' to create a fresh database)")
 
 
 def discover():
@@ -57,7 +62,12 @@ def discover():
             fail(f"duplicate migration number {number:03d}: "
                  f"{os.path.basename(found[number][2])} and {name}")
         found[number] = (number, m.group(2), os.path.join(MIGRATIONS_DIR, name))
-    return [found[n] for n in sorted(found)]
+    migrations = [found[n] for n in sorted(found)]
+    numbers = [m[0] for m in migrations]
+    expected = list(range(1, len(numbers) + 1))
+    if numbers != expected:
+        fail(f"migration numbers must be contiguous from 001; found {numbers}")
+    return migrations
 
 
 def applied_versions(conn):
@@ -69,6 +79,21 @@ def applied_versions(conn):
         return {}
     return {v: (at, desc) for v, at, desc in
             conn.execute("SELECT version, applied_at, description FROM schema_version")}
+
+
+def validate_history(applied, migrations):
+    """Require the database history to be an exact prefix of code history."""
+    migration_by_number = {n: description for n, description, _path in migrations}
+    applied_numbers = sorted(applied)
+    expected_prefix = [n for n, _description, _path in migrations[:len(applied_numbers)]]
+    if applied_numbers != expected_prefix:
+        fail("applied migrations are not an exact ordered prefix: "
+             f"found {applied_numbers}, expected {expected_prefix}")
+    for number in applied_numbers:
+        recorded_description = applied[number][1]
+        if recorded_description != migration_by_number[number]:
+            fail(f"migration {number:03d} description mismatch: database has "
+                 f"{recorded_description!r}, code has {migration_by_number[number]!r}")
 
 
 def run_sql_file(conn, path):
@@ -117,6 +142,7 @@ def connect(path, enforce_fk=True):
 def cmd_status(db_path):
     conn = connect(db_path)
     applied = applied_versions(conn)
+    validate_history(applied, discover())
     if not applied:
         print("current version: none (schema_version table not present)")
     else:
@@ -131,8 +157,10 @@ def cmd_status(db_path):
 def cmd_pending(db_path):
     conn = connect(db_path)
     applied = applied_versions(conn)
+    migrations = discover()
+    validate_history(applied, migrations)
     conn.close()
-    pending = [(n, d, p) for n, d, p in discover() if n not in applied]
+    pending = [(n, d, p) for n, d, p in migrations if n not in applied]
     if not pending:
         print("no pending migrations")
     for n, d, p in pending:
@@ -151,9 +179,7 @@ def cmd_apply(db_path):
     conn = connect(db_path, enforce_fk=False)
     applied = applied_versions(conn)
     migrations = discover()
-    for n in sorted(applied):
-        if n not in {m[0] for m in migrations}:
-            fail(f"database has migration {n:03d} applied but no such file exists")
+    validate_history(applied, migrations)
     pending = [(n, d, p) for n, d, p in migrations if n not in applied]
     if not pending:
         print("nothing to apply — database is up to date")
@@ -184,13 +210,27 @@ def cmd_apply(db_path):
     conn.close()
 
 
+def cmd_init(db_path):
+    """Create a new database file and build all schema through migrations."""
+    check_safe_name(db_path)
+    if os.path.exists(db_path):
+        fail(f"database already exists: {db_path} (init never overwrites)")
+    parent = os.path.dirname(os.path.abspath(db_path))
+    if not os.path.isdir(parent):
+        fail(f"parent directory not found: {parent}")
+    sqlite3.connect(db_path).close()  # file creation only; migrations own all DDL
+    cmd_apply(db_path)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Ledger migration runner")
-    ap.add_argument("command", choices=["status", "pending", "apply"])
+    ap.add_argument("command", choices=["init", "status", "pending", "apply"])
     ap.add_argument("db", help="path to the SQLite database (never finance.db)")
     args = ap.parse_args()
-    check_db_path(args.db)
-    {"status": cmd_status, "pending": cmd_pending, "apply": cmd_apply}[args.command](args.db)
+    if args.command != "init":
+        check_db_path(args.db)
+    {"init": cmd_init, "status": cmd_status, "pending": cmd_pending,
+     "apply": cmd_apply}[args.command](args.db)
 
 
 if __name__ == "__main__":
