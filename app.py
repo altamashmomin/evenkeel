@@ -13,8 +13,8 @@ from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
-from actions import (active_members, parse_iso_date, to_cents,
-                     validate_txn_payload, write_splits)
+from actions import (active_members, current_period, parse_iso_date,
+                     to_cents, validate_txn_payload, write_splits)
 from derivations import compute_balance as derive_balance, spending_summary
 from schema_runtime import connect_existing, require_current_schema
 
@@ -351,10 +351,6 @@ def bill_to_json(db, r, period):
     }
 
 
-def current_period():
-    return date.today().strftime("%Y-%m")
-
-
 @app.get("/api/bills")
 @login_required
 def list_bills():
@@ -431,62 +427,33 @@ def delete_bill(bill_id):
 @app.post("/api/bills/<int:bill_id>/pay")
 @login_required
 def pay_bill(bill_id):
-    """Mark a bill paid for a period and log it as a transaction."""
+    """Thin caller: the mark_bill_paid verb owns validation and the edit
+    (transaction + splits + bill_payments row + audit, one transaction)."""
     db = get_db()
-    bill = db.execute("SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
-    if bill is None:
-        return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
-    period = data.get("period") or current_period()
-    if len(period) != 7 or period[4] != "-":
-        return bad_request("period must be YYYY-MM")
-    if db.execute("SELECT id FROM bill_payments WHERE bill_id = ? AND period = ?",
-                  (bill_id, period)).fetchone():
-        return bad_request("already marked paid for this period")
-    paid_by = data.get("paid_by", session["user_id"])
-    if paid_by not in {u["id"] for u in get_users(db)}:
-        return bad_request("paid_by must be one of the two users")
-    is_shared = 1 if data.get("is_shared", True) else 0
     try:
-        pct = float(data.get("payer_share_pct", 50))
-    except (TypeError, ValueError):
-        return bad_request("payer_share_pct must be a number")
-    if not (0 <= pct <= 100):
-        return bad_request("payer_share_pct must be between 0 and 100")
-    today = date.today().isoformat()
-    cur = db.execute(
-        """INSERT INTO transactions
-           (txn_date, amount_cents, description, category, paid_by,
-            is_shared, source)
-           VALUES (?, ?, ?, ?, ?, ?, 'bill')""",
-        (today, bill["amount_cents"], f"{bill['name']} ({period})",
-         bill["category"], paid_by, is_shared),
-    )
-    write_splits(db, cur.lastrowid, paid_by, is_shared, pct)
-    db.execute(
-        "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) VALUES (?, ?, ?, ?)",
-        (bill_id, period, today, cur.lastrowid),
-    )
-    db.commit()
+        bill, period = actions.mark_bill_paid(
+            db, actor=ui_actor(db), bill_id=bill_id, data=data,
+            default_paid_by=session["user_id"])
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(bill_to_json(db, bill, period)), 201
 
 
 @app.delete("/api/bills/<int:bill_id>/pay")
 @login_required
 def unpay_bill(bill_id):
-    """Undo a payment for a period; removes the linked transaction too."""
+    """Thin caller: the unmark_bill_paid verb removes the payment, its
+    transaction, splits, links, and writes the audit row atomically."""
     db = get_db()
     period = request.args.get("period") or current_period()
-    payment = db.execute(
-        "SELECT * FROM bill_payments WHERE bill_id = ? AND period = ?", (bill_id, period)
-    ).fetchone()
-    if payment is None:
-        return jsonify({"error": "no payment for this period"}), 404
-    if payment["txn_id"]:
-        db.execute("DELETE FROM splits WHERE transaction_id = ?", (payment["txn_id"],))
-        db.execute("DELETE FROM transactions WHERE id = ?", (payment["txn_id"],))
-    db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
-    db.commit()
+    try:
+        actions.unmark_bill_paid(db, actor=ui_actor(db), bill_id=bill_id,
+                                 period=period)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
 
 

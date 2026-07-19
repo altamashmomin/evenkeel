@@ -11,9 +11,9 @@ themselves at the end of the edit; on any exception nothing commits, so a
 partial settlement (row without links, edit without audit) cannot exist.
 
 Extraction proceeds one route per session (CORE-DESIGN sequence step 5).
-Extracted so far: settle_up. The write-side helpers below moved here from
-app.py so the verbs own them; app.py imports them for the routes that are
-still awaiting extraction.
+Extracted so far: settle_up, mark_bill_paid, unmark_bill_paid. The
+write-side helpers below moved here from app.py so the verbs own them;
+app.py imports them for the routes that are still awaiting extraction.
 """
 import json
 from datetime import date, datetime, timezone
@@ -24,8 +24,17 @@ class ActionError(ValueError):
     """Validation or submission-criteria failure; message is caller-safe."""
 
 
+class NotFound(Exception):
+    """Target row does not exist; routes map this to HTTP 404.
+    Message is caller-safe and frozen (deployed API surface)."""
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def current_period():
+    return date.today().strftime("%Y-%m")
 
 
 def to_cents(value):
@@ -166,3 +175,92 @@ def settle_up(db, actor, data):
     db.commit()
     return db.execute(
         "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+
+
+def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
+    """Mark a bill paid for a period and record it as a transaction.
+
+    validate — active bill exists (NotFound otherwise), period shape,
+    no duplicate payment for the period, payer is an active member,
+    share fields well-formed. Messages and check order are the deployed
+    route's, frozen.
+    edit — one transaction: the bill's transaction row (source 'bill',
+    dated today, amount and category from the bill), its split rows, the
+    bill_payments row, and the audit row.
+    side effects — none yet.
+    Returns (bill_row, period) for the route's bill_to_json response.
+    """
+    bill = db.execute(
+        "SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
+    if bill is None:
+        raise NotFound("not found")
+    period = data.get("period") or current_period()
+    if len(period) != 7 or period[4] != "-":
+        raise ActionError("period must be YYYY-MM")
+    if db.execute("SELECT id FROM bill_payments WHERE bill_id = ? AND period = ?",
+                  (bill_id, period)).fetchone():
+        raise ActionError("already marked paid for this period")
+    paid_by = data.get("paid_by", default_paid_by)
+    if paid_by not in {m["id"] for m in active_members(db)}:
+        raise ActionError("paid_by must be one of the two users")
+    is_shared = 1 if data.get("is_shared", True) else 0
+    try:
+        pct = float(data.get("payer_share_pct", 50))
+    except (TypeError, ValueError):
+        raise ActionError("payer_share_pct must be a number")
+    if not (0 <= pct <= 100):
+        raise ActionError("payer_share_pct must be between 0 and 100")
+
+    today = date.today().isoformat()
+    cur = db.execute(
+        """INSERT INTO transactions
+           (txn_date, amount_cents, description, category, paid_by,
+            is_shared, source)
+           VALUES (?, ?, ?, ?, ?, ?, 'bill')""",
+        (today, bill["amount_cents"], f"{bill['name']} ({period})",
+         bill["category"], paid_by, is_shared))
+    txn_id = cur.lastrowid
+    write_splits(db, txn_id, paid_by, is_shared, pct)
+    db.execute(
+        "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) "
+        "VALUES (?, ?, ?, ?)",
+        (bill_id, period, today, txn_id))
+    db.execute(
+        "INSERT INTO audit_log (at, actor, action, target, detail_json) "
+        "VALUES (?, ?, 'mark_bill_paid', ?, ?)",
+        (_now(), actor, f"bill:{bill_id}",
+         json.dumps({"period": period, "transaction": txn_id,
+                     "amount_cents": bill["amount_cents"], "paid_by": paid_by},
+                    sort_keys=True)))
+    db.commit()
+    return bill, period
+
+
+def unmark_bill_paid(db, actor, bill_id, period):
+    """Undo a bill payment for a period.
+
+    validate — a payment for (bill, period) exists (NotFound otherwise).
+    edit — one transaction: remove any links referencing the payment's
+    transaction (invariant 5: links are metadata and revert with it),
+    its split rows, the transaction itself, the bill_payments row, and
+    the audit row.
+    side effects — none yet.
+    """
+    payment = db.execute(
+        "SELECT * FROM bill_payments WHERE bill_id = ? AND period = ?",
+        (bill_id, period)).fetchone()
+    if payment is None:
+        raise NotFound("no payment for this period")
+    txn_id = payment["txn_id"]
+    if txn_id:
+        db.execute("DELETE FROM links WHERE from_id = ? OR to_id = ?",
+                   (txn_id, txn_id))
+        db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
+        db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+    db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
+    db.execute(
+        "INSERT INTO audit_log (at, actor, action, target, detail_json) "
+        "VALUES (?, ?, 'unmark_bill_paid', ?, ?)",
+        (_now(), actor, f"bill:{bill_id}",
+         json.dumps({"period": period, "transaction": txn_id}, sort_keys=True)))
+    db.commit()

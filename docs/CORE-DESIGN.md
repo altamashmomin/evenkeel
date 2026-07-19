@@ -217,6 +217,7 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `set_splits` | UI | shared rows only; shares sum to 10000 | Replaces direct split edits |
 | `settle_up` | UI only | **requires active members ≥ 2** | Writes the settlement and `settles` links to covered rows |
 | `mark_bill_paid` | UI | — | Creates the transaction and its `bill_payments` row in one edit |
+| `unmark_bill_paid` | UI | — | Removes the payment, its transaction, splits, and any links to it |
 | `classify_inflow` | UI, MCP direct | row must be `direction='in'` | Lands with the income build |
 | `create_income_rule` | UI, MCP two-phase | conflict check against existing rules | Two-phase via `pending_actions` when the caller is an agent |
 | `set_rule_enabled` | UI, MCP direct | — | No delete; disabled rules keep history |
