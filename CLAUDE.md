@@ -94,9 +94,14 @@ Verb extraction underway (one route per session):
   verb writes row + splits + `settles` links + audit atomically. Gated
   (one empty table, zero number change); suite at 22 tests.
 
-Next: `mark_bill_paid` extraction (CORE-DESIGN step 5 order: bills,
-goals, transaction edits, then `record_transaction` last). Merging to
-`main` still waits for the Pi deploy and the `v1.0` tag.
+- `mark_bill_paid` + `unmark_bill_paid` extracted (July 19, 2026): bill
+  pay/unpay routes are thin callers; unmark reverts links too. Bugfix
+  alongside: deleting a settlement-covered transaction cleans up its
+  links. Zero-diff gate; suite at 28 tests.
+
+Next: goal verbs (`contribute_to_goal`, create/delete), then transaction
+edits, then `record_transaction` last. Merging to `main` still waits for
+the Pi deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
