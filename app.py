@@ -486,50 +486,35 @@ def list_goals():
 @app.post("/api/goals")
 @login_required
 def create_goal():
+    """Thin caller: the create_goal verb owns validation and the edit."""
     db = get_db()
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return bad_request("name is required")
     try:
-        cents = to_cents(data.get("target"))
-    except ValueError:
-        return bad_request("invalid target amount")
-    if cents <= 0:
-        return bad_request("target must be positive")
-    target_date = None
-    if data.get("target_date"):
-        try:
-            target_date = parse_iso_date(data["target_date"], "target date")
-        except ValueError as e:
-            return bad_request(str(e))
-    cur = db.execute(
-        "INSERT INTO goals (name, target_cents, target_date) VALUES (?, ?, ?)",
-        (name[:100], cents, target_date),
-    )
-    db.commit()
-    row = db.execute("SELECT * FROM goals WHERE id = ?", (cur.lastrowid,)).fetchone()
+        row = actions.create_goal(db, actor=ui_actor(db), data=data)
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(goal_to_json(db, row)), 201
 
 
 @app.delete("/api/goals/<int:goal_id>")
 @login_required
 def delete_goal(goal_id):
+    """Thin caller: the delete_goal verb audits the goal summary before
+    the contribution cascade erases the history."""
     db = get_db()
-    cur = db.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
-    db.commit()
-    if cur.rowcount == 0:
-        return jsonify({"error": "not found"}), 404
+    try:
+        actions.delete_goal(db, actor=ui_actor(db), goal_id=goal_id)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
 
 
 @app.post("/api/goals/<int:goal_id>/contribute")
 @login_required
 def contribute(goal_id):
+    """Thin dispatcher: sign picks the verb (correction-pass disposition —
+    intent lives in the verb name; the row stores the signed amount)."""
     db = get_db()
-    goal = db.execute("SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
-    if goal is None:
-        return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     try:
         cents = to_cents(data.get("amount"))
@@ -537,13 +522,14 @@ def contribute(goal_id):
         return bad_request("invalid amount")
     if cents == 0:
         return bad_request("amount cannot be zero")
-    note = (data.get("note") or "").strip()[:200] or None
-    db.execute(
-        """INSERT INTO goal_contributions (goal_id, user_id, amount_cents, c_date, note)
-           VALUES (?, ?, ?, ?, ?)""",
-        (goal_id, session["user_id"], cents, date.today().isoformat(), note),
-    )
-    db.commit()
+    verb = actions.contribute_to_goal if cents > 0 else actions.withdraw_from_goal
+    try:
+        goal = verb(db, ui_actor(db), goal_id, session["user_id"],
+                    abs(cents), data.get("note"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(goal_to_json(db, goal)), 201
 
 

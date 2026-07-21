@@ -11,7 +11,8 @@ themselves at the end of the edit; on any exception nothing commits, so a
 partial settlement (row without links, edit without audit) cannot exist.
 
 Extraction proceeds one route per session (CORE-DESIGN sequence step 5).
-Extracted so far: settle_up, mark_bill_paid, unmark_bill_paid. The
+Extracted so far: settle_up, mark_bill_paid, unmark_bill_paid,
+create_goal, delete_goal, contribute_to_goal, withdraw_from_goal. The
 write-side helpers below moved here from app.py so the verbs own them;
 app.py imports them for the routes that are still awaiting extraction.
 """
@@ -346,3 +347,101 @@ def unmark_bill_paid(db, actor, bill_id, period):
             db, actor, "unmark_bill_paid", f"bill:{bill_id}",
             {"period": period, "bill": dict(bill) if bill else None,
              "payment": dict(payment), "deleted": deleted})
+
+
+def create_goal(db, actor, data):
+    """Create a savings goal.
+
+    validate — name required, target parses to positive cents, optional
+    target date is ISO. Messages are the deployed route's, frozen (the
+    route translated to_cents's error into 'invalid target amount';
+    so does the verb).
+    edit — one transaction: the goal row and the audit row carrying the
+    created shape.
+    side effects — none yet.
+    Returns the goal row.
+    """
+    with action_transaction(db):
+        name = (data.get("name") or "").strip()
+        if not name:
+            raise ActionError("name is required")
+        try:
+            target_cents = to_cents(data.get("target"))
+        except ValueError:
+            raise ActionError("invalid target amount")
+        if target_cents <= 0:
+            raise ActionError("target must be positive")
+        target_date = None
+        if data.get("target_date"):
+            target_date = parse_iso_date(data["target_date"], "target date")
+        cur = db.execute(
+            "INSERT INTO goals (name, target_cents, target_date) VALUES (?, ?, ?)",
+            (name[:100], target_cents, target_date))
+        goal = db.execute(
+            "SELECT * FROM goals WHERE id = ?", (cur.lastrowid,)).fetchone()
+        _write_audit(db, actor, "create_goal", f"goal:{goal['id']}",
+                     {"goal": dict(goal)})
+    return goal
+
+
+def delete_goal(db, actor, goal_id):
+    """Hard-delete a goal (bounded transition; archive_goal arrives with
+    its own migration increment).
+
+    validate — the goal exists (NotFound otherwise).
+    edit — one transaction: capture the before-image (goal summary,
+    contribution count, saved total — the cascade erases the history, so
+    the audit row becomes its only witness), delete the goal (contributions
+    cascade), audit.
+    side effects — none yet.
+    """
+    with action_transaction(db):
+        goal = db.execute(
+            "SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
+        if goal is None:
+            raise NotFound("not found")
+        summary = db.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(amount_cents), 0) AS saved "
+            "FROM goal_contributions WHERE goal_id = ?", (goal_id,)).fetchone()
+        db.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
+        _write_audit(db, actor, "delete_goal", f"goal:{goal_id}",
+                     {"goal": dict(goal),
+                      "contribution_count": summary["n"],
+                      "saved_cents": summary["saved"]})
+
+
+def _record_goal_flow(db, actor, verb, goal_id, member_id, amount_cents, note):
+    """Shared body for contribute/withdraw: signed row, named intent."""
+    with action_transaction(db):
+        goal = db.execute(
+            "SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
+        if goal is None:
+            raise NotFound("not found")
+        if member_id not in {m["id"] for m in active_members(db)}:
+            raise ActionError("member must be an active member")
+        if not isinstance(amount_cents, int) or amount_cents <= 0:
+            raise ActionError("amount must be positive")
+        signed = amount_cents if verb == "contribute_to_goal" else -amount_cents
+        note = (note or "").strip()[:200] or None
+        cur = db.execute(
+            "INSERT INTO goal_contributions "
+            "(goal_id, user_id, amount_cents, c_date, note) VALUES (?, ?, ?, ?, ?)",
+            (goal_id, member_id, signed, date.today().isoformat(), note))
+        _write_audit(db, actor, verb, f"goal:{goal_id}",
+                     {"contribution": cur.lastrowid, "amount_cents": amount_cents,
+                      "member": member_id, "note": note})
+    return goal
+
+
+def contribute_to_goal(db, actor, goal_id, member_id, amount_cents, note=None):
+    """Add money toward a goal. amount_cents is a positive magnitude."""
+    return _record_goal_flow(
+        db, actor, "contribute_to_goal", goal_id, member_id, amount_cents, note)
+
+
+def withdraw_from_goal(db, actor, goal_id, member_id, amount_cents, note=None):
+    """Take money back out of a goal. amount_cents is a positive magnitude;
+    the stored row is negative, but the verb name — not the sign — is what
+    records intent (correction-pass disposition)."""
+    return _record_goal_flow(
+        db, actor, "withdraw_from_goal", goal_id, member_id, amount_cents, note)
