@@ -14,7 +14,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 from actions import (active_members, current_period, parse_iso_date,
-                     to_cents, validate_txn_payload, write_splits)
+                     to_cents, validate_txn_payload,
+                     write_legacy_two_member_splits)
 from derivations import compute_balance as derive_balance, spending_summary
 from schema_runtime import connect_existing, require_current_schema
 
@@ -268,7 +269,8 @@ def create_transaction():
     keys = ", ".join(cols)
     marks = ", ".join("?" for _ in cols)
     cur = db.execute(f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
-    write_splits(db, cur.lastrowid, cols["paid_by"], cols["is_shared"], pct)
+    write_legacy_two_member_splits(
+        db, cur.lastrowid, cols["paid_by"], cols["is_shared"], pct)
     db.commit()
     row = db.execute("SELECT * FROM transactions WHERE id = ?", (cur.lastrowid,)).fetchone()
     return jsonify(txn_to_json(db, row)), 201
@@ -297,7 +299,8 @@ def update_transaction(txn_id):
         sets = ", ".join(f"{k} = ?" for k in cols)
         db.execute(f"UPDATE transactions SET {sets} WHERE id = ?", [*cols.values(), txn_id])
     row = db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
-    write_splits(db, txn_id, row["paid_by"], row["is_shared"], pct)
+    write_legacy_two_member_splits(
+        db, txn_id, row["paid_by"], row["is_shared"], pct)
     db.commit()
     return jsonify(txn_to_json(db, row))
 

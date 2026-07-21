@@ -83,6 +83,37 @@ class BillVerbTests(unittest.TestCase):
             actions.mark_bill_paid(
                 self.db, "ui:avery", 9999, {"period": "2030-02"}, default_paid_by=1)
 
+    def test_shared_pay_requires_exactly_two_members_but_unshared_works(self):
+        self.db.execute("UPDATE members SET active = 0 WHERE id = 2")
+        self.db.commit()
+        with self.assertRaisesRegex(
+                actions.ActionError, "shared transactions require exactly two"):
+            self.pay()
+        self.assertFalse(self.db.in_transaction)
+        bill, period = self.pay({"is_shared": False})
+        self.assertEqual(self.period, period)
+        payment = self.db.execute(
+            "SELECT txn_id FROM bill_payments WHERE bill_id = ? AND period = ?",
+            (bill["id"], period)).fetchone()
+        self.assertEqual(0, self.count(
+            "SELECT COUNT(*) FROM splits WHERE transaction_id = ?", payment["txn_id"]))
+
+    def test_shared_pay_rejects_three_active_members(self):
+        self.db.execute(
+            "INSERT INTO members (username, display_name, password_hash, active, created_at) "
+            "VALUES ('casey', 'Casey', 'disabled', 1, '2026-07-19T00:00:00+00:00')")
+        self.db.commit()
+        with self.assertRaisesRegex(
+                actions.ActionError, "shared transactions require exactly two"):
+            self.pay()
+        self.assertFalse(self.db.in_transaction)
+
+    def test_share_percentage_requires_exact_basis_points(self):
+        with self.assertRaisesRegex(
+                ValueError, "payer_share_pct must use at most two decimal places"):
+            self.pay({"payer_share_pct": "33.335"})
+        self.assertFalse(self.db.in_transaction)
+
     def test_unpay_reverts_everything_including_links(self):
         self.pay()
         payment = self.db.execute(

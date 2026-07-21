@@ -136,11 +136,28 @@ class SettleUpTests(unittest.TestCase):
             0, self.count("SELECT COUNT(*) FROM transactions WHERE description = ?",
                           "Settlement — test"))
 
+    def test_submission_criterion_rejects_three_active_members(self):
+        self.db.execute(
+            "INSERT INTO members (username, display_name, password_hash, active, created_at) "
+            "VALUES ('casey', 'Casey', 'disabled', 1, '2026-07-19T00:00:00+00:00')")
+        self.db.commit()
+        before = self.count("SELECT COUNT(*) FROM transactions")
+        with self.assertRaisesRegex(
+                actions.ActionError, "settle up requires exactly two active members"):
+            actions.settle_up(self.db, "ui:avery", settle_body(10.00, 1))
+        self.assertFalse(self.db.in_transaction)
+        self.assertEqual(before, self.count("SELECT COUNT(*) FROM transactions"))
+
     def test_frozen_validation_messages(self):
         with self.assertRaisesRegex(ValueError, "paid_by must be one of the two users"):
             actions.settle_up(self.db, "ui:avery", settle_body(10.00, 99))
         with self.assertRaisesRegex(ValueError, "amount must be positive"):
             actions.settle_up(self.db, "ui:avery", settle_body(0, 1))
+        body = settle_body(10.00, 1)
+        body["payer_share_pct"] = "33.335"
+        with self.assertRaisesRegex(
+                ValueError, "payer_share_pct must use at most two decimal places"):
+            actions.settle_up(self.db, "ui:avery", body)
 
     def test_edit_is_atomic_audit_or_nothing(self):
         self.db.execute("DROP TABLE audit_log")

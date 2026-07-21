@@ -67,6 +67,22 @@ def to_cents(value):
     return int((d * 100).to_integral_value(rounding="ROUND_HALF_UP"))
 
 
+def parse_share_bp(value):
+    """Parse the legacy percentage API into exact integer basis points."""
+    try:
+        pct = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValueError("payer_share_pct must be a number")
+    if not pct.is_finite():
+        raise ValueError("payer_share_pct must be a number")
+    if not (Decimal(0) <= pct <= Decimal(100)):
+        raise ValueError("payer_share_pct must be between 0 and 100")
+    basis_points = pct * 100
+    if basis_points != basis_points.to_integral_value():
+        raise ValueError("payer_share_pct must use at most two decimal places")
+    return int(basis_points)
+
+
 def parse_iso_date(s, field="date"):
     try:
         return date.fromisoformat(s).isoformat()
@@ -85,8 +101,9 @@ def validate_txn_payload(db, data, partial=False):
     """Returns dict of column->value for insert/update. Raises ValueError.
 
     payer_share_pct is still the API's vocabulary but no longer a column —
-    callers pop it from the result and hand it to write_splits. Error
-    messages are frozen: they are part of the deployed API surface.
+    callers pop it from the result and hand it to the legacy two-member
+    split adapter. Error messages are frozen: they are part of the deployed
+    API surface.
     """
     out = {}
     if "date" in data or not partial:
@@ -112,36 +129,33 @@ def validate_txn_payload(db, data, partial=False):
     if "is_shared" in data or not partial:
         out["is_shared"] = 1 if data.get("is_shared", True) else 0
     if "payer_share_pct" in data or not partial:
-        try:
-            pct = float(data.get("payer_share_pct", 50))
-        except (TypeError, ValueError):
-            raise ValueError("payer_share_pct must be a number")
-        if not (0 <= pct <= 100):
-            raise ValueError("payer_share_pct must be between 0 and 100")
-        out["payer_share_pct"] = pct
+        out["payer_share_pct"] = parse_share_bp(
+            data.get("payer_share_pct", 50)) / 100
     return out
 
 
-def write_splits(db, txn_id, paid_by, is_shared, pct):
-    """Replace a transaction's split rows from a payer-share percentage.
-
-    The kernel of the future set_splits verb: unshared rows get no split
-    rows; shared rows get one row per member, basis points summing to
-    10000. Two-person closed form per the bounded transition (hardening
-    disposition 1); proper N-member gating arrives with set_splits.
-    """
-    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
+def write_legacy_two_member_splits(
+        db, txn_id, paid_by, is_shared, pct, members=None):
+    """Apply the deployed percentage API's explicitly two-member split."""
     if not is_shared:
+        db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
         return
-    payer_bp = round(pct * 100)
-    others = [m["id"] for m in active_members(db) if m["id"] != paid_by]
+    members = list(active_members(db) if members is None else members)
+    if len(members) != 2:
+        raise ActionError("shared transactions require exactly two active members")
+    member_ids = {m["id"] for m in members}
+    if paid_by not in member_ids:
+        raise ActionError("paid_by must be one of the two users")
+    payer_bp = parse_share_bp(pct)
+    other_id = next(member_id for member_id in member_ids if member_id != paid_by)
+    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
     db.execute(
         "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
         (txn_id, paid_by, payer_bp),
     )
     db.execute(
         "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
-        (txn_id, others[0], 10000 - payer_bp),
+        (txn_id, other_id, 10000 - payer_bp),
     )
 
 
@@ -149,8 +163,8 @@ def settle_up(db, actor, data):
     """Record a settlement and link the shared rows it closes the books on.
 
     validate — the deployed payload validation, frozen messages; then the
-    submission criterion from the CORE-DESIGN verbs table: at least two
-    active members.
+    bounded-transition submission criterion from the CORE-DESIGN verbs
+    table: exactly two active members.
     edit — one transaction: the settlement row (source forced to
     'settlement'), its split rows, a 'settles' link to every shared
     transaction dated on or before the settlement and not already covered
@@ -164,8 +178,9 @@ def settle_up(db, actor, data):
     with action_transaction(db):
         cols = validate_txn_payload(db, data)
         pct = cols.pop("payer_share_pct", 50)
-        if len(active_members(db)) < 2:
-            raise ActionError("settle up requires at least two active members")
+        members = active_members(db)
+        if len(members) != 2:
+            raise ActionError("settle up requires exactly two active members")
 
         cols["source"] = "settlement"
         keys = ", ".join(cols)
@@ -173,7 +188,8 @@ def settle_up(db, actor, data):
         cur = db.execute(
             f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
         txn_id = cur.lastrowid
-        write_splits(db, txn_id, cols["paid_by"], cols["is_shared"], pct)
+        write_legacy_two_member_splits(
+            db, txn_id, cols["paid_by"], cols["is_shared"], pct, members)
 
         now = _now()
         covered = [r[0] for r in db.execute(
@@ -222,16 +238,14 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
         if db.execute("SELECT id FROM bill_payments WHERE bill_id = ? AND period = ?",
                       (bill_id, period)).fetchone():
             raise ActionError("already marked paid for this period")
+        members = active_members(db)
         paid_by = data.get("paid_by", default_paid_by)
-        if paid_by not in {m["id"] for m in active_members(db)}:
+        if paid_by not in {m["id"] for m in members}:
             raise ActionError("paid_by must be one of the two users")
         is_shared = 1 if data.get("is_shared", True) else 0
-        try:
-            pct = float(data.get("payer_share_pct", 50))
-        except (TypeError, ValueError):
-            raise ActionError("payer_share_pct must be a number")
-        if not (0 <= pct <= 100):
-            raise ActionError("payer_share_pct must be between 0 and 100")
+        pct = parse_share_bp(data.get("payer_share_pct", 50)) / 100
+        if is_shared and len(members) != 2:
+            raise ActionError("shared transactions require exactly two active members")
 
         today = date.today().isoformat()
         cur = db.execute(
@@ -242,7 +256,8 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
             (today, bill["amount_cents"], f"{bill['name']} ({period})",
              bill["category"], paid_by, is_shared))
         txn_id = cur.lastrowid
-        write_splits(db, txn_id, paid_by, is_shared, pct)
+        write_legacy_two_member_splits(
+            db, txn_id, paid_by, is_shared, pct, members)
         db.execute(
             "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) "
             "VALUES (?, ?, ?, ?)",
