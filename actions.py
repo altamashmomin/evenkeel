@@ -20,6 +20,8 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
+from derivations import compute_balance
+
 
 class ActionError(ValueError):
     """Validation or submission-criteria failure; message is caller-safe."""
@@ -164,7 +166,8 @@ def settle_up(db, actor, data):
 
     validate — the deployed payload validation, frozen messages; then the
     bounded-transition submission criterion from the CORE-DESIGN verbs
-    table: exactly two active members.
+    table: exactly two active members. Amount and payer are stale-state
+    assertions: the verb recomputes both from the ledger as of its date.
     edit — one transaction: the settlement row (source forced to
     'settlement'), its split rows, a 'settles' link to every shared
     transaction dated on or before the settlement and not already covered
@@ -177,19 +180,38 @@ def settle_up(db, actor, data):
     """
     with action_transaction(db):
         cols = validate_txn_payload(db, data)
-        pct = cols.pop("payer_share_pct", 50)
+        submitted_pct = cols.pop("payer_share_pct", 50)
         members = active_members(db)
         if len(members) != 2:
             raise ActionError("settle up requires exactly two active members")
+        if not cols["is_shared"]:
+            raise ActionError("settlement must be shared")
+        if parse_share_bp(submitted_pct) != 0:
+            raise ActionError("settlement payer share must be 0")
 
-        cols["source"] = "settlement"
+        balance = compute_balance(db, as_of=cols["txn_date"])
+        if balance["state"] != "owing":
+            raise ActionError("household is already settled as of this date")
+        if (cols["amount_cents"] != balance["amount_cents"] or
+                cols["paid_by"] != balance["ower"]["id"]):
+            raise ActionError("balance changed; refresh and try again")
+
+        cols.update({
+            "amount_cents": balance["amount_cents"],
+            "description": (f"Settlement — {balance['ower']['display_name']} → "
+                            f"{balance['owed']['display_name']}"),
+            "category": "Settlement",
+            "paid_by": balance["ower"]["id"],
+            "is_shared": 1,
+            "source": "settlement",
+        })
         keys = ", ".join(cols)
         marks = ", ".join("?" for _ in cols)
         cur = db.execute(
             f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
         txn_id = cur.lastrowid
         write_legacy_two_member_splits(
-            db, txn_id, cols["paid_by"], cols["is_shared"], pct, members)
+            db, txn_id, cols["paid_by"], cols["is_shared"], 0, members)
 
         now = _now()
         covered = [r[0] for r in db.execute(
@@ -209,6 +231,8 @@ def settle_up(db, actor, data):
             (now, actor, f"transaction:{txn_id}",
              json.dumps({"amount_cents": cols["amount_cents"],
                          "paid_by": cols["paid_by"],
+                         "owed": balance["owed"]["id"],
+                         "as_of": cols["txn_date"],
                          "covers": covered}, sort_keys=True)))
     return db.execute(
         "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()

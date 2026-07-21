@@ -14,6 +14,7 @@ SEED_AS_OF = "2026-07-19"
 sys.path.insert(0, str(REPO))
 
 import actions
+import derivations
 
 
 class BillVerbTests(unittest.TestCase):
@@ -121,10 +122,13 @@ class BillVerbTests(unittest.TestCase):
             (self.bill_id, self.period)).fetchone()
         txn_id = payment["txn_id"]
         # A settlement dated far future covers the bill txn with a link.
+        balance = derivations.compute_balance(self.db, as_of="2030-02-01")
+        self.assertEqual("owing", balance["state"])
         actions.settle_up(self.db, "ui:blake", {
-            "date": "2030-02-01", "amount": 5.00,
+            "date": "2030-02-01", "amount": balance["amount_cents"] / 100,
             "description": "Settlement — link test", "category": "Settlement",
-            "paid_by": 2, "is_shared": True, "payer_share_pct": 0,
+            "paid_by": balance["ower"]["id"],
+            "is_shared": True, "payer_share_pct": 0,
             "source": "settlement"})
         self.assertEqual(1, self.count(
             "SELECT COUNT(*) FROM links WHERE to_id = ?", txn_id))

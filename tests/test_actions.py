@@ -33,6 +33,15 @@ def settle_body(amount, paid_by, on=None):
     }
 
 
+def valid_settle_body(db, on=None):
+    as_of = (on or date.today()).isoformat()
+    balance = derivations.compute_balance(db, as_of=as_of)
+    if balance["state"] != "owing":
+        raise AssertionError(f"test fixture has no balance as of {as_of}")
+    return settle_body(
+        balance["amount_cents"] / 100, balance["ower"]["id"], on=on)
+
+
 class SettleUpTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-actions-test-")
@@ -58,15 +67,18 @@ class SettleUpTests(unittest.TestCase):
     def test_settlement_row_splits_links_and_audit_land_together(self):
         shared_before = self.count(
             "SELECT COUNT(DISTINCT transaction_id) FROM splits")
-        row = actions.settle_up(self.db, "ui:avery", settle_body(55.25, 1))
+        expected = derivations.compute_balance(self.db)
+        row = actions.settle_up(self.db, "ui:avery", valid_settle_body(self.db))
         self.assertEqual("settlement", row["source"])
-        self.assertEqual(5525, row["amount_cents"])
+        self.assertEqual(expected["amount_cents"], row["amount_cents"])
 
         splits = self.db.execute(
             "SELECT member_id, share_bp FROM splits WHERE transaction_id = ? "
             "ORDER BY member_id", (row["id"],)).fetchall()
-        self.assertEqual([(1, 0), (2, 10000)],
-                         [(s["member_id"], s["share_bp"]) for s in splits])
+        self.assertEqual(
+            sorted([(expected["ower"]["id"], 0),
+                    (expected["owed"]["id"], 10000)]),
+            [(s["member_id"], s["share_bp"]) for s in splits])
 
         links = self.db.execute(
             "SELECT to_id FROM links WHERE link_type = 'settles' AND from_id = ?",
@@ -82,13 +94,31 @@ class SettleUpTests(unittest.TestCase):
         detail = json.loads(audit[0]["detail_json"])
         self.assertEqual(shared_before, len(detail["covers"]))
 
-    def test_second_settlement_covers_only_the_first(self):
-        first = actions.settle_up(self.db, "ui:avery", settle_body(10.00, 1))
-        second = actions.settle_up(self.db, "ui:blake", settle_body(5.00, 2))
+    def test_second_settlement_covers_prior_settlement_and_new_rows(self):
+        first = actions.settle_up(self.db, "ui:avery", valid_settle_body(self.db))
+        cur = self.db.execute(
+            """INSERT INTO transactions (txn_date, amount_cents, description,
+                   category, paid_by, is_shared, source)
+               VALUES (?, 4000, 'New groceries', 'Groceries', 1, 1, 'manual')""",
+            (date.today().isoformat(),))
+        new_id = cur.lastrowid
+        self.db.executemany(
+            "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
+            [(new_id, 1, 5000), (new_id, 2, 5000)])
+        self.db.commit()
+        second = actions.settle_up(self.db, "ui:blake", valid_settle_body(self.db))
         covered = [l["to_id"] for l in self.db.execute(
             "SELECT to_id FROM links WHERE link_type = 'settles' AND from_id = ?",
             (second["id"],)).fetchall()]
-        self.assertEqual([first["id"]], covered)
+        self.assertEqual(sorted([first["id"], new_id]), sorted(covered))
+        self.assertEqual("settled", derivations.compute_balance(self.db)["state"])
+
+    def test_settlement_rejects_stale_client_balance(self):
+        body = valid_settle_body(self.db)
+        body["amount"] += 0.01
+        with self.assertRaisesRegex(actions.ActionError, "balance changed; refresh"):
+            actions.settle_up(self.db, "ui:avery", body)
+        self.assertFalse(self.db.in_transaction)
 
     def test_rows_dated_after_settlement_stay_uncovered(self):
         tomorrow = date.today() + timedelta(days=1)
@@ -104,14 +134,14 @@ class SettleUpTests(unittest.TestCase):
         self.db.commit()
 
         today_settlement = actions.settle_up(
-            self.db, "ui:avery", settle_body(10.00, 1))
+            self.db, "ui:avery", valid_settle_body(self.db))
         covered_today = [l["to_id"] for l in self.db.execute(
             "SELECT to_id FROM links WHERE link_type = 'settles' AND from_id = ?",
             (today_settlement["id"],)).fetchall()]
         self.assertNotIn(future_id, covered_today)
 
         later_settlement = actions.settle_up(
-            self.db, "ui:blake", settle_body(5.00, 2, on=tomorrow))
+            self.db, "ui:blake", valid_settle_body(self.db, on=tomorrow))
         covered_later = [l["to_id"] for l in self.db.execute(
             "SELECT to_id FROM links WHERE link_type = 'settles' AND from_id = ?",
             (later_settlement["id"],)).fetchall()]
@@ -121,22 +151,22 @@ class SettleUpTests(unittest.TestCase):
     def test_full_settlement_zeroes_the_balance(self):
         balance = derivations.compute_balance(self.db)
         self.assertEqual("owing", balance["state"])
-        row = actions.settle_up(
-            self.db, "ui:avery",
-            settle_body(balance["amount_cents"] / 100, balance["ower"]["id"]))
+        row = actions.settle_up(self.db, "ui:avery", valid_settle_body(self.db))
         self.assertIsNotNone(row)
         self.assertEqual("settled", derivations.compute_balance(self.db)["state"])
 
     def test_submission_criterion_requires_two_active_members(self):
+        body = settle_body(10.00, 1)
         self.db.execute("UPDATE members SET active = 0 WHERE id = 2")
         self.db.commit()
         with self.assertRaises(actions.ActionError):
-            actions.settle_up(self.db, "ui:avery", settle_body(10.00, 1))
+            actions.settle_up(self.db, "ui:avery", body)
         self.assertEqual(
             0, self.count("SELECT COUNT(*) FROM transactions WHERE description = ?",
                           "Settlement — test"))
 
     def test_submission_criterion_rejects_three_active_members(self):
+        body = valid_settle_body(self.db)
         self.db.execute(
             "INSERT INTO members (username, display_name, password_hash, active, created_at) "
             "VALUES ('casey', 'Casey', 'disabled', 1, '2026-07-19T00:00:00+00:00')")
@@ -144,7 +174,7 @@ class SettleUpTests(unittest.TestCase):
         before = self.count("SELECT COUNT(*) FROM transactions")
         with self.assertRaisesRegex(
                 actions.ActionError, "settle up requires exactly two active members"):
-            actions.settle_up(self.db, "ui:avery", settle_body(10.00, 1))
+            actions.settle_up(self.db, "ui:avery", body)
         self.assertFalse(self.db.in_transaction)
         self.assertEqual(before, self.count("SELECT COUNT(*) FROM transactions"))
 
@@ -160,12 +190,13 @@ class SettleUpTests(unittest.TestCase):
             actions.settle_up(self.db, "ui:avery", body)
 
     def test_edit_is_atomic_audit_or_nothing(self):
+        body = valid_settle_body(self.db)
         self.db.execute("DROP TABLE audit_log")
         self.db.commit()
         txns_before = self.count("SELECT COUNT(*) FROM transactions")
         links_before = self.count("SELECT COUNT(*) FROM links")
         with self.assertRaises(sqlite3.OperationalError):
-            actions.settle_up(self.db, "ui:avery", settle_body(10.00, 1))
+            actions.settle_up(self.db, "ui:avery", body)
         self.assertFalse(self.db.in_transaction)
         self.assertEqual(txns_before, self.count("SELECT COUNT(*) FROM transactions"))
         self.assertEqual(links_before, self.count("SELECT COUNT(*) FROM links"))

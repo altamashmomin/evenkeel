@@ -15,39 +15,42 @@ SEED_AS_OF = "2026-07-19"
 
 
 class SettleRouteTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.TemporaryDirectory(prefix="ledger-route-test-")
-        cls.db_path = Path(cls.tmp.name) / "route.db"
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="ledger-route-test-")
+        self.db_path = Path(self.tmp.name) / "route.db"
         subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(cls.db_path),
+            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
              "--seed", "7", "--months", "2", "--as-of", SEED_AS_OF],
             check=True, capture_output=True, text=True)
         subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(cls.db_path)],
+            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
             check=True, capture_output=True, text=True)
-        os.environ["DATABASE_PATH"] = str(cls.db_path)
+        os.environ["DATABASE_PATH"] = str(self.db_path)
         os.environ.setdefault("SECRET_KEY", "route-test-secret")
         spec = importlib.util.spec_from_file_location("app_route_test", REPO / "app.py")
-        cls.app_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.app_module)
-        cls.app_module.app.config["TESTING"] = True
+        self.app_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.app_module)
+        self.app_module.app.config["TESTING"] = True
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.tmp.cleanup()
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def settlement_payload(self, client):
+        balance = client.get("/api/balance").get_json()
+        self.assertFalse(balance["settled"])
+        return {
+            "date": date.today().isoformat(), "amount": balance["amount"],
+            "description": "legacy client settlement", "category": "Settlement",
+            "paid_by": balance["owes"]["id"], "is_shared": True,
+            "payer_share_pct": 0, "source": "settlement",
+        }
 
     def test_settlement_post_returns_v1_shape_and_writes_links_audit(self):
         client = self.app_module.app.test_client()
         with client.session_transaction() as session:
             session["user_id"] = 1
-        response = client.post("/api/transactions", json={
-            "date": date.today().isoformat(), "amount": 12.34,
-            "description": "Settlement — Avery → Blake",
-            "category": "Settlement", "paid_by": 1,
-            "is_shared": True, "payer_share_pct": 0,
-            "source": "settlement",
-        })
+        response = client.post(
+            "/api/transactions", json=self.settlement_payload(client))
         self.assertEqual(201, response.status_code)
         body = response.get_json()
         self.assertEqual(
@@ -73,12 +76,8 @@ class SettleRouteTests(unittest.TestCase):
         client = self.app_module.app.test_client()
         with client.session_transaction() as session:
             session["user_id"] = 1
-        settled = client.post("/api/transactions", json={
-            "date": date.today().isoformat(), "amount": 1.00,
-            "description": "Settlement — link cleanup", "category": "Settlement",
-            "paid_by": 1, "is_shared": True, "payer_share_pct": 0,
-            "source": "settlement",
-        }).get_json()
+        settled = client.post(
+            "/api/transactions", json=self.settlement_payload(client)).get_json()
         conn = sqlite3.connect(self.db_path)
         try:
             covered_id = conn.execute(
