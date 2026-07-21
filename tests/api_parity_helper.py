@@ -33,7 +33,8 @@ def main():
     with client.session_transaction() as session:
         session["user_id"] = 1
 
-    endpoints = ["/api/balance", "/api/me", "/api/goals"]
+    endpoints = ["/api/balance", "/api/me", "/api/goals", "/api/status",
+                 "/api/categories"]
     for month in months:
         endpoints.append(f"/api/bills?period={month}")
         endpoints.append(f"/api/dashboard?month={month}")
@@ -43,6 +44,16 @@ def main():
     for endpoint in endpoints:
         result = client.get(endpoint)
         responses[endpoint] = {
+            "status": result.status_code,
+            "body": result.get_data(as_text=True),
+        }
+
+    # Unauthenticated parity: the 401 refusal body and the sessionless
+    # /api/status shape are deployed API surface too.
+    anonymous = module.app.test_client()
+    for endpoint in ("/api/status", "/api/transactions", "/api/balance"):
+        result = anonymous.get(endpoint)
+        responses[f"unauth:{endpoint}"] = {
             "status": result.status_code,
             "body": result.get_data(as_text=True),
         }

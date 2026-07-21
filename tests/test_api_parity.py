@@ -1,6 +1,10 @@
 """Byte-identical API parity: v1 code on a v1 database vs current code on
 the migrated copy of that same database. The frontend must not be able to
-tell the schema moved (CLAUDE.md, migration #002 acceptance criterion)."""
+tell the schema moved (CLAUDE.md, migration #002 acceptance criterion).
+
+Scope, stated precisely: status codes and response bodies for read
+endpoints, authenticated and unauthenticated. Headers and mutation
+behavior are outside this test's claim."""
 import json
 import os
 import shutil
@@ -13,6 +17,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 HELPER = Path(__file__).resolve().parent / "api_parity_helper.py"
 SEED_AS_OF = "2026-07-19"
+# The immutable deployed-baseline commit. main currently points here too,
+# but main will advance once increments merge; the baseline must not.
+# Replace with the v1.0 tag when the Pi deploy cuts it.
+V1_BASELINE_REF = "41c2040"
 
 
 def collect(code_dir, db_path):
@@ -33,7 +41,7 @@ class ApiParityTests(unittest.TestCase):
         legacy_code.mkdir()
         with (legacy_code / "app.py").open("w") as app_file:
             subprocess.run(
-                ["git", "-C", str(REPO), "show", "main:app.py"],
+                ["git", "-C", str(REPO), "show", f"{V1_BASELINE_REF}:app.py"],
                 check=True, stdout=app_file, text=True)
 
         old_db = tmp_path / "old.db"
@@ -57,9 +65,14 @@ class ApiParityTests(unittest.TestCase):
     def test_covers_every_month_and_core_endpoint(self):
         dashboards = [e for e in self.old_responses if e.startswith("/api/dashboard")]
         self.assertGreaterEqual(len(dashboards), 8)
-        self.assertIn("/api/balance", self.old_responses)
-        for response in self.old_responses.values():
-            self.assertEqual(200, response["status"])
+        for required in ("/api/balance", "/api/status", "/api/categories",
+                         "unauth:/api/status", "unauth:/api/transactions"):
+            self.assertIn(required, self.old_responses)
+        for endpoint, response in self.old_responses.items():
+            if endpoint in ("unauth:/api/transactions", "unauth:/api/balance"):
+                self.assertEqual(401, response["status"], endpoint)
+            else:
+                self.assertEqual(200, response["status"], endpoint)
 
     def test_every_response_is_byte_identical(self):
         self.assertEqual(
