@@ -87,6 +87,17 @@ class MigrationTests(unittest.TestCase):
         self.assertIn("refusing to touch finance.db", result.stderr)
         self.assertFalse((self.tmp_path / "finance.db").exists())
 
+    def test_live_flag_lifts_the_name_guard_purely(self):
+        # Pure function check, no subprocess and no filesystem: live=True
+        # lifts the basename tripwire, live=False keeps it. The guard is a
+        # human-error tripwire, not a security boundary — symlinks and
+        # aliases mean it cannot prove which physical file is live.
+        target = str(self.tmp_path / "finance.db")
+        self.assertIsNone(migrate.check_safe_name(target, live=True))
+        with self.assertRaises(SystemExit):
+            migrate.check_safe_name(target, live=False)
+        self.assertFalse((self.tmp_path / "finance.db").exists())
+
     def test_discovery_rejects_numbering_gaps(self):
         migrations_dir = self.tmp_path / "migrations"
         migrations_dir.mkdir()
