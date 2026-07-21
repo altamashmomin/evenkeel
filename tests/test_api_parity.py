@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 HELPER = Path(__file__).resolve().parent / "api_parity_helper.py"
+SEED_AS_OF = "2026-07-19"
 
 
 def collect(code_dir, db_path):
@@ -38,7 +39,7 @@ class ApiParityTests(unittest.TestCase):
         old_db = tmp_path / "old.db"
         subprocess.run(
             [sys.executable, str(REPO / "seed_db.py"), str(old_db),
-             "--seed", "42", "--months", "8"],
+             "--seed", "42", "--months", "8", "--as-of", SEED_AS_OF],
             check=True, capture_output=True, text=True)
         new_db = tmp_path / "new.db"
         shutil.copy2(old_db, new_db)

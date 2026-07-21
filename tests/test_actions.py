@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+SEED_AS_OF = "2026-07-19"
 sys.path.insert(0, str(REPO))
 
 import actions
@@ -38,7 +39,7 @@ class SettleUpTests(unittest.TestCase):
         self.db_path = Path(self.tmp.name) / "test.db"
         subprocess.run(
             [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "42", "--months", "3"],
+             "--seed", "42", "--months", "3", "--as-of", SEED_AS_OF],
             check=True, capture_output=True, text=True)
         subprocess.run(
             [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],

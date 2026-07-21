@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+SEED_AS_OF = "2026-07-19"
 
 
 class SettleRouteTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class SettleRouteTests(unittest.TestCase):
         cls.db_path = Path(cls.tmp.name) / "route.db"
         subprocess.run(
             [sys.executable, str(REPO / "seed_db.py"), str(cls.db_path),
-             "--seed", "7", "--months", "2"],
+             "--seed", "7", "--months", "2", "--as-of", SEED_AS_OF],
             check=True, capture_output=True, text=True)
         subprocess.run(
             [sys.executable, str(REPO / "migrate.py"), "apply", str(cls.db_path)],

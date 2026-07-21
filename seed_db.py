@@ -116,8 +116,8 @@ def fake_password_hash(rng):
     return f"scrypt:32768:8:1${salt}${fake}"
 
 
-def month_starts(months_back):
-    first_of_this = date.today().replace(day=1)
+def month_starts(months_back, as_of):
+    first_of_this = as_of.replace(day=1)
     starts = []
     y, m = first_of_this.year, first_of_this.month
     for _ in range(months_back):
@@ -128,7 +128,7 @@ def month_starts(months_back):
     return sorted(starts)
 
 
-def seed(conn, rng, months_back):
+def seed(conn, rng, months_back, as_of):
     for username, display in MEMBERS:
         conn.execute(
             "INSERT INTO users (username, display_name, password_hash) VALUES (?, ?, ?)",
@@ -143,7 +143,7 @@ def seed(conn, rng, months_back):
         bill_ids[name] = cur.lastrowid
 
     n_txn = 0
-    for start in month_starts(months_back):
+    for start in month_starts(months_back, as_of):
         period = start.strftime("%Y-%m")
         days_in_month = ((start.replace(day=28) + timedelta(days=4)).replace(day=1)
                          - timedelta(days=1)).day
@@ -153,7 +153,7 @@ def seed(conn, rng, months_back):
             if rng.random() < 0.05 and name != "Rent":
                 continue
             paid_on = start.replace(day=min(due_day + rng.randint(0, 3), days_in_month))
-            if paid_on > date.today():
+            if paid_on > as_of:
                 continue
             payer = rng.choice(user_ids)
             cur = conn.execute(
@@ -172,7 +172,7 @@ def seed(conn, rng, months_back):
             category = rng.choice(list(MERCHANTS))
             merchant, lo, hi = rng.choice(MERCHANTS[category])
             txn_day = start.replace(day=rng.randint(1, days_in_month))
-            if txn_day > date.today():
+            if txn_day > as_of:
                 continue
             cents = rng.randint(lo, hi)
             payer = rng.choice(user_ids)
@@ -194,7 +194,7 @@ def seed(conn, rng, months_back):
         # the other person (see static/app.js, the settle dialog).
         if rng.random() < 0.4:
             settle_day = start.replace(day=min(27, days_in_month))
-            if settle_day <= date.today():
+            if settle_day <= as_of:
                 ower = rng.choice(user_ids)
                 conn.execute(
                     """INSERT INTO transactions (txn_date, amount_cents, description,
@@ -209,10 +209,10 @@ def seed(conn, rng, months_back):
             "INSERT INTO goals (name, target_cents, target_date) VALUES (?, ?, NULL)",
             (name, target))
         goal_id = cur.lastrowid
-        for start in month_starts(months_back):
+        for start in month_starts(months_back, as_of):
             if rng.random() < 0.7:
                 c_day = start.replace(day=min(5, 28))
-                if c_day > date.today():
+                if c_day > as_of:
                     continue
                 conn.execute(
                     """INSERT INTO goal_contributions
@@ -228,6 +228,9 @@ def main():
     ap.add_argument("path")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--months", type=int, default=8)
+    ap.add_argument(
+        "--as-of", type=date.fromisoformat, default=date.today(), metavar="YYYY-MM-DD",
+        help="effective date for the fixture (tests must pass this explicitly)")
     args = ap.parse_args()
 
     if os.path.basename(args.path) == "finance.db":
@@ -241,10 +244,11 @@ def main():
     conn.execute("PRAGMA foreign_keys = ON")
     rng = random.Random(args.seed)
     with conn:
-        n = seed(conn, rng, args.months)
+        n = seed(conn, rng, args.months, args.as_of)
     conn.close()
     print(f"seeded {args.path}: {len(MEMBERS)} users, {n} transactions, "
-          f"{len(BILLS)} bills, 2 goals (seed={args.seed}, months={args.months})")
+          f"{len(BILLS)} bills, 2 goals (seed={args.seed}, months={args.months}, "
+          f"as_of={args.as_of.isoformat()})")
 
 
 if __name__ == "__main__":

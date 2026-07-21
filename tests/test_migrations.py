@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
+SEED_AS_OF = "2026-07-19"
 sys.path.insert(0, str(REPO))
 
 import migrate
@@ -111,7 +112,8 @@ class MigrationTests(unittest.TestCase):
     def test_app_rejects_unmigrated_db_without_mutating_it(self):
         db_path = self.tmp_path / "unmigrated.db"
         subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(db_path), "--months", "1"],
+            [sys.executable, str(REPO / "seed_db.py"), str(db_path), "--months", "1",
+             "--as-of", SEED_AS_OF],
             check=True, capture_output=True, text=True)
         before = db_path.read_bytes()
         env = os.environ.copy()
