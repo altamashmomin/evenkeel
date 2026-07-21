@@ -99,9 +99,31 @@ Verb extraction underway (one route per session):
   alongside: deleting a settlement-covered transaction cleans up its
   links. Zero-diff gate; suite at 28 tests.
 
-Next: goal verbs (`contribute_to_goal`, create/delete), then transaction
-edits, then `record_transaction` last. Merging to `main` still waits for
-the Pi deploy and the `v1.0` tag.
+Correction pass (July 20, 2026) — Codex's nine-point review of the verb
+extractions, implemented jointly (Codex commits ddf5f24..fe3d733, Claude
+finished the baseline pin, auth parity, and --live proof):
+- Synthetic clock explicit: `seed_db.py --as-of`; fixtures are pure
+  functions of (seed, months, as_of); tests freeze 2026-07-19.
+- Verbs own their transaction boundary (`action_transaction`: BEGIN
+  IMMEDIATE, rollback on any failure, refuse pre-open transactions).
+- Legacy split adapter honestly two-member-only with cardinality
+  submission criteria; percentages parsed as exact basis points.
+- `settle_up` is a command: server derives amount/ower/description from
+  `compute_balance(as_of=...)`; caller values are stale-state assertions
+  (curl-level arbitrary settlements now rejected — deliberate).
+- Deletion centralized (`delete_transaction_graph`) with before-image
+  audit details; settlement-history edit policy recorded in CORE-DESIGN
+  for the coming `edit_transaction` extraction.
+- Parity pinned to immutable baseline 41c2040 (→ `v1.0` tag later) and
+  covers status/categories/unauthenticated surface. Suite at 35 tests;
+  zero-diff gate dbd5cd4→HEAD.
+
+Next: goal verbs — registry per review: `create_goal`, `delete_goal`,
+`contribute_to_goal`, `withdraw_from_goal` (separate verbs; intent in
+the audit log), `archive_goal`/`restore_goal` deferred to their own
+migration increment. Then transaction edits (settlement-history policy
+above governs), then `record_transaction` last. Merging to `main` still
+waits for the Pi deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
