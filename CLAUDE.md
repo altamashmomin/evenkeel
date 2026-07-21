@@ -118,12 +118,21 @@ finished the baseline pin, auth parity, and --live proof):
   covers status/categories/unauthenticated surface. Suite at 35 tests;
   zero-diff gate dbd5cd4→HEAD.
 
-Next: goal verbs — registry per review: `create_goal`, `delete_goal`,
-`contribute_to_goal`, `withdraw_from_goal` (separate verbs; intent in
-the audit log), `archive_goal`/`restore_goal` deferred to their own
-migration increment. Then transaction edits (settlement-history policy
-above governs), then `record_transaction` last. Merging to `main` still
-waits for the Pi deploy and the `v1.0` tag.
+- Goal verbs extracted (July 20, 2026): `create_goal`, `delete_goal`,
+  `contribute_to_goal`, `withdraw_from_goal` — registry rows first, four
+  verbs under the corrected contract, `/contribute` dispatches on sign
+  (row stores the signed amount, the verb name records intent),
+  `delete_goal` audits goal summary + contribution count + saved total
+  before the cascade. `archive_goal`/`restore_goal` still deferred to
+  their own migration increment. Zero-diff gate f39f3ba→HEAD; suite at
+  43 tests.
+
+Next: transaction edits (`edit_transaction` / `delete_transaction`; the
+settlement-history edit policy in CORE-DESIGN governs — settlement rows
+uneditable, editing a covered row severs its `settles` links in-verb,
+audited; `set_splits` promoted only when a standalone caller exists),
+then `record_transaction` last. Merging to `main` still waits for the
+Pi deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
