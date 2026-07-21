@@ -236,6 +236,13 @@ docstring explains it. Same pattern Palantir uses to make an action
 invalid in a context; same pattern the two-phase agent writes already
 use. One mechanism, every gate.
 
+**Settlement-history edit policy.** A generic transaction edit may not
+rewrite a row whose `source='settlement'`; correction is delete and recreate.
+Editing a covered ordinary transaction removes its incoming `settles` links
+inside the edit verb and records those removals in the audit detail, reopening
+the row for the next settlement. Deleting any transaction removes every link
+that references it; deleting a settlement therefore reopens what it covered.
+
 ## Policies
 
 **Identity.** Every actor resolves to a member or to `sync`. Sessions

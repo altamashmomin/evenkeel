@@ -147,6 +147,11 @@ class BillVerbTests(unittest.TestCase):
         audit = self.db.execute(
             "SELECT * FROM audit_log WHERE action = 'unmark_bill_paid'").fetchone()
         self.assertEqual(f"bill:{self.bill_id}", audit["target"])
+        detail = json.loads(audit["detail_json"])
+        self.assertEqual(txn_id, detail["deleted"]["transaction"]["id"])
+        self.assertEqual(2, len(detail["deleted"]["splits"]))
+        self.assertTrue(detail["deleted"]["links"])
+        self.assertEqual(self.period, detail["payment"]["period"])
         with self.assertRaisesRegex(actions.NotFound, "no payment for this period"):
             actions.unmark_bill_paid(self.db, "ui:avery", self.bill_id, self.period)
 

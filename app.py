@@ -311,11 +311,9 @@ def delete_transaction(txn_id):
     db = get_db()
     # Links are metadata on the transaction: deleting the row deletes its
     # links (invariant 5), and leaving them would violate their FKs anyway.
-    db.execute("DELETE FROM links WHERE from_id = ? OR to_id = ?", (txn_id, txn_id))
-    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
-    cur = db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+    deleted = actions.delete_transaction_graph(db, txn_id)
     db.commit()
-    if cur.rowcount == 0:
+    if deleted is None:
         return jsonify({"error": "not found"}), 404
     return jsonify({"ok": True})
 

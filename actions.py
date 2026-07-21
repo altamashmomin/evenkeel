@@ -56,6 +56,16 @@ def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _write_audit(db, actor, action, target, detail, at=None):
+    """Write one consistently timestamped, canonical JSON audit row."""
+    at = at or _now()
+    db.execute(
+        "INSERT INTO audit_log (at, actor, action, target, detail_json) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (at, actor, action, target, json.dumps(detail, sort_keys=True)))
+    return at
+
+
 def current_period():
     return date.today().strftime("%Y-%m")
 
@@ -161,6 +171,29 @@ def write_legacy_two_member_splits(
     )
 
 
+def delete_transaction_graph(db, txn_id):
+    """Delete a transaction and its reversible metadata, without committing.
+
+    Returns a JSON-ready before-image for destructive audit records, or None
+    when the transaction does not exist. The eventual delete_transaction verb
+    will own policy; this helper only centralizes referential cleanup.
+    """
+    txn = db.execute(
+        "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+    if txn is None:
+        return None
+    splits = [dict(row) for row in db.execute(
+        "SELECT * FROM splits WHERE transaction_id = ? ORDER BY member_id",
+        (txn_id,)).fetchall()]
+    links = [dict(row) for row in db.execute(
+        "SELECT * FROM links WHERE from_id = ? OR to_id = ? ORDER BY id",
+        (txn_id, txn_id)).fetchall()]
+    db.execute("DELETE FROM links WHERE from_id = ? OR to_id = ?", (txn_id, txn_id))
+    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
+    db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+    return {"transaction": dict(txn), "splits": splits, "links": links}
+
+
 def settle_up(db, actor, data):
     """Record a settlement and link the shared rows it closes the books on.
 
@@ -225,15 +258,11 @@ def settle_up(db, actor, data):
             "INSERT INTO links (link_type, from_id, to_id, created_by, created_at) "
             "VALUES ('settles', ?, ?, ?, ?)",
             [(txn_id, covered_id, actor, now) for covered_id in covered])
-        db.execute(
-            "INSERT INTO audit_log (at, actor, action, target, detail_json) "
-            "VALUES (?, ?, 'settle_up', ?, ?)",
-            (now, actor, f"transaction:{txn_id}",
-             json.dumps({"amount_cents": cols["amount_cents"],
-                         "paid_by": cols["paid_by"],
-                         "owed": balance["owed"]["id"],
-                         "as_of": cols["txn_date"],
-                         "covers": covered}, sort_keys=True)))
+        _write_audit(
+            db, actor, "settle_up", f"transaction:{txn_id}",
+            {"amount_cents": cols["amount_cents"],
+             "paid_by": cols["paid_by"], "owed": balance["owed"]["id"],
+             "as_of": cols["txn_date"], "covers": covered}, at=now)
     return db.execute(
         "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
 
@@ -286,13 +315,10 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
             "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) "
             "VALUES (?, ?, ?, ?)",
             (bill_id, period, today, txn_id))
-        db.execute(
-            "INSERT INTO audit_log (at, actor, action, target, detail_json) "
-            "VALUES (?, ?, 'mark_bill_paid', ?, ?)",
-            (_now(), actor, f"bill:{bill_id}",
-             json.dumps({"period": period, "transaction": txn_id,
-                         "amount_cents": bill["amount_cents"], "paid_by": paid_by},
-                        sort_keys=True)))
+        _write_audit(
+            db, actor, "mark_bill_paid", f"bill:{bill_id}",
+            {"period": period, "transaction": txn_id,
+             "amount_cents": bill["amount_cents"], "paid_by": paid_by})
     return bill, period
 
 
@@ -313,14 +339,10 @@ def unmark_bill_paid(db, actor, bill_id, period):
         if payment is None:
             raise NotFound("no payment for this period")
         txn_id = payment["txn_id"]
-        if txn_id:
-            db.execute("DELETE FROM links WHERE from_id = ? OR to_id = ?",
-                       (txn_id, txn_id))
-            db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
-            db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+        bill = db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
+        deleted = delete_transaction_graph(db, txn_id) if txn_id else None
         db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
-        db.execute(
-            "INSERT INTO audit_log (at, actor, action, target, detail_json) "
-            "VALUES (?, ?, 'unmark_bill_paid', ?, ?)",
-            (_now(), actor, f"bill:{bill_id}",
-             json.dumps({"period": period, "transaction": txn_id}, sort_keys=True)))
+        _write_audit(
+            db, actor, "unmark_bill_paid", f"bill:{bill_id}",
+            {"period": period, "bill": dict(bill) if bill else None,
+             "payment": dict(payment), "deleted": deleted})
