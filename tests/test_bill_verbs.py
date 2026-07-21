@@ -122,9 +122,28 @@ class BillVerbTests(unittest.TestCase):
         payments = self.count("SELECT COUNT(*) FROM bill_payments")
         with self.assertRaises(sqlite3.OperationalError):
             self.pay()
-        self.db.rollback()
+        self.assertFalse(self.db.in_transaction)
         self.assertEqual(txns, self.count("SELECT COUNT(*) FROM transactions"))
         self.assertEqual(payments, self.count("SELECT COUNT(*) FROM bill_payments"))
+
+    def test_unpay_is_atomic_audit_or_nothing(self):
+        self.pay()
+        payment = self.db.execute(
+            "SELECT * FROM bill_payments WHERE bill_id = ? AND period = ?",
+            (self.bill_id, self.period)).fetchone()
+        txn_id = payment["txn_id"]
+        self.db.execute("DROP TABLE audit_log")
+        self.db.commit()
+
+        with self.assertRaises(sqlite3.OperationalError):
+            actions.unmark_bill_paid(
+                self.db, "ui:avery", self.bill_id, self.period)
+
+        self.assertFalse(self.db.in_transaction)
+        self.assertEqual(1, self.count(
+            "SELECT COUNT(*) FROM bill_payments WHERE id = ?", payment["id"]))
+        self.assertEqual(1, self.count(
+            "SELECT COUNT(*) FROM transactions WHERE id = ?", txn_id))
 
 
 if __name__ == "__main__":

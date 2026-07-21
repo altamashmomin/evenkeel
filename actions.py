@@ -16,6 +16,7 @@ write-side helpers below moved here from app.py so the verbs own them;
 app.py imports them for the routes that are still awaiting extraction.
 """
 import json
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -27,6 +28,26 @@ class ActionError(ValueError):
 class NotFound(Exception):
     """Target row does not exist; routes map this to HTTP 404.
     Message is caller-safe and frozen (deployed API surface)."""
+
+
+@contextmanager
+def action_transaction(db):
+    """Own one complete verb transaction, including rollback on failure.
+
+    Actions commit themselves, so accepting a connection with pending work
+    would also commit a caller's unrelated edits. Refuse that ambiguous state
+    rather than silently widening the verb's transaction boundary.
+    """
+    if db.in_transaction:
+        raise RuntimeError("action requires a connection with no open transaction")
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        yield
+    except BaseException:
+        db.rollback()
+        raise
+    else:
+        db.commit()
 
 
 def _now():
@@ -140,39 +161,39 @@ def settle_up(db, actor, data):
     side effects — none yet.
     Returns the settlement transaction row.
     """
-    cols = validate_txn_payload(db, data)
-    pct = cols.pop("payer_share_pct", 50)
-    if len(active_members(db)) < 2:
-        raise ActionError("settle up requires at least two active members")
+    with action_transaction(db):
+        cols = validate_txn_payload(db, data)
+        pct = cols.pop("payer_share_pct", 50)
+        if len(active_members(db)) < 2:
+            raise ActionError("settle up requires at least two active members")
 
-    cols["source"] = "settlement"
-    keys = ", ".join(cols)
-    marks = ", ".join("?" for _ in cols)
-    cur = db.execute(
-        f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
-    txn_id = cur.lastrowid
-    write_splits(db, txn_id, cols["paid_by"], cols["is_shared"], pct)
+        cols["source"] = "settlement"
+        keys = ", ".join(cols)
+        marks = ", ".join("?" for _ in cols)
+        cur = db.execute(
+            f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
+        txn_id = cur.lastrowid
+        write_splits(db, txn_id, cols["paid_by"], cols["is_shared"], pct)
 
-    now = _now()
-    covered = [r[0] for r in db.execute(
-        """SELECT DISTINCT t.id FROM transactions t
-           JOIN splits s ON s.transaction_id = t.id
-           WHERE t.id != ? AND t.txn_date <= ? AND NOT EXISTS (
-               SELECT 1 FROM links l
-               WHERE l.link_type = 'settles' AND l.to_id = t.id)
-           ORDER BY t.id""", (txn_id, cols["txn_date"])).fetchall()]
-    db.executemany(
-        "INSERT INTO links (link_type, from_id, to_id, created_by, created_at) "
-        "VALUES ('settles', ?, ?, ?, ?)",
-        [(txn_id, covered_id, actor, now) for covered_id in covered])
-    db.execute(
-        "INSERT INTO audit_log (at, actor, action, target, detail_json) "
-        "VALUES (?, ?, 'settle_up', ?, ?)",
-        (now, actor, f"transaction:{txn_id}",
-         json.dumps({"amount_cents": cols["amount_cents"],
-                     "paid_by": cols["paid_by"],
-                     "covers": covered}, sort_keys=True)))
-    db.commit()
+        now = _now()
+        covered = [r[0] for r in db.execute(
+            """SELECT DISTINCT t.id FROM transactions t
+               JOIN splits s ON s.transaction_id = t.id
+               WHERE t.id != ? AND t.txn_date <= ? AND NOT EXISTS (
+                   SELECT 1 FROM links l
+                   WHERE l.link_type = 'settles' AND l.to_id = t.id)
+               ORDER BY t.id""", (txn_id, cols["txn_date"])).fetchall()]
+        db.executemany(
+            "INSERT INTO links (link_type, from_id, to_id, created_by, created_at) "
+            "VALUES ('settles', ?, ?, ?, ?)",
+            [(txn_id, covered_id, actor, now) for covered_id in covered])
+        db.execute(
+            "INSERT INTO audit_log (at, actor, action, target, detail_json) "
+            "VALUES (?, ?, 'settle_up', ?, ?)",
+            (now, actor, f"transaction:{txn_id}",
+             json.dumps({"amount_cents": cols["amount_cents"],
+                         "paid_by": cols["paid_by"],
+                         "covers": covered}, sort_keys=True)))
     return db.execute(
         "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
 
@@ -190,49 +211,49 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
     side effects — none yet.
     Returns (bill_row, period) for the route's bill_to_json response.
     """
-    bill = db.execute(
-        "SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
-    if bill is None:
-        raise NotFound("not found")
-    period = data.get("period") or current_period()
-    if len(period) != 7 or period[4] != "-":
-        raise ActionError("period must be YYYY-MM")
-    if db.execute("SELECT id FROM bill_payments WHERE bill_id = ? AND period = ?",
-                  (bill_id, period)).fetchone():
-        raise ActionError("already marked paid for this period")
-    paid_by = data.get("paid_by", default_paid_by)
-    if paid_by not in {m["id"] for m in active_members(db)}:
-        raise ActionError("paid_by must be one of the two users")
-    is_shared = 1 if data.get("is_shared", True) else 0
-    try:
-        pct = float(data.get("payer_share_pct", 50))
-    except (TypeError, ValueError):
-        raise ActionError("payer_share_pct must be a number")
-    if not (0 <= pct <= 100):
-        raise ActionError("payer_share_pct must be between 0 and 100")
+    with action_transaction(db):
+        bill = db.execute(
+            "SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
+        if bill is None:
+            raise NotFound("not found")
+        period = data.get("period") or current_period()
+        if len(period) != 7 or period[4] != "-":
+            raise ActionError("period must be YYYY-MM")
+        if db.execute("SELECT id FROM bill_payments WHERE bill_id = ? AND period = ?",
+                      (bill_id, period)).fetchone():
+            raise ActionError("already marked paid for this period")
+        paid_by = data.get("paid_by", default_paid_by)
+        if paid_by not in {m["id"] for m in active_members(db)}:
+            raise ActionError("paid_by must be one of the two users")
+        is_shared = 1 if data.get("is_shared", True) else 0
+        try:
+            pct = float(data.get("payer_share_pct", 50))
+        except (TypeError, ValueError):
+            raise ActionError("payer_share_pct must be a number")
+        if not (0 <= pct <= 100):
+            raise ActionError("payer_share_pct must be between 0 and 100")
 
-    today = date.today().isoformat()
-    cur = db.execute(
-        """INSERT INTO transactions
-           (txn_date, amount_cents, description, category, paid_by,
-            is_shared, source)
-           VALUES (?, ?, ?, ?, ?, ?, 'bill')""",
-        (today, bill["amount_cents"], f"{bill['name']} ({period})",
-         bill["category"], paid_by, is_shared))
-    txn_id = cur.lastrowid
-    write_splits(db, txn_id, paid_by, is_shared, pct)
-    db.execute(
-        "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) "
-        "VALUES (?, ?, ?, ?)",
-        (bill_id, period, today, txn_id))
-    db.execute(
-        "INSERT INTO audit_log (at, actor, action, target, detail_json) "
-        "VALUES (?, ?, 'mark_bill_paid', ?, ?)",
-        (_now(), actor, f"bill:{bill_id}",
-         json.dumps({"period": period, "transaction": txn_id,
-                     "amount_cents": bill["amount_cents"], "paid_by": paid_by},
-                    sort_keys=True)))
-    db.commit()
+        today = date.today().isoformat()
+        cur = db.execute(
+            """INSERT INTO transactions
+               (txn_date, amount_cents, description, category, paid_by,
+                is_shared, source)
+               VALUES (?, ?, ?, ?, ?, ?, 'bill')""",
+            (today, bill["amount_cents"], f"{bill['name']} ({period})",
+             bill["category"], paid_by, is_shared))
+        txn_id = cur.lastrowid
+        write_splits(db, txn_id, paid_by, is_shared, pct)
+        db.execute(
+            "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) "
+            "VALUES (?, ?, ?, ?)",
+            (bill_id, period, today, txn_id))
+        db.execute(
+            "INSERT INTO audit_log (at, actor, action, target, detail_json) "
+            "VALUES (?, ?, 'mark_bill_paid', ?, ?)",
+            (_now(), actor, f"bill:{bill_id}",
+             json.dumps({"period": period, "transaction": txn_id,
+                         "amount_cents": bill["amount_cents"], "paid_by": paid_by},
+                        sort_keys=True)))
     return bill, period
 
 
@@ -246,21 +267,21 @@ def unmark_bill_paid(db, actor, bill_id, period):
     the audit row.
     side effects — none yet.
     """
-    payment = db.execute(
-        "SELECT * FROM bill_payments WHERE bill_id = ? AND period = ?",
-        (bill_id, period)).fetchone()
-    if payment is None:
-        raise NotFound("no payment for this period")
-    txn_id = payment["txn_id"]
-    if txn_id:
-        db.execute("DELETE FROM links WHERE from_id = ? OR to_id = ?",
-                   (txn_id, txn_id))
-        db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
-        db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
-    db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
-    db.execute(
-        "INSERT INTO audit_log (at, actor, action, target, detail_json) "
-        "VALUES (?, ?, 'unmark_bill_paid', ?, ?)",
-        (_now(), actor, f"bill:{bill_id}",
-         json.dumps({"period": period, "transaction": txn_id}, sort_keys=True)))
-    db.commit()
+    with action_transaction(db):
+        payment = db.execute(
+            "SELECT * FROM bill_payments WHERE bill_id = ? AND period = ?",
+            (bill_id, period)).fetchone()
+        if payment is None:
+            raise NotFound("no payment for this period")
+        txn_id = payment["txn_id"]
+        if txn_id:
+            db.execute("DELETE FROM links WHERE from_id = ? OR to_id = ?",
+                       (txn_id, txn_id))
+            db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
+            db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+        db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
+        db.execute(
+            "INSERT INTO audit_log (at, actor, action, target, detail_json) "
+            "VALUES (?, ?, 'unmark_bill_paid', ?, ?)",
+            (_now(), actor, f"bill:{bill_id}",
+             json.dumps({"period": period, "transaction": txn_id}, sort_keys=True)))

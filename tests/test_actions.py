@@ -149,7 +149,7 @@ class SettleUpTests(unittest.TestCase):
         links_before = self.count("SELECT COUNT(*) FROM links")
         with self.assertRaises(sqlite3.OperationalError):
             actions.settle_up(self.db, "ui:avery", settle_body(10.00, 1))
-        self.db.rollback()
+        self.assertFalse(self.db.in_transaction)
         self.assertEqual(txns_before, self.count("SELECT COUNT(*) FROM transactions"))
         self.assertEqual(links_before, self.count("SELECT COUNT(*) FROM links"))
 
