@@ -223,7 +223,10 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `set_rule_enabled` | UI, MCP direct | — | No delete; disabled rules keep history |
 | `apply_rules` | UI, MCP two-phase | — | Dry-run preview first, per AGENT-DESIGN |
 | `link_transactions` / `unlink_transactions` | UI, later MCP | typed; both rows must exist; type-specific checks (e.g. `transfer_pair` needs opposite directions) | The tag-a-link workflow that makes refund/transfer/ reimbursement matching non-destructive |
-| `contribute_to_goal` | UI | — | |
+| `create_goal` | UI | — | Creates the goal row; audit carries the created shape |
+| `delete_goal` | UI | — | Hard delete during the bounded transition; audit captures the goal summary, contribution count, and saved total before the cascade |
+| `contribute_to_goal` | UI | amount positive | Signed event row; the verb name carries intent |
+| `withdraw_from_goal` | UI | amount positive | Stores the negative contribution row; intent lives in the verb name, not a sign the reader must infer (correction-pass disposition). `archive_goal`/`restore_goal` deferred to their own migration increment |
 
 The table grows as features land (scenario verbs arrive with the
 scenarios build), but growth means *adding rows here first* — a write
