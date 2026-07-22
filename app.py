@@ -298,6 +298,78 @@ def classify_transaction(txn_id):
                      "direction": row["direction"], "income_type": row["income_type"]})
 
 
+# ---------------------------------------------------------------- income rules
+
+def rule_to_json(r):
+    return {
+        "id": r["id"],
+        "priority": r["priority"],
+        "match_desc": r["match_desc"],
+        "match_account": r["match_account"],
+        "min_cents": r["min_cents"],
+        "max_cents": r["max_cents"],
+        "set_type": r["set_type"],
+        "set_paid_by": r["set_paid_by"],
+        "enabled": bool(r["enabled"]),
+        "created_at": r["created_at"],
+        "hit_count": r["hit_count"],
+    }
+
+
+@app.get("/api/income/rules")
+@login_required
+def list_income_rules():
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM income_rules ORDER BY priority ASC, id ASC").fetchall()
+    return jsonify([rule_to_json(r) for r in rows])
+
+
+@app.post("/api/income/rules")
+@login_required
+def create_income_rule():
+    """Thin caller: the create_income_rule verb owns validation, the
+    conflict check, and the edit."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        rule = actions.create_income_rule(db, actor=ui_actor(db), data=data)
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(rule_to_json(rule)), 201
+
+
+@app.put("/api/income/rules/<int:rule_id>")
+@login_required
+def update_income_rule(rule_id):
+    """Thin caller over set_rule_enabled — the only edit the registry
+    backs. There is no general rule-editing verb: correcting match
+    criteria is delete-and-recreate until a standalone caller justifies
+    one (same growth-rule discipline as every other verb here)."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    if "enabled" not in data:
+        return bad_request("only 'enabled' can be changed")
+    try:
+        rule = actions.set_rule_enabled(
+            db, actor=ui_actor(db), rule_id=rule_id, enabled=bool(data["enabled"]))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    return jsonify(rule_to_json(rule))
+
+
+@app.post("/api/income/rules/apply")
+@login_required
+def apply_income_rules():
+    """Thin caller: the apply_rules verb owns the matching pass. dry_run
+    previews without writing, per AGENT-DESIGN's dry-run-first pattern."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    dry_run = bool(data.get("dry_run", False))
+    changes = actions.apply_rules(db, actor=ui_actor(db), dry_run=dry_run)
+    return jsonify({"dry_run": dry_run, "changes": changes})
+
+
 @app.get("/api/categories")
 @login_required
 def categories():

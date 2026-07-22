@@ -16,8 +16,9 @@ create_goal, delete_goal, contribute_to_goal, withdraw_from_goal,
 edit_transaction, delete_transaction, record_transaction — the sequence's
 last verb — plus create_bill, update_bill, delete_bill, extracted out of
 sequence to close the last invariant-1 gap (bill definitions were the
-only mutating table still taking raw SQL from a route). classify_inflow
-begins the income build (CORE-DESIGN sequence step 6). set_splits is
+only mutating table still taking raw SQL from a route). classify_inflow,
+create_income_rule, set_rule_enabled, and apply_rules build the income
+classification foundation (CORE-DESIGN sequence step 6). set_splits is
 promoted separately, only once a standalone caller needs it.
 """
 import json
@@ -727,3 +728,183 @@ def classify_inflow(db, actor, txn_id, income_type):
             db, actor, "classify_inflow", f"transaction:{txn_id}",
             {"before": existing["income_type"], "after": income_type})
     return row
+
+
+RULE_TYPES = INCOME_TYPES - {"unclassified"}
+# A rule assigns a real type; "leave it unclassified" isn't something a
+# rule needs to say — that's simply the state a non-match leaves a row in.
+
+
+def _rule_account(external_id):
+    """The SimpleFIN account id embedded in a sync row's external_id
+    ('simplefin:<account>:<txn>') — the only place account identity lives
+    today, since transactions carries no dedicated account column. None
+    for a manual row or a malformed id."""
+    if not external_id or not external_id.startswith("simplefin:"):
+        return None
+    parts = external_id.split(":", 2)
+    return parts[1] if len(parts) >= 2 else None
+
+
+def _rule_matches(rule, row):
+    """A rule matches when every criterion it sets holds; unset criteria
+    (NULL in the rule) pass freely. Criteria are ANDed, never ORed."""
+    if rule["match_desc"] and rule["match_desc"].lower() not in row["description"].lower():
+        return False
+    if rule["match_account"] and _rule_account(row["external_id"]) != rule["match_account"]:
+        return False
+    if rule["min_cents"] is not None and row["amount_cents"] < rule["min_cents"]:
+        return False
+    if rule["max_cents"] is not None and row["amount_cents"] > rule["max_cents"]:
+        return False
+    return True
+
+
+def create_income_rule(db, actor, data):
+    """Create an income-classification rule.
+
+    validate — set_type is one of the real income types ('unclassified'
+    excluded — a rule exists to assign a real type); at least one match
+    criterion (description, account, or amount bounds) is required, else
+    the rule would match every inflow; min_cents/max_cents, if both given,
+    don't cross; set_paid_by, if given, is an active member; conflict
+    check against existing rules (the registry's submission criterion) —
+    no other enabled rule may already have the exact same match criteria,
+    which would make one of them permanently dead weight.
+    edit — one transaction: the rule row and the audit row carrying the
+    created shape.
+    side effects — none yet; two-phase pending_actions wrapping for an
+    agent caller is the MCP write tier's job (sequence step 7).
+    Returns the rule row.
+    """
+    with action_transaction(db):
+        set_type = data.get("set_type")
+        if set_type not in RULE_TYPES:
+            raise ActionError(
+                "set_type must be one of: " + ", ".join(sorted(RULE_TYPES)))
+        match_desc = (data.get("match_desc") or "").strip()[:200] or None
+        match_account = (data.get("match_account") or "").strip()[:100] or None
+        min_cents = data.get("min_cents")
+        max_cents = data.get("max_cents")
+        for label, value in (("min_cents", min_cents), ("max_cents", max_cents)):
+            if value is not None and not isinstance(value, int):
+                raise ActionError(f"{label} must be an integer number of cents")
+        if (match_desc is None and match_account is None
+                and min_cents is None and max_cents is None):
+            raise ActionError(
+                "at least one match criterion (description, account, or "
+                "amount bounds) is required")
+        if min_cents is not None and max_cents is not None and min_cents > max_cents:
+            raise ActionError("min_cents must not exceed max_cents")
+        set_paid_by = data.get("set_paid_by")
+        if (set_paid_by is not None
+                and set_paid_by not in {m["id"] for m in active_members(db)}):
+            raise ActionError("set_paid_by must be an active member")
+        try:
+            priority = int(data.get("priority", 0))
+        except (TypeError, ValueError):
+            raise ActionError("priority must be an integer")
+
+        conflict = db.execute(
+            """SELECT id FROM income_rules WHERE enabled = 1
+               AND match_desc IS ? AND match_account IS ?
+               AND min_cents IS ? AND max_cents IS ?""",
+            (match_desc, match_account, min_cents, max_cents)).fetchone()
+        if conflict:
+            raise ActionError("a rule with these match criteria already exists")
+
+        cur = db.execute(
+            """INSERT INTO income_rules
+               (priority, match_desc, match_account, min_cents, max_cents,
+                set_type, set_paid_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (priority, match_desc, match_account, min_cents, max_cents,
+             set_type, set_paid_by, _now()))
+        rule = db.execute(
+            "SELECT * FROM income_rules WHERE id = ?", (cur.lastrowid,)).fetchone()
+        _write_audit(db, actor, "create_income_rule", f"rule:{rule['id']}",
+                     {"rule": dict(rule)})
+    return rule
+
+
+def set_rule_enabled(db, actor, rule_id, enabled):
+    """Enable or disable a rule. No delete — disabled rules keep history,
+    per the registry.
+
+    validate — the rule exists (NotFound otherwise).
+    edit — one transaction: the enabled flag and the audit row recording
+    the before/after state.
+    side effects — none yet.
+    Returns the updated rule row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM income_rules WHERE id = ?", (rule_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        db.execute(
+            "UPDATE income_rules SET enabled = ? WHERE id = ?",
+            (1 if enabled else 0, rule_id))
+        rule = db.execute(
+            "SELECT * FROM income_rules WHERE id = ?", (rule_id,)).fetchone()
+        _write_audit(db, actor, "set_rule_enabled", f"rule:{rule_id}",
+                     {"before": bool(existing["enabled"]), "after": bool(rule["enabled"])})
+    return rule
+
+
+def _matching_pass(db):
+    """Read-only: every enabled rule (priority ascending, ties by id) tried
+    in order against every unclassified inflow; first match wins."""
+    rules = db.execute(
+        "SELECT * FROM income_rules WHERE enabled = 1 "
+        "ORDER BY priority ASC, id ASC").fetchall()
+    rows = db.execute(
+        "SELECT * FROM transactions WHERE direction = 'in' "
+        "AND income_type = 'unclassified' ORDER BY id").fetchall()
+    matches = []
+    for row in rows:
+        for rule in rules:
+            if _rule_matches(rule, row):
+                matches.append({
+                    "transaction_id": row["id"], "rule_id": rule["id"],
+                    "set_type": rule["set_type"], "set_paid_by": rule["set_paid_by"]})
+                break
+    return matches
+
+
+def apply_rules(db, actor, dry_run=False):
+    """Re-run enabled rules over every unclassified inflow, in priority
+    order; first match wins; no match leaves a row unclassified.
+
+    validate — none.
+    edit — skipped entirely when dry_run (a pure preview, no transaction
+    opened at all). Otherwise, one transaction: every matched row's
+    income_type (and paid_by, when the rule sets an owner override), each
+    winning rule's hit_count, and one audit row listing every
+    reclassification — skipped if nothing matched, the same "a no-op
+    isn't audited" discipline record_transaction's dedupe uses.
+    side effects — none yet.
+    Returns the list of {transaction_id, rule_id, set_type, set_paid_by}
+    — a preview under dry_run, the applied changes otherwise; empty if
+    nothing matched.
+    """
+    if dry_run:
+        return _matching_pass(db)
+
+    with action_transaction(db):
+        matches = _matching_pass(db)
+        for match in matches:
+            if match["set_paid_by"] is not None:
+                db.execute(
+                    "UPDATE transactions SET income_type = ?, paid_by = ? WHERE id = ?",
+                    (match["set_type"], match["set_paid_by"], match["transaction_id"]))
+            else:
+                db.execute(
+                    "UPDATE transactions SET income_type = ? WHERE id = ?",
+                    (match["set_type"], match["transaction_id"]))
+            db.execute(
+                "UPDATE income_rules SET hit_count = hit_count + 1 WHERE id = ?",
+                (match["rule_id"],))
+        if matches:
+            _write_audit(db, actor, "apply_rules", None, {"applied": matches})
+    return matches
