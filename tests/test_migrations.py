@@ -35,6 +35,7 @@ class MigrationTests(unittest.TestCase):
         first = self.run_cli("init", db_path)
         second = self.run_cli("apply", db_path)
         self.assertIn("applied 003", first.stdout)
+        self.assertIn("applied 005", first.stdout)
         self.assertIn("nothing to apply", second.stdout)
         conn = sqlite3.connect(db_path)
         try:
@@ -42,13 +43,33 @@ class MigrationTests(unittest.TestCase):
                 "SELECT version FROM schema_version ORDER BY version")]
             tables = {row[0] for row in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
+            txn_columns = {row[1] for row in conn.execute(
+                "PRAGMA table_info(transactions)")}
         finally:
             conn.close()
         self.assertEqual(list(range(1, REQUIRED_SCHEMA_VERSION + 1)), versions)
         self.assertIn("members", tables)
         self.assertIn("splits", tables)
         self.assertIn("links", tables)
+        self.assertIn("income_rules", tables)
         self.assertNotIn("users", tables)
+        self.assertIn("direction", txn_columns)
+        self.assertIn("income_type", txn_columns)
+
+    def test_income_migration_defaults_existing_rows_to_out(self):
+        db_path = self.tmp_path / "income.db"
+        subprocess.run(
+            [sys.executable, str(REPO / "seed_db.py"), str(db_path),
+             "--seed", "3", "--months", "2", "--as-of", SEED_AS_OF],
+            check=True, capture_output=True, text=True)
+        self.run_cli("apply", db_path)
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT direction, income_type FROM transactions").fetchall()
+        finally:
+            conn.close()
+        self.assertEqual([("out", None)], rows)
 
     def test_failed_migration_rolls_back_its_schema_and_version(self):
         migrations_dir = self.tmp_path / "migrations"
