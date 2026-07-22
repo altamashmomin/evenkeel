@@ -159,11 +159,30 @@ finished the baseline pin, auth parity, and --live proof):
 
 Verb extraction (CORE-DESIGN sequence step 5) is now complete: every
 write path is a named verb in `actions.py`, and audit_log covers UI and
-sync both. Next: the income build (sequence step 6, per INCOME-DESIGN),
-built inside the grammar — classification verbs enter the registry,
-aggregates are derivations, rules run as side effects of
-`record_transaction`. Merging to `main` still waits for the Pi deploy
-and the `v1.0` tag.
+sync both.
+
+Income build underway (CORE-DESIGN sequence step 6, per INCOME-DESIGN):
+- Migration #005 — income classification foundation (July 22, 2026):
+  `transactions` gains `direction` (`'out'`|`'in'`, default `'out'`) and
+  `income_type` (NULL until classification lands); `income_rules` table,
+  unwired. Schema only — no verb touches these columns yet, so every
+  existing row keeps its exact meaning. `set_paid_by` references
+  `members(id)` per CORE-DESIGN's amendment. Two product decisions
+  settled going into this build: **refund netting stays honest** (a
+  refund reduces its category's spend total in the month it lands,
+  accepted dip and all) and **auto-rule suggestion waits for a repeat
+  match** rather than firing on the first tag — robustness over fast
+  convergence, both per Alta's call. Gated with the enumerated diff
+  (one empty table, schema_version bump; notes/005-gate-expectation);
+  suite at 72 tests.
+
+Next: the classification foundation per INCOME-DESIGN's build order —
+`classify_inflow` (sets `income_type` on a `direction='in'` row) and the
+rules engine (`create_income_rule`, `set_rule_enabled`, `apply_rules`)
+enter the registry as verbs, one at a time per the established cadence.
+Sync's `amount >= 0: skip` branch flips only once classification exists
+to catch what it lets through. Merging to `main` still waits for the Pi
+deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 
