@@ -142,15 +142,30 @@ finished the baseline pin, auth parity, and --live proof):
   yet. Zero-diff gate f31ab1f→133ca94 (fresh seeded `dev.db`, no
   `finance.db` yet — pre-step-0); suite at 59 tests.
 
-Next: `record_transaction` (the sync insert path) — last in the verb
-extraction sequence, positioned deliberately just before the income
-build touches sync anyway. `set_splits` promotes to a verb only when a
-standalone caller exists. Merging to `main` still waits for the Pi
-deploy and the `v1.0` tag.
+- `record_transaction` extracted (July 22, 2026): the last verb in the
+  extraction sequence. Unifies the UI's manual-entry insert and
+  `simplefin_sync.py`'s insert — dedupe on `external_id` lives inside
+  the verb (`ON CONFLICT DO NOTHING`, same as the deployed sync script
+  used directly, now a no-op-not-an-error return value rather than a
+  silent skip), `source` is a verb decision never taken from caller data
+  (same discipline as `settle_up`/`mark_bill_paid`). Closes a real gap:
+  manual entries previously wrote no audit row at all. `sync.py` drops
+  its hand-rolled insert/split/`other_id` logic for one call per
+  transaction, each committing independently now rather than the whole
+  run sharing one transaction — matches every other verb's per-call
+  atomicity. `set_splits` still deferred — no standalone caller exists.
+  Zero-diff gate 9168edf→3ace89d (fresh seeded `dev.db`, no `finance.db`
+  yet — pre-step-0); suite at 71 tests.
+
+Verb extraction (CORE-DESIGN sequence step 5) is now complete: every
+write path is a named verb in `actions.py`, and audit_log covers UI and
+sync both. Next: the income build (sequence step 6, per INCOME-DESIGN),
+built inside the grammar — classification verbs enter the registry,
+aggregates are derivations, rules run as side effects of
+`record_transaction`. Merging to `main` still waits for the Pi deploy
+and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
-Verb extraction proceeds one route per session after that; income build
-follows per CORE-DESIGN sequence step 6.
 
 After each merged increment, update this "Current position in the
 sequence" section to reflect what's done and what's next.
