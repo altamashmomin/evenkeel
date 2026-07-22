@@ -127,12 +127,26 @@ finished the baseline pin, auth parity, and --live proof):
   their own migration increment. Zero-diff gate f39f3ba→HEAD; suite at
   43 tests.
 
-Next: transaction edits (`edit_transaction` / `delete_transaction`; the
-settlement-history edit policy in CORE-DESIGN governs — settlement rows
-uneditable, editing a covered row severs its `settles` links in-verb,
-audited; `set_splits` promoted only when a standalone caller exists),
-then `record_transaction` last. Merging to `main` still waits for the
-Pi deploy and the `v1.0` tag.
+- `edit_transaction` + `delete_transaction` extracted (July 22, 2026):
+  transaction PUT/DELETE routes are thin callers. `edit_transaction`
+  enforces the settlement-history edit policy — settlement rows refuse
+  edits (delete and recreate is the correction path), and editing a
+  covered ordinary row severs its incoming `settles` link in-verb,
+  recorded in the audit detail, reopening the row for the next
+  settlement. `delete_transaction` wraps the existing
+  `delete_transaction_graph` helper with an audit row carrying the full
+  before-image; deleting a settlement reopens everything it covered via
+  the same graph cleanup. `payer_share_pct` moved from `app.py` into
+  `actions.py` since the edit verb needs it to carry an untouched share
+  forward. `set_splits` still deferred — no standalone caller exists
+  yet. Zero-diff gate f31ab1f→133ca94 (fresh seeded `dev.db`, no
+  `finance.db` yet — pre-step-0); suite at 59 tests.
+
+Next: `record_transaction` (the sync insert path) — last in the verb
+extraction sequence, positioned deliberately just before the income
+build touches sync anyway. `set_splits` promotes to a verb only when a
+standalone caller exists. Merging to `main` still waits for the Pi
+deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build
