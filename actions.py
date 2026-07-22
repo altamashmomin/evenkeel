@@ -13,10 +13,9 @@ partial settlement (row without links, edit without audit) cannot exist.
 Extraction proceeds one route per session (CORE-DESIGN sequence step 5).
 Extracted so far: settle_up, mark_bill_paid, unmark_bill_paid,
 create_goal, delete_goal, contribute_to_goal, withdraw_from_goal,
-edit_transaction, delete_transaction. record_transaction (the sync
-insert path) is last. The write-side helpers below moved here from
-app.py so the verbs own them; app.py imports them for the routes that
-are still awaiting extraction.
+edit_transaction, delete_transaction, record_transaction — the last verb
+in the sequence. set_splits is promoted separately, only once a
+standalone caller needs it.
 """
 import json
 from contextlib import contextmanager
@@ -209,6 +208,49 @@ def delete_transaction_graph(db, txn_id):
     db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
     db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
     return {"transaction": dict(txn), "splits": splits, "links": links}
+
+
+def record_transaction(db, actor, data, source, external_id=None):
+    """Insert a new transaction — the UI's manual entry and the sync
+    script's insert, unified (CORE-DESIGN: "sync's insert path becomes a
+    call to this; dedupe stays inside it").
+
+    validate — the deployed route's full-payload validation, frozen
+    messages. source is a verb decision, never taken from the caller's
+    data — the same discipline settle_up and mark_bill_paid already use
+    to force their own source tag.
+    edit — one transaction: the insert (a no-op on a duplicate
+    external_id, via the same ON CONFLICT the deployed sync script used
+    directly — sync's lookback window is expected to overlap between
+    runs, so a duplicate is routine, not an error), its legacy
+    two-member split rows, and the audit row — skipped entirely on the
+    dedupe no-op, since nothing happened to audit.
+    side effects — none yet.
+    Returns the new row, or None when external_id deduped.
+    """
+    with action_transaction(db):
+        cols = validate_txn_payload(db, data)
+        pct = cols.pop("payer_share_pct", 50)
+        cols["source"] = source
+        cols["external_id"] = external_id
+        keys = ", ".join(cols)
+        marks = ", ".join("?" for _ in cols)
+        cur = db.execute(
+            f"INSERT INTO transactions ({keys}) VALUES ({marks}) "
+            "ON CONFLICT(external_id) DO NOTHING",
+            list(cols.values()))
+        if cur.rowcount == 0:
+            return None
+        txn_id = cur.lastrowid
+        write_legacy_two_member_splits(
+            db, txn_id, cols["paid_by"], cols["is_shared"], pct)
+        _write_audit(
+            db, actor, "record_transaction", f"transaction:{txn_id}",
+            {"source": source, "amount_cents": cols["amount_cents"],
+             "paid_by": cols["paid_by"], "is_shared": bool(cols["is_shared"]),
+             "external_id": external_id})
+    return db.execute(
+        "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
 
 
 def edit_transaction(db, actor, txn_id, data):

@@ -13,9 +13,7 @@ from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
-from actions import (active_members, current_period, parse_iso_date,
-                     payer_share_pct, to_cents, validate_txn_payload,
-                     write_legacy_two_member_splits)
+from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import compute_balance as derive_balance, spending_summary
 from schema_runtime import connect_existing, require_current_schema
 
@@ -244,21 +242,14 @@ def create_transaction():
         except ValueError as e:
             return bad_request(str(e))
         return jsonify(txn_to_json(db, row)), 201
-    # Manual entry stays inline until record_transaction extracts —
-    # deliberately last in the sequence (CORE-DESIGN step 5).
+    # Thin caller: the record_transaction verb owns validation and the
+    # edit (row + splits + audit, one transaction). A manual entry never
+    # carries an external_id — dedupe is sync's concern, not the UI's.
     try:
-        cols = validate_txn_payload(db, data)
+        row = actions.record_transaction(
+            db, actor=ui_actor(db), data=data, source="manual")
     except ValueError as e:
         return bad_request(str(e))
-    pct = cols.pop("payer_share_pct", 50)
-    cols["source"] = "manual"
-    keys = ", ".join(cols)
-    marks = ", ".join("?" for _ in cols)
-    cur = db.execute(f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
-    write_legacy_two_member_splits(
-        db, cur.lastrowid, cols["paid_by"], cols["is_shared"], pct)
-    db.commit()
-    row = db.execute("SELECT * FROM transactions WHERE id = ?", (cur.lastrowid,)).fetchone()
     return jsonify(txn_to_json(db, row)), 201
 
 

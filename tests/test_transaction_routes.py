@@ -92,6 +92,18 @@ class TransactionRouteTests(unittest.TestCase):
             {"error": "settlement rows cannot be edited; delete and recreate"},
             response.get_json())
 
+    def test_create_writes_v1_shape_and_an_audit_row(self):
+        client = self.client()
+        txn_id = self.a_manual_txn(client)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            audit = conn.execute(
+                "SELECT actor, action FROM audit_log WHERE target = ?",
+                (f"transaction:{txn_id}",)).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual([("ui:avery", "record_transaction")], audit)
+
     def test_delete_keeps_v1_shape_and_writes_audit(self):
         client = self.client()
         txn_id = self.a_manual_txn(client)
@@ -103,11 +115,13 @@ class TransactionRouteTests(unittest.TestCase):
         conn = sqlite3.connect(self.db_path)
         try:
             audit = conn.execute(
-                "SELECT actor, action FROM audit_log WHERE target = ?",
-                (f"transaction:{txn_id}",)).fetchall()
+                "SELECT actor, action FROM audit_log WHERE target = ? "
+                "ORDER BY id", (f"transaction:{txn_id}",)).fetchall()
         finally:
             conn.close()
-        self.assertEqual([("ui:avery", "delete_transaction")], audit)
+        self.assertEqual(
+            [("ui:avery", "record_transaction"), ("ui:avery", "delete_transaction")],
+            audit)
 
 
 if __name__ == "__main__":
