@@ -191,13 +191,37 @@ and their create/edit/delete wrote no audit row at all.
   untouched, matching `delete_goal`'s bounded-transition posture. True
   zero-diff gate dbe7119→2879986 (no schema change); suite at 90 tests.
 
-Next: the classification foundation per INCOME-DESIGN's build order —
-`classify_inflow` (sets `income_type` on a `direction='in'` row) and the
-rules engine (`create_income_rule`, `set_rule_enabled`, `apply_rules`)
-enter the registry as verbs, one at a time per the established cadence.
-Sync's `amount >= 0: skip` branch flips only once classification exists
-to catch what it lets through. Merging to `main` still waits for the Pi
-deploy and the `v1.0` tag.
+Classification foundation built (July 22, 2026), per INCOME-DESIGN's
+build order step 1:
+- `classify_inflow` extracted: the tagging endpoint (`PUT
+  /api/transactions/<id>/classify`), submission criterion straight from
+  the registry (`direction='in'` only), `income_type` validated against
+  INCOME-DESIGN's seven-value vocabulary (`actions.INCOME_TYPES`). Route
+  response merges `direction`/`income_type` on top of the existing
+  `txn_to_json` shape rather than extending that helper — the listing
+  JSON stays byte-pinned to v1.0. Zero-diff gate (no verb creates
+  `direction='in'` rows yet, so nothing existing is touched); suite at
+  100 tests.
+- Rules engine extracted: `create_income_rule` (conflict check against
+  existing enabled rules, at-least-one-match-criterion, integer-cents
+  bounds, active-member `set_paid_by`), `set_rule_enabled` (no delete —
+  disabled rules keep history and drop out of matching), `apply_rules`
+  (priority-ordered first-match-wins over unclassified inflows, `dry_run`
+  per AGENT-DESIGN's preview-first pattern, `hit_count` observability,
+  batch audit row skipped entirely on a no-op match). `match_account` is
+  parsed off `external_id`'s `simplefin:<account>:<txn>` convention — the
+  only place account identity lives; no schema column exists for it.
+  Zero-diff gate 2879986→da30f5f; suite at 123 tests.
+
+Both verbs and their routes exist, but nothing yet calls them from real
+data: `seed_db.py` generates no `direction='in'` rows and sync still
+skips deposits, so no inflow reaches either path outside tests. Next:
+flip sync's `amount >= 0: skip` branch (INCOME-DESIGN build-order step
+2) so inflows land as `direction='in'`, run through `apply_rules`, and
+the rest go `unclassified` — the classification foundation's first real
+data. Dashboard card, Activity treatment, and the tagging-flow UI (step
+3) follow. Merging to `main` still waits for the Pi deploy and the
+`v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 
