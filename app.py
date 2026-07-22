@@ -278,6 +278,26 @@ def delete_transaction(txn_id):
     return jsonify({"ok": True})
 
 
+@app.put("/api/transactions/<int:txn_id>/classify")
+@login_required
+def classify_transaction(txn_id):
+    """Thin caller: the classify_inflow verb owns validation and the edit.
+    Response extends the deployed txn_to_json shape with direction/
+    income_type — new fields on a new endpoint, so the frozen listing
+    shape (byte-pinned to v1.0) stays untouched."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.classify_inflow(
+            db, ui_actor(db), txn_id, data.get("income_type"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify({**txn_to_json(db, row),
+                     "direction": row["direction"], "income_type": row["income_type"]})
+
+
 @app.get("/api/categories")
 @login_required
 def categories():

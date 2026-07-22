@@ -16,7 +16,8 @@ create_goal, delete_goal, contribute_to_goal, withdraw_from_goal,
 edit_transaction, delete_transaction, record_transaction — the sequence's
 last verb — plus create_bill, update_bill, delete_bill, extracted out of
 sequence to close the last invariant-1 gap (bill definitions were the
-only mutating table still taking raw SQL from a route). set_splits is
+only mutating table still taking raw SQL from a route). classify_inflow
+begins the income build (CORE-DESIGN sequence step 6). set_splits is
 promoted separately, only once a standalone caller needs it.
 """
 import json
@@ -686,3 +687,43 @@ def withdraw_from_goal(db, actor, goal_id, member_id, amount_cents, note=None):
     records intent (correction-pass disposition)."""
     return _record_goal_flow(
         db, actor, "withdraw_from_goal", goal_id, member_id, amount_cents, note)
+
+
+INCOME_TYPES = frozenset(
+    {"paycheck", "reimbursement", "refund", "transfer", "gift", "other", "unclassified"})
+
+
+def classify_inflow(db, actor, txn_id, income_type):
+    """Set an inflow's income_type — the tagging endpoint (INCOME-DESIGN's
+    classification lifecycle: rules run first, this is how a human corrects
+    or fills in what they left unclassified).
+
+    validate — the row exists (NotFound otherwise); the row's direction is
+    'in' (the registry's submission criterion — an outflow has nothing to
+    classify); income_type is one of INCOME-DESIGN's vocabulary.
+    edit — one transaction: the column update and the audit row recording
+    the before/after value.
+    side effects — none yet. The "make this a rule?" nudge is a UI-layer
+    decision per the settled auto-rule-aggressiveness call (wait for a
+    repeat match) — this verb only classifies the one row it's given.
+    Returns the updated row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        if existing["direction"] != "in":
+            raise ActionError("only inflows can be classified")
+        if income_type not in INCOME_TYPES:
+            raise ActionError(
+                "income_type must be one of: " + ", ".join(sorted(INCOME_TYPES)))
+        db.execute(
+            "UPDATE transactions SET income_type = ? WHERE id = ?",
+            (income_type, txn_id))
+        row = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        _write_audit(
+            db, actor, "classify_inflow", f"transaction:{txn_id}",
+            {"before": existing["income_type"], "after": income_type})
+    return row
