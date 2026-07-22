@@ -12,9 +12,11 @@ partial settlement (row without links, edit without audit) cannot exist.
 
 Extraction proceeds one route per session (CORE-DESIGN sequence step 5).
 Extracted so far: settle_up, mark_bill_paid, unmark_bill_paid,
-create_goal, delete_goal, contribute_to_goal, withdraw_from_goal. The
-write-side helpers below moved here from app.py so the verbs own them;
-app.py imports them for the routes that are still awaiting extraction.
+create_goal, delete_goal, contribute_to_goal, withdraw_from_goal,
+edit_transaction, delete_transaction. record_transaction (the sync
+insert path) is last. The write-side helpers below moved here from
+app.py so the verbs own them; app.py imports them for the routes that
+are still awaiting extraction.
 """
 import json
 from contextlib import contextmanager
@@ -110,6 +112,20 @@ def active_members(db):
     ).fetchall()
 
 
+def payer_share_pct(db, txn_id, paid_by):
+    """The payer's share as a percentage, derived from split rows.
+
+    Kept in API responses for byte-compatibility with v1.0: the payer's
+    share_bp / 100 for shared rows, the old default of 50 for unshared rows
+    (which have no split rows at all).
+    """
+    row = db.execute(
+        "SELECT share_bp FROM splits WHERE transaction_id = ? AND member_id = ?",
+        (txn_id, paid_by),
+    ).fetchone()
+    return row["share_bp"] / 100 if row else 50.0
+
+
 def validate_txn_payload(db, data, partial=False):
     """Returns dict of column->value for insert/update. Raises ValueError.
 
@@ -193,6 +209,86 @@ def delete_transaction_graph(db, txn_id):
     db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
     db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
     return {"transaction": dict(txn), "splits": splits, "links": links}
+
+
+def edit_transaction(db, actor, txn_id, data):
+    """Edit a transaction's fields in place (the deployed route's payload).
+
+    validate — the row exists (NotFound otherwise); settlement rows are
+    frozen per CORE-DESIGN's settlement-history edit policy (source=
+    'settlement' is corrected by delete and recreate, never rewritten in
+    place); the deployed route's partial-payload validation and frozen
+    "nothing to update" rejection.
+    edit — one transaction: the changed columns, the legacy two-member
+    split rows (an untouched share carries forward exactly as the old
+    column did), the removal of any incoming 'settles' link this edit
+    reopens (the covered-row case from the same policy — editing a
+    covered row severs its links so the next settlement can re-cover it),
+    and the audit row recording the before-image, the changed columns,
+    and any severed links.
+    side effects — none yet.
+    Returns the updated row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        if existing["source"] == "settlement":
+            raise ActionError(
+                "settlement rows cannot be edited; delete and recreate")
+
+        cols = validate_txn_payload(db, data, partial=True)
+        pct = cols.pop("payer_share_pct", None)
+        if not cols and pct is None:
+            raise ActionError("nothing to update")
+        if pct is None:
+            # Share not part of this edit: the current payer's share
+            # travels, exactly as the old column did.
+            pct = payer_share_pct(db, txn_id, existing["paid_by"])
+        if cols:
+            sets = ", ".join(f"{k} = ?" for k in cols)
+            db.execute(
+                f"UPDATE transactions SET {sets} WHERE id = ?",
+                [*cols.values(), txn_id])
+        row = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        write_legacy_two_member_splits(
+            db, txn_id, row["paid_by"], row["is_shared"], pct)
+
+        severed = [dict(r) for r in db.execute(
+            "SELECT * FROM links WHERE link_type = 'settles' AND to_id = ? "
+            "ORDER BY id", (txn_id,)).fetchall()]
+        if severed:
+            db.execute(
+                "DELETE FROM links WHERE link_type = 'settles' AND to_id = ?",
+                (txn_id,))
+
+        _write_audit(
+            db, actor, "edit_transaction", f"transaction:{txn_id}",
+            {"before": dict(existing), "changed": cols,
+             "payer_share_pct": pct, "severed_settles_links": severed})
+    return row
+
+
+def delete_transaction(db, actor, txn_id):
+    """Delete a transaction and its reversible metadata (splits, links).
+
+    validate — the row exists (NotFound otherwise).
+    edit — one transaction: delete_transaction_graph's referential cleanup
+    (any 'settles' link referencing this row is removed too — deleting a
+    settlement therefore reopens what it covered, per the same
+    settlement-history edit policy), then the audit row carrying the full
+    before-image, since the cascade erases the history and the audit row
+    becomes its only witness.
+    side effects — none yet.
+    """
+    with action_transaction(db):
+        deleted = delete_transaction_graph(db, txn_id)
+        if deleted is None:
+            raise NotFound("not found")
+        _write_audit(db, actor, "delete_transaction", f"transaction:{txn_id}",
+                     {"deleted": deleted})
 
 
 def settle_up(db, actor, data):

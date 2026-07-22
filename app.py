@@ -14,7 +14,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 from actions import (active_members, current_period, parse_iso_date,
-                     to_cents, validate_txn_payload,
+                     payer_share_pct, to_cents, validate_txn_payload,
                      write_legacy_two_member_splits)
 from derivations import compute_balance as derive_balance, spending_summary
 from schema_runtime import connect_existing, require_current_schema
@@ -95,20 +95,6 @@ def ui_actor(db):
         "SELECT username FROM members WHERE id = ?", (session["user_id"],)
     ).fetchone()
     return f"ui:{member['username']}" if member else f"ui:{session['user_id']}"
-
-
-def payer_share_pct(db, txn_id, paid_by):
-    """The payer's share as a percentage, derived from split rows.
-
-    Kept in API responses for byte-compatibility with v1.0: the payer's
-    share_bp / 100 for shared rows, the old default of 50 for unshared rows
-    (which have no split rows at all).
-    """
-    row = db.execute(
-        "SELECT share_bp FROM splits WHERE transaction_id = ? AND member_id = ?",
-        (txn_id, paid_by),
-    ).fetchone()
-    return row["share_bp"] / 100 if row else 50.0
 
 
 def txn_to_json(db, r):
@@ -280,28 +266,13 @@ def create_transaction():
 @login_required
 def update_transaction(txn_id):
     db = get_db()
-    existing = db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
-    if existing is None:
-        return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     try:
-        cols = validate_txn_payload(db, data, partial=True)
+        row = actions.edit_transaction(db, ui_actor(db), txn_id, data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     except ValueError as e:
         return bad_request(str(e))
-    pct = cols.pop("payer_share_pct", None)
-    if not cols and pct is None:
-        return bad_request("nothing to update")
-    if pct is None:
-        # Share not part of this edit: the current payer's share travels,
-        # exactly as the old column did when other fields changed.
-        pct = payer_share_pct(db, txn_id, existing["paid_by"])
-    if cols:
-        sets = ", ".join(f"{k} = ?" for k in cols)
-        db.execute(f"UPDATE transactions SET {sets} WHERE id = ?", [*cols.values(), txn_id])
-    row = db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
-    write_legacy_two_member_splits(
-        db, txn_id, row["paid_by"], row["is_shared"], pct)
-    db.commit()
     return jsonify(txn_to_json(db, row))
 
 
@@ -309,12 +280,10 @@ def update_transaction(txn_id):
 @login_required
 def delete_transaction(txn_id):
     db = get_db()
-    # Links are metadata on the transaction: deleting the row deletes its
-    # links (invariant 5), and leaving them would violate their FKs anyway.
-    deleted = actions.delete_transaction_graph(db, txn_id)
-    db.commit()
-    if deleted is None:
-        return jsonify({"error": "not found"}), 404
+    try:
+        actions.delete_transaction(db, ui_actor(db), txn_id)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
 
 
