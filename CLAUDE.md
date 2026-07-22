@@ -176,6 +176,21 @@ Income build underway (CORE-DESIGN sequence step 6, per INCOME-DESIGN):
   (one empty table, schema_version bump; notes/005-gate-expectation);
   suite at 72 tests.
 
+Out-of-sequence cleanup, found during a cohesion check right after
+(July 22, 2026): bill definitions (`bills` table — name/amount/due
+day/category, distinct from `mark_bill_paid`'s transaction-producing
+verb) were the one mutating table still taking raw SQL from a route,
+and their create/edit/delete wrote no audit row at all.
+- `create_bill`/`update_bill`/`delete_bill` extracted: registry rows
+  added first (growth rule), then the three verbs; bill routes are thin
+  callers. Deployed validation preserved exactly, including an
+  asymmetry kept rather than "fixed" — `create_bill` distinguishes
+  "amount must be positive" from "due day must be between 1 and 31,"
+  `update_bill` uses one combined message for both. Delete stays soft
+  (`active=0`); past `bill_payments` and their transactions are
+  untouched, matching `delete_goal`'s bounded-transition posture. True
+  zero-diff gate dbe7119→2879986 (no schema change); suite at 90 tests.
+
 Next: the classification foundation per INCOME-DESIGN's build order —
 `classify_inflow` (sets `income_type` on a `direction='in'` row) and the
 rules engine (`create_income_rule`, `set_rule_enabled`, `apply_rules`)
