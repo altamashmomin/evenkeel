@@ -13,9 +13,11 @@ partial settlement (row without links, edit without audit) cannot exist.
 Extraction proceeds one route per session (CORE-DESIGN sequence step 5).
 Extracted so far: settle_up, mark_bill_paid, unmark_bill_paid,
 create_goal, delete_goal, contribute_to_goal, withdraw_from_goal,
-edit_transaction, delete_transaction, record_transaction — the last verb
-in the sequence. set_splits is promoted separately, only once a
-standalone caller needs it.
+edit_transaction, delete_transaction, record_transaction — the sequence's
+last verb — plus create_bill, update_bill, delete_bill, extracted out of
+sequence to close the last invariant-1 gap (bill definitions were the
+only mutating table still taking raw SQL from a route). set_splits is
+promoted separately, only once a standalone caller needs it.
 """
 import json
 from contextlib import contextmanager
@@ -485,6 +487,107 @@ def unmark_bill_paid(db, actor, bill_id, period):
             db, actor, "unmark_bill_paid", f"bill:{bill_id}",
             {"period": period, "bill": dict(bill) if bill else None,
              "payment": dict(payment), "deleted": deleted})
+
+
+def create_bill(db, actor, data):
+    """Create a recurring-bill definition (not a transaction — bills are
+    what mark_bill_paid later turns into one).
+
+    validate — name required; amount and due_day parsed together, frozen
+    message on either failing to parse; then amount positive, then due_day
+    in range — check order and messages are the deployed route's, frozen.
+    edit — one transaction: the bill row and the audit row carrying the
+    created shape.
+    side effects — none yet.
+    Returns the bill row.
+    """
+    with action_transaction(db):
+        name = (data.get("name") or "").strip()
+        if not name:
+            raise ActionError("name is required")
+        try:
+            cents = to_cents(data.get("amount"))
+            due_day = int(data.get("due_day"))
+        except (ValueError, TypeError):
+            raise ActionError("invalid amount or due day")
+        if cents <= 0:
+            raise ActionError("amount must be positive")
+        if not (1 <= due_day <= 31):
+            raise ActionError("due day must be between 1 and 31")
+        category = (data.get("category") or "Bills").strip()[:60] or "Bills"
+        cur = db.execute(
+            "INSERT INTO bills (name, amount_cents, due_day, category) VALUES (?, ?, ?, ?)",
+            (name[:100], cents, due_day, category),
+        )
+        bill = db.execute(
+            "SELECT * FROM bills WHERE id = ?", (cur.lastrowid,)).fetchone()
+        _write_audit(db, actor, "create_bill", f"bill:{bill['id']}",
+                     {"bill": dict(bill)})
+    return bill
+
+
+def update_bill(db, actor, bill_id, data):
+    """Edit a bill definition's fields (the deployed route's payload).
+
+    validate — the bill exists (NotFound otherwise); name/category fall
+    back to the existing row's when absent; amount/due_day parsed together
+    (existing values used when absent from the payload), frozen message
+    on either failing to parse; then one combined positive-amount-or-
+    valid-range check — the deployed route uses a single message for both
+    of those, distinct from create_bill's two separate messages, and that
+    asymmetry is preserved rather than "fixed."
+    edit — one transaction: the updated row and the audit row recording
+    the before-image and the applied fields.
+    side effects — none yet.
+    Returns the updated bill row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        name = (data.get("name") or existing["name"]).strip()[:100]
+        category = (data.get("category") or existing["category"]).strip()[:60]
+        try:
+            cents = to_cents(data["amount"]) if "amount" in data else existing["amount_cents"]
+            due_day = int(data.get("due_day", existing["due_day"]))
+        except (ValueError, TypeError):
+            raise ActionError("invalid amount or due day")
+        if cents <= 0 or not (1 <= due_day <= 31):
+            raise ActionError("invalid amount or due day")
+        db.execute(
+            "UPDATE bills SET name = ?, amount_cents = ?, due_day = ?, category = ? "
+            "WHERE id = ?",
+            (name, cents, due_day, category, bill_id),
+        )
+        bill = db.execute(
+            "SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
+        _write_audit(db, actor, "update_bill", f"bill:{bill_id}",
+                     {"before": dict(existing), "after": dict(bill)})
+    return bill
+
+
+def delete_bill(db, actor, bill_id):
+    """Soft-delete a bill definition (bounded transition, matching
+    delete_goal's posture — hard delete deferred to its own increment).
+
+    validate — an active bill with this id exists (NotFound otherwise;
+    already-inactive is indistinguishable from missing, matching the
+    deployed route's rowcount check).
+    edit — one transaction: active=0 and the audit row capturing the
+    bill's state at the moment of deactivation. Past payments
+    (bill_payments rows, their transactions) are untouched — deactivating
+    a bill stops future occurrences, it does not erase history.
+    side effects — none yet.
+    """
+    with action_transaction(db):
+        bill = db.execute(
+            "SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
+        if bill is None:
+            raise NotFound("not found")
+        db.execute("UPDATE bills SET active = 0 WHERE id = ?", (bill_id,))
+        _write_audit(db, actor, "delete_bill", f"bill:{bill_id}",
+                     {"bill": dict(bill)})
 
 
 def create_goal(db, actor, data):

@@ -324,64 +324,41 @@ def list_bills():
 @app.post("/api/bills")
 @login_required
 def create_bill():
+    """Thin caller: the create_bill verb owns validation and the edit."""
     db = get_db()
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return bad_request("name is required")
     try:
-        cents = to_cents(data.get("amount"))
-        due_day = int(data.get("due_day"))
-    except (ValueError, TypeError):
-        return bad_request("invalid amount or due day")
-    if cents <= 0:
-        return bad_request("amount must be positive")
-    if not (1 <= due_day <= 31):
-        return bad_request("due day must be between 1 and 31")
-    category = (data.get("category") or "Bills").strip()[:60] or "Bills"
-    cur = db.execute(
-        "INSERT INTO bills (name, amount_cents, due_day, category) VALUES (?, ?, ?, ?)",
-        (name[:100], cents, due_day, category),
-    )
-    db.commit()
-    row = db.execute("SELECT * FROM bills WHERE id = ?", (cur.lastrowid,)).fetchone()
+        row = actions.create_bill(db, actor=ui_actor(db), data=data)
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(bill_to_json(db, row, current_period())), 201
 
 
 @app.put("/api/bills/<int:bill_id>")
 @login_required
 def update_bill(bill_id):
+    """Thin caller: the update_bill verb owns validation and the edit."""
     db = get_db()
-    row = db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
-    if row is None:
-        return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or row["name"]).strip()[:100]
-    category = (data.get("category") or row["category"]).strip()[:60]
     try:
-        cents = to_cents(data["amount"]) if "amount" in data else row["amount_cents"]
-        due_day = int(data.get("due_day", row["due_day"]))
-    except (ValueError, TypeError):
-        return bad_request("invalid amount or due day")
-    if cents <= 0 or not (1 <= due_day <= 31):
-        return bad_request("invalid amount or due day")
-    db.execute(
-        "UPDATE bills SET name = ?, amount_cents = ?, due_day = ?, category = ? WHERE id = ?",
-        (name, cents, due_day, category, bill_id),
-    )
-    db.commit()
-    row = db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
+        row = actions.update_bill(db, actor=ui_actor(db), bill_id=bill_id, data=data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(bill_to_json(db, row, current_period()))
 
 
 @app.delete("/api/bills/<int:bill_id>")
 @login_required
 def delete_bill(bill_id):
+    """Thin caller: the delete_bill verb soft-deletes and audits the
+    bill's state before deactivation."""
     db = get_db()
-    cur = db.execute("UPDATE bills SET active = 0 WHERE id = ? AND active = 1", (bill_id,))
-    db.commit()
-    if cur.rowcount == 0:
-        return jsonify({"error": "not found"}), 404
+    try:
+        actions.delete_bill(db, actor=ui_actor(db), bill_id=bill_id)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
 
 
