@@ -71,6 +71,31 @@ class MigrationTests(unittest.TestCase):
             conn.close()
         self.assertEqual([("out", None)], rows)
 
+    def test_migration_005_apply_is_idempotent(self):
+        # Every migration must be re-runnable (CLAUDE.md hard rule 1). 005
+        # was the one exception until it became a guarded .py: its raw
+        # ALTER TABLE ADD COLUMN statements raised "duplicate column name"
+        # on a second run. Call apply() twice directly against a v5 db and
+        # require no error — the runner's version tracking prevents a second
+        # run in practice, but idempotency is defense-in-depth here, as it
+        # is for every other migration in this directory.
+        import importlib.util
+        db_path = self.tmp_path / "idem.db"
+        self.run_cli("init", db_path)
+        spec = importlib.util.spec_from_file_location(
+            "m005_idem", REPO / "migrations" / "005_income.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        conn = sqlite3.connect(db_path)
+        try:
+            module.apply(conn)  # re-run once
+            module.apply(conn)  # re-run twice — the .sql version raised here
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(transactions)")}
+        finally:
+            conn.close()
+        self.assertIn("direction", cols)
+        self.assertIn("income_type", cols)
+
     def test_failed_migration_rolls_back_its_schema_and_version(self):
         migrations_dir = self.tmp_path / "migrations"
         migrations_dir.mkdir()
