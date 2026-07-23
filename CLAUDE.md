@@ -273,12 +273,32 @@ introducing the violation. The sweep reduces to: run the suite, run the
 balance gate (still manual — the crown-jewel arc check), glance at git.
 Suite at 145.
 
-Next: Dashboard card, Activity feed treatment, and the tagging-flow UI
-(INCOME-DESIGN build-order step 3) — the first surface where a real
-inflow becomes visible and taggable outside a test. Refund netting (the
-settled "keep it honest" decision) most naturally lands here too, once
-`income_type='refund'` rows exist to net against their category.
-Merging to `main` still waits for the Pi deploy and the `v1.0` tag.
+Income build step 3 underway (INCOME-DESIGN build-order step 3), one
+brick at a time:
+- Step 3a — `income_summary` derivation + `GET /api/income/summary`
+  (July 23, 2026): the dashboard card's data source and the third named
+  read-time derivation CORE-DESIGN specifies. `gross_inflows` (all 'in'),
+  `true_income` (paycheck only), `net_cash_flow` (true − the shared
+  `spending_summary` total), `savings_rate` (the one display ratio,
+  None-guarded on zero income), `unclassified_count` (the tag-me nudge).
+  Integer cents, dollars at the JSON edge. New endpoint, not a field on
+  `/api/dashboard`, so the byte-pinned v1 surface stays frozen (parity
+  green). `income_summary` added to the tripwire's EXEMPT set (the one
+  derivation that *should* see inflows), verified load-bearing. Zero-diff
+  gate; suite at 156.
+
+Next in step 3: the dashboard **card frontend** (static SPA consumes
+`/api/income/summary`), then **Activity feed** treatment (inflows render
+distinct + a "tag this" affordance + all/spending/income filter, backed
+by `GET /api/transactions?direction=in&type=unclassified`), then the
+**tagging flow** ("make this a rule?" prompt — wait-for-repeat per the
+settled auto-rule call). Refund netting (the "keep it honest" decision)
+most naturally lands with the Activity/analytics work, once
+`income_type='refund'` rows exist to net against their category. Note:
+the dashboard's unclassified nudge may want a *global* count (the whole
+tagging queue), not `income_summary`'s month-scoped one — decide when the
+card frontend lands. Merging to `main` still waits for the Pi deploy and
+the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 
