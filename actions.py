@@ -422,6 +422,12 @@ def settle_up(db, actor, data):
             "paid_by": balance["ower"]["id"],
             "is_shared": 1,
             "source": "settlement",
+            # Explicit, not by column default: a settlement *is* counted by
+            # compute_balance (it's what zeroes the books), so its
+            # direction='out' is load-bearing and stated here rather than
+            # inherited from the schema default (same reasoning as
+            # mark_bill_paid and record_transaction's outflow path).
+            "direction": "out",
         })
         keys = ", ".join(cols)
         marks = ", ".join("?" for _ in cols)
@@ -487,11 +493,15 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
             raise ActionError("shared transactions require exactly two active members")
 
         today = date.today().isoformat()
+        # direction='out' explicit, not by column default: compute_balance
+        # and spending_summary filter on it, so a bill payment's inclusion
+        # in the balance and spend totals is stated here, not inherited
+        # from a schema default a future migration could change unseen.
         cur = db.execute(
             """INSERT INTO transactions
                (txn_date, amount_cents, description, category, paid_by,
-                is_shared, source)
-               VALUES (?, ?, ?, ?, ?, ?, 'bill')""",
+                is_shared, source, direction)
+               VALUES (?, ?, ?, ?, ?, ?, 'bill', 'out')""",
             (today, bill["amount_cents"], f"{bill['name']} ({period})",
              bill["category"], paid_by, is_shared))
         txn_id = cur.lastrowid

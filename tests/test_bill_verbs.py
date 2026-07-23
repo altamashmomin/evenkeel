@@ -70,6 +70,26 @@ class BillVerbTests(unittest.TestCase):
         self.assertEqual(self.period, detail["period"])
         self.assertEqual(txn["id"], detail["transaction"])
 
+    def test_bill_payment_is_direction_out_and_counts_as_spend(self):
+        # compute_balance and spending_summary filter on direction='out'.
+        # A bill payment must be direction='out' or it silently vanishes
+        # from both. Pinned explicitly so it can't drift on a schema-default
+        # change (mark_bill_paid now sets direction, no longer inheriting it).
+        bill, _ = self.pay()
+        txn = self.db.execute(
+            "SELECT * FROM transactions WHERE source = 'bill' "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertEqual("out", txn["direction"])
+
+        # Direct proof the filter counts it: flipping this one row to 'in'
+        # must drop the month's spend total by exactly the bill amount.
+        month = txn["txn_date"][:7]
+        before = derivations.spending_summary(self.db, month)[month]["total_cents"]
+        self.db.execute(
+            "UPDATE transactions SET direction = 'in' WHERE id = ?", (txn["id"],))
+        after = derivations.spending_summary(self.db, month)[month]["total_cents"]
+        self.assertEqual(bill["amount_cents"], before - after)
+
     def test_duplicate_period_and_message_order_are_frozen(self):
         self.pay()
         with self.assertRaisesRegex(ValueError, "already marked paid for this period"):

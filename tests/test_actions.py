@@ -155,6 +155,21 @@ class SettleUpTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual("settled", derivations.compute_balance(self.db)["state"])
 
+    def test_settlement_row_is_direction_out_and_counted_by_balance(self):
+        # A settlement is *counted* by compute_balance (it's what zeroes the
+        # books), and compute_balance now filters on direction='out'. So the
+        # settlement row must be direction='out' — pinned explicitly, because
+        # if it drifted the settlement would silently stop settling anything.
+        row = actions.settle_up(self.db, "ui:avery", valid_settle_body(self.db))
+        self.assertEqual("out", row["direction"])
+        self.assertEqual("settled", derivations.compute_balance(self.db)["state"])
+
+        # Direct proof direction is load-bearing: flip the settlement row to
+        # 'in' and the balance it closed springs back open.
+        self.db.execute(
+            "UPDATE transactions SET direction = 'in' WHERE id = ?", (row["id"],))
+        self.assertEqual("owing", derivations.compute_balance(self.db)["state"])
+
     def test_submission_criterion_requires_two_active_members(self):
         body = settle_body(10.00, 1)
         self.db.execute("UPDATE members SET active = 0 WHERE id = 2")
