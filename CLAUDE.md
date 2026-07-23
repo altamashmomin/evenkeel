@@ -238,6 +238,27 @@ happening to be absent today. Zero-diff gate `da30f5f`→`4d311cf`
 existing data — the isolation suite is what actually exercises mixed
 in/out data); suite at 137 tests.
 
+Hardening pass (July 23, 2026) — a routine integrity sweep (now a
+standing per-session ritual) came back green, then a deeper audit of the
+income code found two latent issues, both fixed:
+- Migration #005 was the only non-idempotent migration (raw `ALTER TABLE
+  ADD COLUMN` errors on re-run). Converted `.sql` → a guarded `.py`
+  (PRAGMA table_info gate per add), matching 002's pattern and hard
+  rule 1. Safe to change a committed migration only because no deployed
+  DB has applied it (pre-step-0).
+- `settle_up` and `mark_bill_paid` left `direction` to the schema
+  DEFAULT `'out'` rather than setting it, so the balance's/spend's
+  correctness for settlement and bill rows was emergent from a default,
+  not stated or tested. Made explicit in both INSERTs (behavior-neutral,
+  gate zero-diff) and pinned with tests that flip the row to `'in'` and
+  watch the number move. Suite at 142.
+- Noted but not yet actioned (low priority, curl-only surface): a manual
+  inflow can be created via `POST /api/transactions` with
+  `direction='in'` (record_transaction reads it from client data) — safe
+  (is_shared forced 0, derivations exclude it) but untested at the route
+  level, and that route's response omits `direction`/`income_type`. The
+  deployed UI never sends `direction`, so no real client hits it today.
+
 Next: Dashboard card, Activity feed treatment, and the tagging-flow UI
 (INCOME-DESIGN build-order step 3) — the first surface where a real
 inflow becomes visible and taggable outside a test. Refund netting (the
