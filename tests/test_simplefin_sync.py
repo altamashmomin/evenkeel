@@ -1,8 +1,11 @@
 """simplefin_sync.py's insert path is now a thin caller of
-record_transaction: dedupe on external_id, the legacy 50/50 split, and
-the audit row all live in the verb (CORE-DESIGN's record_transaction
-entry — "sync's insert path becomes a call to this; dedupe stays
-inside it")."""
+record_transaction: dedupe on external_id, the legacy 50/50 split (money
+out) or direction='in' handling and rule-matching (money in), and the
+audit row all live in the verb (CORE-DESIGN's record_transaction entry —
+"sync's insert path becomes a call to this; dedupe stays inside it").
+The sync flip (INCOME-DESIGN build-order step 2) removed the old
+deposit-skip branch: money in now inserts as an inflow instead of being
+discarded."""
 import importlib.util
 import os
 import sqlite3
@@ -85,7 +88,10 @@ class SimplefinSyncTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_inserts_outflow_skips_deposit_writes_audit_and_splits(self):
+    def count(self, sql, *params):
+        return self.query(sql, *params)[0][0]
+
+    def test_inserts_outflow_writes_audit_and_splits(self):
         self.run_sync(simplefin_payload())
         rows = self.query(
             "SELECT * FROM transactions WHERE external_id = ?",
@@ -117,17 +123,48 @@ class SimplefinSyncTests(unittest.TestCase):
             "SELECT COUNT(*) AS c FROM transactions")[0]["c"]
         self.assertEqual(first_count, second_count)
 
+        # One audit row per row actually inserted on the first run (one
+        # outflow, one inflow) -- the rerun's dedupe no-ops write none.
         audit_count = self.query(
             "SELECT COUNT(*) AS c FROM audit_log "
             "WHERE action = 'record_transaction'")[0]["c"]
-        self.assertEqual(1, audit_count)
+        self.assertEqual(2, audit_count)
 
-    def test_deposit_is_never_inserted(self):
+    def test_deposit_inserts_as_an_unclassified_inflow(self):
         self.run_sync(simplefin_payload())
-        deposit = self.query(
+        rows = self.query(
             "SELECT * FROM transactions WHERE external_id = ?",
             "simplefin:acc1:tx-deposit")
-        self.assertEqual(0, len(deposit))
+        self.assertEqual(1, len(rows))
+        txn = rows[0]
+        self.assertEqual("in", txn["direction"])
+        self.assertEqual("unclassified", txn["income_type"])
+        self.assertEqual(50000, txn["amount_cents"])
+        self.assertEqual(1, txn["paid_by"])
+        self.assertEqual(0, txn["is_shared"])
+
+        splits = self.count(
+            "SELECT COUNT(*) FROM splits WHERE transaction_id = ?", txn["id"])
+        self.assertEqual(0, splits)
+
+    def test_inflow_is_auto_classified_when_a_rule_matches(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            """INSERT INTO income_rules
+               (priority, match_desc, set_type, enabled, created_at, hit_count)
+               VALUES (0, 'Paycheck', 'paycheck', 1, '2026-07-19T00:00:00+00:00', 0)""")
+        conn.commit()
+        conn.close()
+
+        self.run_sync(simplefin_payload())
+        row = self.query(
+            "SELECT income_type FROM transactions WHERE external_id = ?",
+            "simplefin:acc1:tx-deposit")[0]
+        self.assertEqual("paycheck", row["income_type"])
+        hit_count = self.query(
+            "SELECT hit_count FROM income_rules WHERE match_desc = 'Paycheck'"
+        )[0]["hit_count"]
+        self.assertEqual(1, hit_count)
 
 
 if __name__ == "__main__":

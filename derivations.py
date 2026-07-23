@@ -19,6 +19,13 @@ def compute_balance(db, as_of=None):
     balances remain a separate design increment; this function does not pretend
     the current settlement presentation supports them. ``as_of`` is an optional
     inclusive ISO date used by settle_up so its amount and coverage window agree.
+
+    The direction='out' filter is defense-in-depth, not the only guard:
+    inflows never get split rows (INCOME-DESIGN invariant 1), so the join
+    already excludes them structurally. INCOME-DESIGN states the rule in
+    words too ("the balance computation ignores them entirely") — this
+    is that sentence enforced explicitly rather than left as an emergent
+    property of a separate table staying empty.
     """
     members = db.execute(
         "SELECT id, username, display_name FROM members WHERE active = 1 ORDER BY id"
@@ -33,7 +40,7 @@ def compute_balance(db, as_of=None):
         """SELECT t.amount_cents, t.paid_by, s.member_id, s.share_bp
            FROM transactions t
            JOIN splits s ON s.transaction_id = t.id
-           WHERE s.member_id != t.paid_by""" + date_clause,
+           WHERE s.member_id != t.paid_by AND t.direction = 'out'""" + date_clause,
         params).fetchall()
     for row in rows:
         owed_cents = round_ratio(row["amount_cents"] * row["share_bp"], 10000)
@@ -54,8 +61,16 @@ def compute_balance(db, as_of=None):
 
 
 def spending_summary(db, month=None):
-    """Outflow totals by month/category, excluding settlement transactions."""
-    where = "WHERE source != 'settlement'"
+    """Outflow totals by month/category, excluding settlement transactions.
+
+    direction='out' is mandatory here, not defensive: unlike compute_balance
+    (whose splits join already excludes inflows structurally), this query
+    has no other guard, and every inflow row the sync flip now creates
+    would otherwise inflate spend the moment it landed. INCOME-DESIGN
+    invariant 2 ("spending totals never include inflows") is enforced
+    right here.
+    """
+    where = "WHERE source != 'settlement' AND direction = 'out'"
     params = []
     if month is not None:
         where += " AND substr(txn_date, 1, 7) = ?"

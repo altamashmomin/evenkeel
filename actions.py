@@ -222,21 +222,53 @@ def record_transaction(db, actor, data, source, external_id=None):
     validate — the deployed route's full-payload validation, frozen
     messages. source is a verb decision, never taken from the caller's
     data — the same discipline settle_up and mark_bill_paid already use
-    to force their own source tag.
+    to force their own source tag. direction defaults to 'out' (every
+    caller before the income build); 'in' is the only other value.
     edit — one transaction: the insert (a no-op on a duplicate
     external_id, via the same ON CONFLICT the deployed sync script used
     directly — sync's lookback window is expected to overlap between
-    runs, so a duplicate is routine, not an error), its legacy
-    two-member split rows, and the audit row — skipped entirely on the
-    dedupe no-op, since nothing happened to audit.
+    runs, so a duplicate is routine, not an error). An outflow gets its
+    legacy two-member split rows exactly as before. An inflow gets none
+    at all — "no share fields regardless of the SYNC defaults" per
+    INCOME-DESIGN invariant 1, which is also what keeps compute_balance's
+    splits join structurally blind to it — and is matched against
+    enabled income_rules immediately, the same first-match-wins pass
+    apply_rules runs later for backfill: a match sets income_type and,
+    if the rule overrides the owner, paid_by, and bumps the rule's
+    hit_count; no match lands 'unclassified'. The audit row records
+    source, direction, and — for an inflow — what it was classified as
+    and by which rule, if any; skipped entirely on the dedupe no-op,
+    since nothing happened to audit.
     side effects — none yet.
     Returns the new row, or None when external_id deduped.
     """
     with action_transaction(db):
+        direction = data.get("direction", "out")
+        if direction not in ("in", "out"):
+            raise ActionError("direction must be 'in' or 'out'")
+
         cols = validate_txn_payload(db, data)
         pct = cols.pop("payer_share_pct", 50)
         cols["source"] = source
         cols["external_id"] = external_id
+        cols["direction"] = direction
+
+        matched_rule = None
+        if direction == "in":
+            cols["is_shared"] = 0
+            matched_rule = _first_matching_rule(db, {
+                "description": cols["description"],
+                "external_id": external_id,
+                "amount_cents": cols["amount_cents"]})
+            if matched_rule is not None:
+                cols["income_type"] = matched_rule["set_type"]
+                if matched_rule["set_paid_by"] is not None:
+                    cols["paid_by"] = matched_rule["set_paid_by"]
+            else:
+                cols["income_type"] = "unclassified"
+        else:
+            cols["income_type"] = None
+
         keys = ", ".join(cols)
         marks = ", ".join("?" for _ in cols)
         cur = db.execute(
@@ -246,13 +278,20 @@ def record_transaction(db, actor, data, source, external_id=None):
         if cur.rowcount == 0:
             return None
         txn_id = cur.lastrowid
-        write_legacy_two_member_splits(
-            db, txn_id, cols["paid_by"], cols["is_shared"], pct)
+        if direction == "out":
+            write_legacy_two_member_splits(
+                db, txn_id, cols["paid_by"], cols["is_shared"], pct)
+        if matched_rule is not None:
+            db.execute(
+                "UPDATE income_rules SET hit_count = hit_count + 1 WHERE id = ?",
+                (matched_rule["id"],))
         _write_audit(
             db, actor, "record_transaction", f"transaction:{txn_id}",
-            {"source": source, "amount_cents": cols["amount_cents"],
-             "paid_by": cols["paid_by"], "is_shared": bool(cols["is_shared"]),
-             "external_id": external_id})
+            {"source": source, "direction": direction,
+             "amount_cents": cols["amount_cents"], "paid_by": cols["paid_by"],
+             "is_shared": bool(cols["is_shared"]), "external_id": external_id,
+             "income_type": cols["income_type"],
+             "matched_rule_id": matched_rule["id"] if matched_rule else None})
     return db.execute(
         "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
 
@@ -346,11 +385,14 @@ def settle_up(db, actor, data):
     assertions: the verb recomputes both from the ledger as of its date.
     edit — one transaction: the settlement row (source forced to
     'settlement'), its split rows, a 'settles' link to every shared
-    transaction dated on or before the settlement and not already covered
-    by a previous settlement (previous settlements included: this one
-    closes them too; rows dated after the settlement stay uncovered for
-    the next one; historic rows from before the links table simply start
-    uncovered — forward-only), and the audit row.
+    outflow transaction dated on or before the settlement and not already
+    covered by a previous settlement (previous settlements included: this
+    one closes them too; rows dated after the settlement stay uncovered
+    for the next one; historic rows from before the links table simply
+    start uncovered — forward-only; direction='out' is explicit
+    defense-in-depth alongside the splits join that already excludes
+    inflows structurally, same reasoning as compute_balance), and the
+    audit row.
     side effects — none yet.
     Returns the settlement transaction row.
     """
@@ -393,7 +435,8 @@ def settle_up(db, actor, data):
         covered = [r[0] for r in db.execute(
             """SELECT DISTINCT t.id FROM transactions t
                JOIN splits s ON s.transaction_id = t.id
-               WHERE t.id != ? AND t.txn_date <= ? AND NOT EXISTS (
+               WHERE t.id != ? AND t.txn_date <= ? AND t.direction = 'out'
+                   AND NOT EXISTS (
                    SELECT 1 FROM links l
                    WHERE l.link_type = 'settles' AND l.to_id = t.id)
                ORDER BY t.id""", (txn_id, cols["txn_date"])).fetchall()]
@@ -852,6 +895,23 @@ def set_rule_enabled(db, actor, rule_id, enabled):
     return rule
 
 
+def _first_matching_rule(db, row, rules=None):
+    """The first enabled rule (priority ascending, ties by id) that
+    matches this row, or None. `row` needs only description, external_id,
+    and amount_cents — a plain dict works as well as a real transactions
+    Row, which is what lets record_transaction check a not-yet-inserted
+    row before it decides the row's own income_type/paid_by. Pass a
+    pre-fetched `rules` list to avoid re-querying per row in a batch."""
+    if rules is None:
+        rules = db.execute(
+            "SELECT * FROM income_rules WHERE enabled = 1 "
+            "ORDER BY priority ASC, id ASC").fetchall()
+    for rule in rules:
+        if _rule_matches(rule, row):
+            return rule
+    return None
+
+
 def _matching_pass(db):
     """Read-only: every enabled rule (priority ascending, ties by id) tried
     in order against every unclassified inflow; first match wins."""
@@ -863,12 +923,11 @@ def _matching_pass(db):
         "AND income_type = 'unclassified' ORDER BY id").fetchall()
     matches = []
     for row in rows:
-        for rule in rules:
-            if _rule_matches(rule, row):
-                matches.append({
-                    "transaction_id": row["id"], "rule_id": rule["id"],
-                    "set_type": rule["set_type"], "set_paid_by": rule["set_paid_by"]})
-                break
+        rule = _first_matching_rule(db, row, rules)
+        if rule is not None:
+            matches.append({
+                "transaction_id": row["id"], "rule_id": rule["id"],
+                "set_type": rule["set_type"], "set_paid_by": rule["set_paid_by"]})
     return matches
 
 

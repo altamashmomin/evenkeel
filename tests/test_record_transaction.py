@@ -147,6 +147,87 @@ class RecordTransactionTests(unittest.TestCase):
         self.assertFalse(self.db.in_transaction)
         self.assertEqual(before, self.count("SELECT COUNT(*) FROM transactions"))
 
+    # ------------------------------------------------------- direction='in'
+
+    def test_direction_defaults_to_out(self):
+        row = actions.record_transaction(
+            self.db, "ui:avery", self.manual_payload(), source="manual")
+        self.assertEqual("out", row["direction"])
+        self.assertIsNone(row["income_type"])
+
+    def test_invalid_direction_rejected(self):
+        with self.assertRaisesRegex(
+                actions.ActionError, "direction must be 'in' or 'out'"):
+            actions.record_transaction(
+                self.db, "ui:avery",
+                self.manual_payload(direction="sideways"), source="manual")
+
+    def test_inflow_gets_no_splits_even_when_is_shared_is_true(self):
+        row = actions.record_transaction(
+            self.db, "sync",
+            self.manual_payload(direction="in", is_shared=True),
+            source="simplefin", external_id="in-1")
+        self.assertEqual("in", row["direction"])
+        self.assertEqual(0, row["is_shared"])
+        self.assertEqual(
+            0, self.count(
+                "SELECT COUNT(*) FROM splits WHERE transaction_id = ?", row["id"]))
+
+    def test_inflow_with_no_matching_rule_lands_unclassified(self):
+        row = actions.record_transaction(
+            self.db, "sync", self.manual_payload(direction="in"),
+            source="simplefin", external_id="in-2")
+        self.assertEqual("unclassified", row["income_type"])
+
+        audit = self.db.execute(
+            "SELECT detail_json FROM audit_log WHERE action = 'record_transaction' "
+            "AND target = ?", (f"transaction:{row['id']}",)).fetchone()
+        detail = json.loads(audit["detail_json"])
+        self.assertEqual("in", detail["direction"])
+        self.assertEqual("unclassified", detail["income_type"])
+        self.assertIsNone(detail["matched_rule_id"])
+
+    def test_inflow_auto_classifies_and_bumps_hit_count_when_a_rule_matches(self):
+        rule = actions.create_income_rule(
+            self.db, "ui:avery",
+            {"match_desc": "Groceries run", "set_type": "paycheck"})
+        row = actions.record_transaction(
+            self.db, "sync", self.manual_payload(direction="in"),
+            source="simplefin", external_id="in-3")
+        self.assertEqual("paycheck", row["income_type"])
+
+        hit_count = self.db.execute(
+            "SELECT hit_count FROM income_rules WHERE id = ?",
+            (rule["id"],)).fetchone()["hit_count"]
+        self.assertEqual(1, hit_count)
+
+        detail = json.loads(self.db.execute(
+            "SELECT detail_json FROM audit_log WHERE action = 'record_transaction' "
+            "AND target = ?", (f"transaction:{row['id']}",)).fetchone()[0])
+        self.assertEqual(rule["id"], detail["matched_rule_id"])
+
+    def test_inflow_rule_can_override_the_owner(self):
+        actions.create_income_rule(
+            self.db, "ui:avery",
+            {"match_desc": "Groceries run", "set_type": "gift", "set_paid_by": 2})
+        row = actions.record_transaction(
+            self.db, "sync", self.manual_payload(direction="in", paid_by=1),
+            source="simplefin", external_id="in-4")
+        self.assertEqual(2, row["paid_by"])
+        self.assertEqual("gift", row["income_type"])
+
+    def test_inflow_is_atomic_audit_or_nothing(self):
+        self.db.execute("DROP TABLE audit_log")
+        self.db.commit()
+        with self.assertRaises(sqlite3.OperationalError):
+            actions.record_transaction(
+                self.db, "sync", self.manual_payload(direction="in"),
+                source="simplefin", external_id="in-5")
+        self.assertFalse(self.db.in_transaction)
+        self.assertEqual(
+            0, self.count(
+                "SELECT COUNT(*) FROM transactions WHERE external_id = ?", "in-5"))
+
 
 if __name__ == "__main__":
     unittest.main()
