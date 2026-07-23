@@ -167,9 +167,8 @@ def sync() -> None:
                         "description": desc,
                         "paid_by": PAID_BY,
                         "is_shared": False,
-                        "direction": "in",
                     },
-                    source="simplefin", external_id=external_id)
+                    source="simplefin", external_id=external_id, direction="in")
                 if row is not None:
                     inserted_in += 1
                     print(f"  + {txn_date}  {cents/100:>9.2f}  {desc[:48]}  [{acct_name}]  "

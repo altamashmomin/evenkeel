@@ -104,6 +104,30 @@ class TransactionRouteTests(unittest.TestCase):
             conn.close()
         self.assertEqual([("ui:avery", "record_transaction")], audit)
 
+    def test_manual_post_cannot_create_an_inflow(self):
+        # The manual route forces source='manual' and never passes
+        # direction, so a client slipping "direction":"in" into the body is
+        # ignored — a manual entry is always a spend (Finding 3). If a
+        # designed manual-income feature ever wants otherwise, that's a new,
+        # explicit path, not this one silently allowing it.
+        client = self.client()
+        created = client.post("/api/transactions", json={
+            "date": date.today().isoformat(), "amount": 500,
+            "description": "Sneaky paycheck", "category": "Other",
+            "paid_by": 1, "is_shared": True, "payer_share_pct": 50,
+            "direction": "in",
+        })
+        self.assertEqual(201, created.status_code)
+        txn_id = created.get_json()["id"]
+        conn = sqlite3.connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT direction, income_type FROM transactions WHERE id = ?",
+                (txn_id,)).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(("out", None), row)
+
     def test_delete_keeps_v1_shape_and_writes_audit(self):
         client = self.client()
         txn_id = self.a_manual_txn(client)

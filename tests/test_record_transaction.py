@@ -159,14 +159,24 @@ class RecordTransactionTests(unittest.TestCase):
         with self.assertRaisesRegex(
                 actions.ActionError, "direction must be 'in' or 'out'"):
             actions.record_transaction(
-                self.db, "ui:avery",
-                self.manual_payload(direction="sideways"), source="manual")
+                self.db, "ui:avery", self.manual_payload(),
+                source="manual", direction="sideways")
+
+    def test_direction_is_a_verb_param_not_read_from_client_data(self):
+        # A client slipping "direction":"in" into the payload must be
+        # ignored — direction is the caller's decision, like source. This
+        # is what keeps the manual-entry route from creating inflows.
+        payload = self.manual_payload()
+        payload["direction"] = "in"  # a client trying to force an inflow
+        row = actions.record_transaction(
+            self.db, "ui:avery", payload, source="manual")
+        self.assertEqual("out", row["direction"])
 
     def test_inflow_gets_no_splits_even_when_is_shared_is_true(self):
         row = actions.record_transaction(
             self.db, "sync",
-            self.manual_payload(direction="in", is_shared=True),
-            source="simplefin", external_id="in-1")
+            self.manual_payload(is_shared=True),
+            source="simplefin", external_id="in-1", direction="in")
         self.assertEqual("in", row["direction"])
         self.assertEqual(0, row["is_shared"])
         self.assertEqual(
@@ -175,8 +185,8 @@ class RecordTransactionTests(unittest.TestCase):
 
     def test_inflow_with_no_matching_rule_lands_unclassified(self):
         row = actions.record_transaction(
-            self.db, "sync", self.manual_payload(direction="in"),
-            source="simplefin", external_id="in-2")
+            self.db, "sync", self.manual_payload(),
+            source="simplefin", external_id="in-2", direction="in")
         self.assertEqual("unclassified", row["income_type"])
 
         audit = self.db.execute(
@@ -192,8 +202,8 @@ class RecordTransactionTests(unittest.TestCase):
             self.db, "ui:avery",
             {"match_desc": "Groceries run", "set_type": "paycheck"})
         row = actions.record_transaction(
-            self.db, "sync", self.manual_payload(direction="in"),
-            source="simplefin", external_id="in-3")
+            self.db, "sync", self.manual_payload(),
+            source="simplefin", external_id="in-3", direction="in")
         self.assertEqual("paycheck", row["income_type"])
 
         hit_count = self.db.execute(
@@ -211,8 +221,8 @@ class RecordTransactionTests(unittest.TestCase):
             self.db, "ui:avery",
             {"match_desc": "Groceries run", "set_type": "gift", "set_paid_by": 2})
         row = actions.record_transaction(
-            self.db, "sync", self.manual_payload(direction="in", paid_by=1),
-            source="simplefin", external_id="in-4")
+            self.db, "sync", self.manual_payload(paid_by=1),
+            source="simplefin", external_id="in-4", direction="in")
         self.assertEqual(2, row["paid_by"])
         self.assertEqual("gift", row["income_type"])
 
@@ -221,8 +231,8 @@ class RecordTransactionTests(unittest.TestCase):
         self.db.commit()
         with self.assertRaises(sqlite3.OperationalError):
             actions.record_transaction(
-                self.db, "sync", self.manual_payload(direction="in"),
-                source="simplefin", external_id="in-5")
+                self.db, "sync", self.manual_payload(),
+                source="simplefin", external_id="in-5", direction="in")
         self.assertFalse(self.db.in_transaction)
         self.assertEqual(
             0, self.count(

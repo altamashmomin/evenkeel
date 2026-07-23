@@ -214,16 +214,20 @@ def delete_transaction_graph(db, txn_id):
     return {"transaction": dict(txn), "splits": splits, "links": links}
 
 
-def record_transaction(db, actor, data, source, external_id=None):
+def record_transaction(db, actor, data, source, external_id=None, direction="out"):
     """Insert a new transaction — the UI's manual entry and the sync
     script's insert, unified (CORE-DESIGN: "sync's insert path becomes a
     call to this; dedupe stays inside it").
 
     validate — the deployed route's full-payload validation, frozen
-    messages. source is a verb decision, never taken from the caller's
-    data — the same discipline settle_up and mark_bill_paid already use
-    to force their own source tag. direction defaults to 'out' (every
-    caller before the income build); 'in' is the only other value.
+    messages. source AND direction are verb decisions the caller passes
+    explicitly, never read from `data` — the same discipline settle_up and
+    mark_bill_paid use to force their own source tag. This is deliberate:
+    it means the manual-entry route (which passes only source='manual')
+    cannot be coaxed into creating an inflow by a client slipping
+    "direction":"in" into the JSON body — a manual POST is always a spend
+    until a designed manual-income feature exists. Only sync passes
+    direction='in', for the money-in leg it now imports.
     edit — one transaction: the insert (a no-op on a duplicate
     external_id, via the same ON CONFLICT the deployed sync script used
     directly — sync's lookback window is expected to overlap between
@@ -243,7 +247,6 @@ def record_transaction(db, actor, data, source, external_id=None):
     Returns the new row, or None when external_id deduped.
     """
     with action_transaction(db):
-        direction = data.get("direction", "out")
         if direction not in ("in", "out"):
             raise ActionError("direction must be 'in' or 'out'")
 
