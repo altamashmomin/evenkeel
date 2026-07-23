@@ -259,3 +259,21 @@ sequence" section to reflect what's done and what's next.
 - Tests use a synthetic seed database that mirrors the deployed schema;
   never real data in tests.
 - Actor strings everywhere: `ui:<member>` | `sync` | `mcp:<token-label>`.
+- `seed_income.py` (added July 23, 2026) is the income build's fixture,
+  run as a third step after `seed_db.py` + `migrate.py apply` — it can't
+  be folded into `seed_db.py` itself, which freezes the v1.0 DDL and
+  runs before `direction`/`income_type` exist. Use it whenever a change
+  should be checked against realistic mixed spend+income data, including
+  when building `dev.db` for the balance gate.
+- `tests/test_derivation_tripwire.py` automatically checks every
+  db-taking function in `derivations.py` against inflow-contamination
+  (introspects the module, so a new aggregate is covered without anyone
+  registering it) — the organic version of the manual cross-error audit
+  that caught `spending_summary`'s original bug. It only catches a
+  *mandatory* filter going missing; a *defense-in-depth* one
+  (`compute_balance`, `settle_up`) still needs
+  `test_income_isolation.py`'s deliberately-invariant-violating
+  fixtures. Both were verified to actually fail by temporarily
+  reintroducing the bugs they guard
+  against — a claimed regression test is unproven until it's watched
+  to fail once.
