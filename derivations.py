@@ -95,3 +95,55 @@ def spending_summary(db, month=None):
             "amount_cents": row["total_cents"],
         })
     return summaries
+
+
+def income_summary(db, month=None):
+    """Income and cash-flow aggregates — the ONE derivation that counts
+    inflows (every other filters them out; this is where they belong).
+
+    Each field declares which types it counts (INCOME-DESIGN invariant 3):
+    gross_inflows is every 'in' row; true_income is paycheck rows only —
+    refunds, transfers, gifts, and unclassified are money in but not income
+    earned; net_cash_flow is true_income minus the same spend total
+    spending_summary computes (one named function, every surface); the
+    unclassified count is the tag-me nudge. All integer cents. savings_rate
+    is the single intentional exception — a display ratio, not money, so a
+    float is idiomatic here — guarded to None when there's no income to
+    divide by.
+
+    `month` None means all-time (no clock read, so this stays deterministic
+    and callable as income_summary(db)); a YYYY-MM string scopes every
+    field to that month, which is what the dashboard card passes. A
+    trailing-window form (`months_back`, for the scenarios "measured
+    income" average) is deferred to the increment that needs it.
+    """
+    clause = " AND substr(txn_date, 1, 7) = ?" if month is not None else ""
+    params = (month,) if month is not None else ()
+    row = db.execute(
+        """SELECT
+               COALESCE(SUM(amount_cents), 0) AS gross,
+               COALESCE(SUM(CASE WHEN income_type = 'paycheck'
+                                 THEN amount_cents ELSE 0 END), 0) AS true_income,
+               COALESCE(SUM(CASE WHEN income_type = 'unclassified'
+                                 THEN 1 ELSE 0 END), 0) AS unclassified
+           FROM transactions
+           WHERE direction = 'in'""" + clause, params).fetchone()
+    gross_cents = row["gross"]
+    true_income_cents = row["true_income"]
+
+    if month is not None:
+        spend_cents = spending_summary(db, month)[month]["total_cents"]
+    else:
+        spend_cents = sum(m["total_cents"] for m in spending_summary(db).values())
+    net_cash_flow_cents = true_income_cents - spend_cents
+
+    savings_rate = (None if true_income_cents == 0
+                    else round(net_cash_flow_cents / true_income_cents, 4))
+    return {
+        "gross_inflows_cents": gross_cents,
+        "true_income_cents": true_income_cents,
+        "month_spend_cents": spend_cents,
+        "net_cash_flow_cents": net_cash_flow_cents,
+        "savings_rate": savings_rate,
+        "unclassified_count": row["unclassified"],
+    }

@@ -14,7 +14,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 from actions import active_members, current_period, payer_share_pct, to_cents
-from derivations import compute_balance as derive_balance, spending_summary
+from derivations import (compute_balance as derive_balance, income_summary,
+                         spending_summary)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -368,6 +369,27 @@ def apply_income_rules():
     dry_run = bool(data.get("dry_run", False))
     changes = actions.apply_rules(db, actor=ui_actor(db), dry_run=dry_run)
     return jsonify({"dry_run": dry_run, "changes": changes})
+
+
+@app.get("/api/income/summary")
+@login_required
+def income_summary_view():
+    """The dashboard income card's data: cents from the income_summary
+    derivation, presented as dollars at the JSON edge (like /api/balance).
+    A new endpoint, not a field on /api/dashboard, so the byte-pinned v1
+    dashboard shape stays frozen."""
+    db = get_db()
+    month = request.args.get("month") or current_period()
+    s = income_summary(db, month)
+    return jsonify({
+        "month": month,
+        "gross_inflows": dollars(s["gross_inflows_cents"]),
+        "true_income": dollars(s["true_income_cents"]),
+        "month_spend": dollars(s["month_spend_cents"]),
+        "net_cash_flow": dollars(s["net_cash_flow_cents"]),
+        "savings_rate": s["savings_rate"],
+        "unclassified_count": s["unclassified_count"],
+    })
 
 
 @app.get("/api/categories")

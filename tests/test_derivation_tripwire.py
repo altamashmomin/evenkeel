@@ -36,9 +36,11 @@ sys.path.insert(0, str(REPO))
 import derivations
 
 # A name goes here only with a one-line reason for why THIS function is
-# supposed to change when inflows exist -- e.g. a future income_summary.
-# Empty today: nothing in derivations.py has any business seeing income.
-EXEMPT = {}
+# supposed to change when inflows exist.
+EXEMPT = {
+    "income_summary": "the income aggregate itself — the one derivation "
+                      "whose entire job is to count inflows (INCOME-DESIGN)",
+}
 
 
 def db_functions():
