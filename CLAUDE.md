@@ -259,6 +259,18 @@ income code found two latent issues, both fixed:
   level, and that route's response omits `direction`/`income_type`. The
   deployed UI never sends `direction`, so no real client hits it today.
 
+The routine integrity sweep is now mostly automated (July 23, 2026):
+`tests/test_architecture.py` enforces invariant 1 (no raw writes to the
+nine governed tables outside actions.py/migrations/fixtures, `members`
+carved out as a documented `KNOWN_EXCEPTIONS` entry for the pre-verb
+setup route) and registry↔code coherence (every actions.py verb appears
+in CORE-DESIGN's table). With schema-version coherence already tested
+and the derivation tripwire in place, a green suite now *is* four of the
+old by-hand checks. Each tooth was verified to bite by temporarily
+introducing the violation. The sweep reduces to: run the suite, run the
+balance gate (still manual — the crown-jewel arc check), glance at git.
+Suite at 145.
+
 Next: Dashboard card, Activity feed treatment, and the tagging-flow UI
 (INCOME-DESIGN build-order step 3) — the first surface where a real
 inflow becomes visible and taggable outside a test. Refund netting (the
