@@ -252,12 +252,14 @@ income code found two latent issues, both fixed:
   not stated or tested. Made explicit in both INSERTs (behavior-neutral,
   gate zero-diff) and pinned with tests that flip the row to `'in'` and
   watch the number move. Suite at 142.
-- Noted but not yet actioned (low priority, curl-only surface): a manual
-  inflow can be created via `POST /api/transactions` with
-  `direction='in'` (record_transaction reads it from client data) — safe
-  (is_shared forced 0, derivations exclude it) but untested at the route
-  level, and that route's response omits `direction`/`income_type`. The
-  deployed UI never sends `direction`, so no real client hits it today.
+- Finding 3, since closed: a manual `POST /api/transactions` could create
+  an inflow because `record_transaction` read `direction` from the client
+  `data` blob. Promoted `direction` to a verb parameter (default `'out'`,
+  like `source`) — the manual route passes only `source='manual'` so a
+  client's `"direction"` key is never read; only sync passes
+  `direction='in'`. Closes the undesigned path at the source; gate
+  zero-diff (real callers unchanged). Manual income entry, if ever wanted,
+  becomes a new explicit path rather than this one silently allowing it.
 
 The routine integrity sweep is now mostly automated (July 23, 2026):
 `tests/test_architecture.py` enforces invariant 1 (no raw writes to the
