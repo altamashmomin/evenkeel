@@ -213,15 +213,37 @@ build order step 1:
   only place account identity lives; no schema column exists for it.
   Zero-diff gate 2879986→da30f5f; suite at 123 tests.
 
-Both verbs and their routes exist, but nothing yet calls them from real
-data: `seed_db.py` generates no `direction='in'` rows and sync still
-skips deposits, so no inflow reaches either path outside tests. Next:
-flip sync's `amount >= 0: skip` branch (INCOME-DESIGN build-order step
-2) so inflows land as `direction='in'`, run through `apply_rules`, and
-the rest go `unclassified` — the classification foundation's first real
-data. Dashboard card, Activity treatment, and the tagging-flow UI (step
-3) follow. Merging to `main` still waits for the Pi deploy and the
-`v1.0` tag.
+Sync flip landed (July 22, 2026), INCOME-DESIGN build-order step 2:
+`simplefin_sync.py`'s `amount >= 0: skip` branch is gone. Money in now
+inserts through `record_transaction` (extended, not duplicated) with
+`direction='in'`: no share fields regardless of what's passed, matched
+against enabled `income_rules` immediately on insert
+(`_first_matching_rule`, the same first-match-wins logic `apply_rules`
+uses for backfill) — a match sets `income_type` and, if the rule
+overrides the owner, `paid_by`, and bumps `hit_count`; no match lands
+`'unclassified'`. Manual UI entry gets the same capability for free,
+since it's the same verb. Outflow behavior is unchanged byte-for-byte.
+
+Cross-error audit done before touching sync, not after: `spending_summary`
+had no `direction` filter at all — every inflow would have inflated
+monthly spend the moment it landed. Fixed (mandatory).
+`compute_balance` and `settle_up`'s covered-rows query were already
+safe via their splits `INNER JOIN` (inflows never get split rows) but
+got an explicit `direction='out'` filter too, as defense-in-depth —
+`tests/test_income_isolation.py` manufactures inflows *with* split rows
+attached (something `record_transaction` itself never produces) to
+prove the explicit filters catch it, not just benefit from splits
+happening to be absent today. Zero-diff gate `da30f5f`→`4d311cf`
+(seeded data has no inflows, so this checks the code path is inert for
+existing data — the isolation suite is what actually exercises mixed
+in/out data); suite at 137 tests.
+
+Next: Dashboard card, Activity feed treatment, and the tagging-flow UI
+(INCOME-DESIGN build-order step 3) — the first surface where a real
+inflow becomes visible and taggable outside a test. Refund netting (the
+settled "keep it honest" decision) most naturally lands here too, once
+`income_type='refund'` rows exist to net against their category.
+Merging to `main` still waits for the Pi deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 
