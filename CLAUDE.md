@@ -287,18 +287,28 @@ brick at a time:
   derivation that *should* see inflows), verified load-bearing. Zero-diff
   gate; suite at 156.
 
-Next in step 3: the dashboard **card frontend** (static SPA consumes
-`/api/income/summary`), then **Activity feed** treatment (inflows render
-distinct + a "tag this" affordance + all/spending/income filter, backed
-by `GET /api/transactions?direction=in&type=unclassified`), then the
+- Step 3b — dashboard income card frontend (July 23, 2026): the SPA's
+  dashboard shows an income card beside Spent, consuming
+  `/api/income/summary` for the month the dashboard resolved to. Headline
+  `true_income` (green), signed `net_cash_flow` (green/red), `savings_rate`
+  as a percent or "—", a "total money in" row only when gross ≠ true, a
+  brass tagging nudge, and an empty state when there are no inflows.
+  Verified visually across every state in a throwaway harness rendering
+  the real shipped function against `style.css` — which caught a
+  subject-verb-agreement bug the Python tests couldn't. Frontend only;
+  backend untouched; suite at 156. Nudge-scope question resolved: the
+  card uses `income_summary`'s month-scoped count (the card is a month
+  view); a *global* tagging-queue count belongs with the Activity feed's
+  tag affordance, not here.
+
+Next in step 3: **Activity feed** treatment (inflows render distinct + a
+"tag this" affordance + all/spending/income filter, backed by
+`GET /api/transactions?direction=in&type=unclassified`), then the
 **tagging flow** ("make this a rule?" prompt — wait-for-repeat per the
 settled auto-rule call). Refund netting (the "keep it honest" decision)
 most naturally lands with the Activity/analytics work, once
-`income_type='refund'` rows exist to net against their category. Note:
-the dashboard's unclassified nudge may want a *global* count (the whole
-tagging queue), not `income_summary`'s month-scoped one — decide when the
-card frontend lands. Merging to `main` still waits for the Pi deploy and
-the `v1.0` tag.
+`income_type='refund'` rows exist to net against their category. Merging
+to `main` still waits for the Pi deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 
