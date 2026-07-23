@@ -208,8 +208,59 @@ function beamHTML(bal) {
     </div>`;
 }
 
+function incomeCardHTML(inc, month) {
+  // No inflows yet (the state until sync imports income, or an empty
+  // month): a muted empty state, not a wall of zeros — same grammar as the
+  // bills/goals/recent cards.
+  if (inc.gross_inflows === 0) {
+    return `
+      <div class="card">
+        <p class="eyebrow">Income in ${monthName(month)}</p>
+        <p class="empty">No income recorded this month.</p>
+      </div>`;
+  }
+  const net = inc.net_cash_flow;
+  const netCls = net >= 0 ? "pos" : "neg";
+  const netStr = (net >= 0 ? "+" : "−") + fmt(Math.abs(net));
+  // savings_rate is a ratio or null (no paycheck income to divide by).
+  const rate = inc.savings_rate == null ? "—" : Math.round(inc.savings_rate * 100) + "%";
+  // Total-in row only when gross differs from true income (i.e. there's
+  // non-paycheck money in — refunds, gifts — worth distinguishing).
+  const grossRow = inc.gross_inflows !== inc.true_income
+    ? `<div class="income-sub">
+         <span>Total money in</span>
+         <span class="amount">${fmt(inc.gross_inflows)}</span>
+       </div>`
+    : "";
+  const n = inc.unclassified_count;
+  const nudge = n > 0
+    ? `<p class="income-nudge">${n} inflow${n === 1 ? " still needs" : "s still need"} tagging</p>`
+    : "";
+  return `
+    <div class="card">
+      <p class="eyebrow">Income in ${monthName(month)}</p>
+      <p class="stat-big income-amt">${fmt(inc.true_income)}</p>
+      <p class="income-label">earned — paychecks only</p>
+      <div class="income-grid">
+        <div class="income-cell">
+          <span class="income-cell-label">Net cash flow</span>
+          <span class="income-cell-val ${netCls}">${netStr}</span>
+        </div>
+        <div class="income-cell">
+          <span class="income-cell-label">Savings rate</span>
+          <span class="income-cell-val">${rate}</span>
+        </div>
+      </div>
+      ${grossRow}
+      ${nudge}
+    </div>`;
+}
+
 async function renderDashboard() {
   const d = await api("/api/dashboard");
+  // Same month the dashboard resolved to, so the two cards always agree;
+  // the /api/dashboard call itself stays unchanged (parity-frozen shape).
+  const inc = await api(`/api/income/summary?month=${d.month}`);
   window._dash = d;
   const maxCat = Math.max(1, ...d.by_category.map((c) => c.amount));
   const cats = d.by_category.length
@@ -255,6 +306,7 @@ async function renderDashboard() {
       <p class="stat-big">${fmt(d.month_total)}</p>
       <div style="margin-top:12px">${cats}</div>
     </div>
+    ${incomeCardHTML(inc, d.month)}
     <div class="card"><p class="eyebrow">Unpaid bills</p>${bills}</div>
     <div class="card"><p class="eyebrow">Goals</p>${goals}</div>
     <div class="card"><p class="eyebrow">Recent</p>${recent}</div>`;
