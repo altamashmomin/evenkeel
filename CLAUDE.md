@@ -56,15 +56,34 @@ script doesn't exist yet, building it precedes the increment it gates.
 
 ## Current position in the sequence
 
-Pre-step-0: the Pi is not yet deployed (hardware pending). Build targets
-now, in order — all runnable/testable locally against a synthetic seed db:
+Pre-step-0: the Pi is not yet deployed (hardware pending). Everything so
+far lives on `rework`, unmerged — merging waits for the Pi deploy and the
+`v1.0` tag at the deployed state.
 
-1. Migration runner + `schema_version` (migration #001)
-2. Migration #002 — `users` → `members`; explode the split column into
-   per-member `splits` rows (basis points, sum 10000); drop the old
-   column. Gate must show zero balance change.
-3. Migration #003 — `links` table.
-4. The balance gate script itself (shadow compare old vs new).
+Done (sessions one and two, on `rework`; session one reviewed and
+approved, session two awaiting review):
+- Migration runner `migrate.py` + migration #001 (`schema_version`)
+- The balance gate `gate.py` (snapshot / compare / run, enumerated
+  expected diffs)
+- Synthetic seed generator `seed_db.py` (frozen v1.0 DDL, faithful
+  settlements)
+- Migration #002 — `users` → `members` (ids preserved), split column
+  exploded into basis-point `splits` rows, old column dropped; app +
+  sync moved to members/splits with byte-identical API responses;
+  gated with zero balance/monthly change (notes/002-gate-expectation)
+- Migration #003 — `links` table, unwired; gated (one empty table)
+
+Hardening on `codex/rework-hardening` (awaiting review):
+- App and sync no longer create schema; `migrate.py init` is the explicit
+  fresh-install path and runtime startup checks migration history read-only.
+- The gate now compares old code + untouched DB against new code + a
+  separately migrated copy, using the version's own derivations.
+- Synthetic regression tests cover migration rollback/order, immutable
+  startup failure, numerical identity, and deliberate gate failures.
+
+Next: review the hardening increments. Do not begin verb extraction until
+they are accepted and the documented N-member/float contradictions have an
+explicit disposition.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 Verb extraction proceeds one route per session after that; income build

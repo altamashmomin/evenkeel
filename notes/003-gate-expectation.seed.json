@@ -1,0 +1,7 @@
+{
+  "note": "Migration #003 (links table). One new empty table and its schema_version record — nothing else. No code change; balance and every monthly total identical.",
+  "diffs": [
+    {"path": "row_counts.links", "old": null, "new": 0},
+    {"path": "row_counts.schema_version", "old": 2, "new": 3}
+  ]
+}
