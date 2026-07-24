@@ -230,6 +230,52 @@ def list_transactions():
     return jsonify([txn_to_json(db, r) for r in rows])
 
 
+@app.get("/api/activity")
+@login_required
+def activity():
+    """The Activity feed's income-aware read surface. Extends the v1 txn
+    shape with direction/income_type (merged on top of txn_to_json rather
+    than added to it, so /api/transactions stays byte-frozen), offers a
+    spending/income filter, and carries the household-wide unclassified
+    inflow count that drives the "tag this" nudge. Read-only."""
+    db = get_db()
+    month = request.args.get("month")            # YYYY-MM, optional
+    filt = request.args.get("filter", "all")     # all | spending | income
+    if filt not in ("all", "spending", "income"):
+        return bad_request("filter must be all, spending, or income")
+
+    clauses, params = [], []
+    if month:
+        clauses.append("substr(txn_date, 1, 7) = ?")
+        params.append(month)
+    if filt == "spending":
+        clauses.append("direction = 'out'")
+    elif filt == "income":
+        clauses.append("direction = 'in'")
+    q = "SELECT * FROM transactions"
+    if clauses:
+        q += " WHERE " + " AND ".join(clauses)
+    q += " ORDER BY txn_date DESC, id DESC LIMIT 500"
+    rows = db.execute(q, params).fetchall()
+
+    # Global (all-time), not month-scoped: the tag-me queue is everything
+    # still waiting, so the badge doesn't hide work in another month.
+    unclassified = db.execute(
+        "SELECT COUNT(*) AS c FROM transactions "
+        "WHERE direction = 'in' AND income_type = 'unclassified'").fetchone()["c"]
+
+    return jsonify({
+        "month": month,
+        "filter": filt,
+        "transactions": [
+            {**txn_to_json(db, r),
+             "direction": r["direction"], "income_type": r["income_type"]}
+            for r in rows
+        ],
+        "unclassified_count": unclassified,
+    })
+
+
 @app.post("/api/transactions")
 @login_required
 def create_transaction():
