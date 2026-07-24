@@ -301,14 +301,32 @@ brick at a time:
   view); a *global* tagging-queue count belongs with the Activity feed's
   tag affordance, not here.
 
-Next in step 3: **Activity feed** treatment (inflows render distinct + a
-"tag this" affordance + all/spending/income filter, backed by
-`GET /api/transactions?direction=in&type=unclassified`), then the
-**tagging flow** ("make this a rule?" prompt — wait-for-repeat per the
-settled auto-rule call). Refund netting (the "keep it honest" decision)
-most naturally lands with the Activity/analytics work, once
-`income_type='refund'` rows exist to net against their category. Merging
-to `main` still waits for the Pi deploy and the `v1.0` tag.
+Rest of step 3 planned as a 7-increment build (Alta's scope call, Jul 24:
+full scope incl. the analytics chart; rule prompt fires on the 2nd
+same-type tag with an editable pre-filled match). Ordered:
+1. `GET /api/activity` — done (Jul 24). New read-only endpoint: extended
+   txn shape (direction/income_type on top of `txn_to_json`, so
+   `/api/transactions` stays byte-frozen), `filter=all|spending|income`,
+   and a *global* unclassified-inflow count for the nudge/badge. Zero
+   derivation/schema change → gate zero-diff; parity green; suite at 164.
+2. Activity feed frontend — inflows render distinct (green + income-type
+   chip), filter cycles, unclassified rows get a "tag" affordance.
+3. Tagging — tap unclassified inflow → type-picker modal → `PUT
+   …/classify`; add the global unclassified badge.
+4. "Make this a rule?" — on the 2nd same-type tag, offer a rule with an
+   editable pre-filled match string → `POST /api/income/rules`.
+5. Refund netting — refunds reduce their category's spend in
+   `spending_summary`; moves that function into the tripwire's EXEMPT set
+   with dedicated netting tests, ships with an *enumerated* gate diff
+   (spend intentionally moves when refunds exist; zero on baseline data).
+   Depends on refunds being categorized to what they refund (existing
+   edit flow; no new mechanism).
+6. Income trend derivation — the deferred `months_back` form, per-month
+   income vs. net spend + `GET /api/income/trend`.
+7. Analytics tab + income-vs-spend chart — new nav tab; hand-rolled SVG
+   in the app's bespoke style (no chart lib — CSP + no build step).
+
+Merging to `main` still waits for the Pi deploy and the `v1.0` tag.
 
 Tag `v1.0` at the deployed state before the first rework commit lands.
 
