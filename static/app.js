@@ -4,6 +4,10 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
+// Pure presentation helpers live in render.js (loaded before this file) so
+// they can be unit-tested in plain node; app.js pulls them off the global.
+const { fmt, esc, ord, monthName, incomeCardHTML } = window.Render;
+
 const state = {
   meId: null,
   users: [],          // [{id, display_name}]
@@ -18,9 +22,6 @@ const state = {
   openLogs: new Set(),
 };
 
-const fmt = (n) =>
-  "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -32,11 +33,6 @@ function userById(id) {
 function userColor(id) {
   const idx = state.users.findIndex((u) => u.id === id);
   return idx === 0 ? "var(--p1)" : "var(--p2)";
-}
-function esc(s) {
-  const div = document.createElement("div");
-  div.textContent = s == null ? "" : String(s);
-  return div.innerHTML;
 }
 
 async function api(path, opts = {}) {
@@ -207,54 +203,6 @@ function beamHTML(bal) {
           <span class="dot" style="--pcolor: var(--p2)"></span>${esc(u2.display_name)}</span>
       </div>
       ${settleBtn}
-    </div>`;
-}
-
-function incomeCardHTML(inc, month) {
-  // No inflows yet (the state until sync imports income, or an empty
-  // month): a muted empty state, not a wall of zeros — same grammar as the
-  // bills/goals/recent cards.
-  if (inc.gross_inflows === 0) {
-    return `
-      <div class="card">
-        <p class="eyebrow">Income in ${monthName(month)}</p>
-        <p class="empty">No income recorded this month.</p>
-      </div>`;
-  }
-  const net = inc.net_cash_flow;
-  const netCls = net >= 0 ? "pos" : "neg";
-  const netStr = (net >= 0 ? "+" : "−") + fmt(Math.abs(net));
-  // savings_rate is a ratio or null (no paycheck income to divide by).
-  const rate = inc.savings_rate == null ? "—" : Math.round(inc.savings_rate * 100) + "%";
-  // Total-in row only when gross differs from true income (i.e. there's
-  // non-paycheck money in — refunds, gifts — worth distinguishing).
-  const grossRow = inc.gross_inflows !== inc.true_income
-    ? `<div class="income-sub">
-         <span>Total money in</span>
-         <span class="amount">${fmt(inc.gross_inflows)}</span>
-       </div>`
-    : "";
-  const n = inc.unclassified_count;
-  const nudge = n > 0
-    ? `<p class="income-nudge">${n} inflow${n === 1 ? " still needs" : "s still need"} tagging</p>`
-    : "";
-  return `
-    <div class="card">
-      <p class="eyebrow">Income in ${monthName(month)}</p>
-      <p class="stat-big income-amt">${fmt(inc.true_income)}</p>
-      <p class="income-label">earned — paychecks only</p>
-      <div class="income-grid">
-        <div class="income-cell">
-          <span class="income-cell-label">Net cash flow</span>
-          <span class="income-cell-val ${netCls}">${netStr}</span>
-        </div>
-        <div class="income-cell">
-          <span class="income-cell-label">Savings rate</span>
-          <span class="income-cell-val">${rate}</span>
-        </div>
-      </div>
-      ${grossRow}
-      ${nudge}
     </div>`;
 }
 
@@ -468,15 +416,6 @@ async function renderGoals() {
 }
 
 /* ================= wiring ================= */
-
-function ord(n) {
-  const s = ["th", "st", "nd", "rd"], v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-function monthName(ym) {
-  const [y, m] = ym.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-}
 
 function wireMain() {
   $("#btn-settle")?.addEventListener("click", openSettle);
