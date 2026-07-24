@@ -9,6 +9,8 @@ const state = {
   users: [],          // [{id, display_name}]
   tab: "dashboard",
   month: new Date().toISOString().slice(0, 7),
+  activityFilter: "all",   // all | spending | income
+
   editingTxn: null,
   editingBill: null,
   payingBill: null,
@@ -295,8 +297,14 @@ async function renderDashboard() {
         </div>`).join("")
     : `<p class="empty">No goals yet — add one in the Goals tab.</p>`;
 
-  const recent = d.recent.length
-    ? `<ul class="list">${d.recent.map(txnRow).join("")}</ul>`
+  // Render the recent list from /api/activity so inflows show income-aware
+  // (green, chip) rather than as plain spend rows — /api/dashboard's own
+  // `recent` is the parity-frozen txn_to_json shape with no direction. The
+  // ids match, so the tap-to-edit fallback (window._dash.recent) still
+  // resolves the same rows.
+  const recentTxns = (await api("/api/activity?filter=all")).transactions.slice(0, 6);
+  const recent = recentTxns.length
+    ? `<ul class="list">${recentTxns.map(txnRow).join("")}</ul>`
     : `<p class="empty">No transactions yet. Tap + to add the first one.</p>`;
 
   return `
@@ -316,6 +324,29 @@ async function renderDashboard() {
 
 function txnRow(t) {
   const payer = userById(t.paid_by);
+  // direction is absent on the dashboard's "recent" rows (they come from
+  // the frozen txn_to_json), so treat missing as an outflow — those keep
+  // their existing spend styling untouched.
+  if (t.direction === "in") {
+    const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
+    const chip = t.income_type === "unclassified"
+      ? `<span class="badge untagged">tag</span>`
+      : `<span class="badge income">${esc(t.income_type)}</span>`;
+    return `
+      <li class="tap" data-txn="${t.id}">
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(t.paid_by)}"></span>${esc(payer.display_name)}
+            · money in${src} ${chip}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount income-in">+${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+  }
   const shared = t.is_shared
     ? t.payer_share_pct === 50 ? "shared 50/50" : `shared · payer ${t.payer_share_pct}%`
     : "personal";
@@ -338,16 +369,25 @@ function txnRow(t) {
 }
 
 async function renderActivity() {
-  const txns = await api(`/api/transactions?month=${state.month}`);
-  window._txns = txns;
+  const data = await api(
+    `/api/activity?month=${state.month}&filter=${state.activityFilter}`);
+  const txns = data.transactions;
+  window._txns = txns;   // the tap-to-edit path reads this
+  const emptyLabel = { all: "No transactions", spending: "No spending",
+                       income: "No income" }[state.activityFilter];
   const list = txns.length
     ? `<ul class="list">${txns.map(txnRow).join("")}</ul>`
-    : `<p class="empty">No transactions in ${monthName(state.month)}.</p>`;
+    : `<p class="empty">${emptyLabel} in ${monthName(state.month)}.</p>`;
+  const seg = (key, label) =>
+    `<button data-filter="${key}"${state.activityFilter === key ? ' class="on"' : ""}>${label}</button>`;
   return `
     <div class="monthbar">
       <button id="month-prev" aria-label="Previous month">‹</button>
       <b>${monthName(state.month)}</b>
       <button id="month-next" aria-label="Next month">›</button>
+    </div>
+    <div class="filterbar">
+      ${seg("all", "All")}${seg("spending", "Spending")}${seg("income", "Income")}
     </div>
     <div class="card">${list}</div>`;
 }
@@ -442,6 +482,11 @@ function wireMain() {
   $("#btn-settle")?.addEventListener("click", openSettle);
   $("#month-prev")?.addEventListener("click", () => shiftMonth(-1));
   $("#month-next")?.addEventListener("click", () => shiftMonth(1));
+  $$("[data-filter]").forEach((el) =>
+    el.addEventListener("click", () => {
+      state.activityFilter = el.dataset.filter;
+      render();
+    }));
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
   $$("[data-txn]").forEach((el) =>

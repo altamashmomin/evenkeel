@@ -238,6 +238,19 @@ main {
 .badge.due { border-color: var(--brass-dim); color: var(--brass); }
 .badge.overdue { border-color: var(--danger); color: var(--danger); }
 .badge.paid { border-color: var(--ok); color: var(--ok); }
+.badge.income { border-color: var(--ok); color: var(--ok); }
+.badge.untagged { border-color: var(--brass-dim); color: var(--brass); }
+
+/* ---------- activity: income rows + filter ---------- */
+.income-in { color: var(--ok); }
+.filterbar { display: flex; gap: 8px; margin: 0 0 14px; }
+.filterbar button {
+  flex: 1; padding: 8px 0; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+}
+.filterbar button.on { color: var(--text); border-color: var(--brass-dim); background: var(--surface-2); }
+.filterbar button:active { transform: translateY(1px); }
 
 .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 22px 8px; }
 
