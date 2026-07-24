@@ -367,3 +367,13 @@ sequence" section to reflect what's done and what's next.
   reintroducing the bugs they guard
   against — a claimed regression test is unproven until it's watched
   to fail once.
+- Frontend testing (added July 24, 2026): the pure presentation helpers
+  live in `static/render.js` (a dual-environment module — browser reads
+  `window.Render`, node `require`s it), split out of `app.js` precisely
+  so they can be unit-tested headless. `tests/test_render.js` covers them
+  in plain node (no framework, no build step); `tests/test_frontend_render.py` shells out to it so `python -m unittest` runs it too (skips
+  if node is absent). This closed the frontend's zero-coverage gap; the
+  stack stays vanilla (see the stack decision — the debt was tests, not
+  the framework). State-coupled render fns (`txnRow`, `beamHTML`) are the
+  next extraction targets when they're touched — they need light
+  dependency-injection (pass `users` in) to become pure/testable.
