@@ -309,10 +309,17 @@ same-type tag with an editable pre-filled match). Ordered:
    `/api/transactions` stays byte-frozen), `filter=all|spending|income`,
    and a *global* unclassified-inflow count for the nudge/badge. Zero
    derivation/schema change → gate zero-diff; parity green; suite at 164.
-2. Activity feed frontend — inflows render distinct (green + income-type
-   chip), filter cycles, unclassified rows get a "tag" affordance.
+2. Activity feed frontend — done (Jul 24). Inflows render distinct (green
+   +amount, "money in", green income-type chip / brass TAG chip for
+   unclassified); a 3-way All/Spending/Income filter bar; `txnRow`
+   branches on direction (missing → outflow, so the dashboard's shared
+   use is safe). The dashboard "Recent" list also switched to
+   `/api/activity` so inflows aren't mislabeled as spend there. Verified
+   end-to-end against a running app with mixed data (all filters; balance
+   and Spent still exclude income). Frontend only; suite at 164.
 3. Tagging — tap unclassified inflow → type-picker modal → `PUT
-   …/classify`; add the global unclassified badge.
+   …/classify`; add the global unclassified badge (the "tag" chip becomes
+   interactive here — inc 2 renders it, inc 3 wires it).
 4. "Make this a rule?" — on the 2nd same-type tag, offer a rule with an
    editable pre-filled match string → `POST /api/income/rules`.
 5. Refund netting — refunds reduce their category's spend in
