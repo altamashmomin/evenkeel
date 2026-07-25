@@ -35,6 +35,12 @@ deploy/pifinance-sync.service + .timer   daily sync job
 
 ## 1. Copy the code to the Pi
 
+> **Deploying for real?** Follow [`deploy/pi-deploy.md`](deploy/pi-deploy.md)
+> — the ordered go-live runbook (deploy v1.0, tag it, then migrate to the
+> current code under the balance gate). It clones the repo with `git` so the
+> gate can run on the Pi. The `scp` quickstart below is fine for a throwaway
+> trial; the runbook is the supported path.
+
 From the machine where you unzipped this:
 
 ```bash
@@ -147,7 +153,9 @@ Plaid, it's built for personal projects. One-time setup:
    re-runs never double-insert (deduped on SimpleFIN's transaction id),
    and new rows land as **shared 50/50, category "Other"**, attributed
    to the user id in `SYNC_PAID_BY` — recategorize/resplit them in the
-   app whenever you like.
+   app whenever you like. (Money **in** is now imported too, as income —
+   deposits are no longer skipped — and classified by any income rules
+   you set up; see `docs/INCOME-DESIGN.md`.)
 5. Enable the daily timer:
    ```bash
    sudo cp deploy/pifinance-sync.service deploy/pifinance-sync.timer /etc/systemd/system/
@@ -199,14 +207,15 @@ drift issues.
   cd /home/pi/pifinance && venv/bin/python -c "
   from werkzeug.security import generate_password_hash; import sqlite3
   db = sqlite3.connect('finance.db')
-  db.execute('UPDATE users SET password_hash=? WHERE username=?',
+  db.execute('UPDATE members SET password_hash=? WHERE username=?',
              (generate_password_hash('NEW-PASSWORD'), 'USERNAME'))
   db.commit()"
   ```
-- **Update the code**: copy new files over, then
-  back up the database (`cp finance.db finance.db.bak-$(date +%F)`),
-  run `venv/bin/python migrate.py apply --live finance.db`,
-  and `sudo systemctl restart pifinance`.
+- **Update the code**: on the Pi's `git` clone, run the gated pipeline —
+  `deploy/deploy.sh <ref>` (e.g. `deploy/deploy.sh main`). It backs up the
+  database, proves on a copy that the migration moves no money, then checks
+  out the ref, applies migrations `--live`, and restarts the service. See
+  [`deploy/pi-deploy.md`](deploy/pi-deploy.md).
 
 ## Development checks
 
