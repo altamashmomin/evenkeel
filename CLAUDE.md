@@ -317,9 +317,17 @@ same-type tag with an editable pre-filled match). Ordered:
    `/api/activity` so inflows aren't mislabeled as spend there. Verified
    end-to-end against a running app with mixed data (all filters; balance
    and Spent still exclude income). Frontend only; suite at 164.
-3. Tagging — tap unclassified inflow → type-picker modal → `PUT
-   …/classify`; add the global unclassified badge (the "tag" chip becomes
-   interactive here — inc 2 renders it, inc 3 wires it).
+3. Tagging — done (Jul 24). Tap an inflow → `dlg-classify` type-picker
+   ("What kind of income?", six types) → `PUT …/classify`; row re-renders
+   with a green income-type chip. Tap handler branches on direction
+   (`findTxn` resolves the row across activity / dashboard-recent):
+   inflows classify, outflows still edit — inflows never open the spend
+   dialog. Classified inflows re-open with their type pre-selected
+   (mis-tag is fixable). A global "N inflow(s) still need tagging" badge
+   tops the Activity feed (jumps to the Income filter); its grammar and
+   the card nudge now share `nudgeText` in render.js (one tested string,
+   not two). Verified live (tag → chip flips, badge decrements w/ correct
+   singular grammar; re-tag; outflow→edit intact). Suite at 165.
 4. "Make this a rule?" — on the 2nd same-type tag, offer a rule with an
    editable pre-filled match string → `POST /api/income/rules`.
 5. Refund netting — refunds reduce their category's spend in
