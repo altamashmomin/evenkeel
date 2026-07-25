@@ -31,6 +31,13 @@
     return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }
 
+  // The tag-me nudge, subject-verb correct for count. Shared by the
+  // dashboard income card and the Activity feed banner so the grammar
+  // lives (and is tested) in exactly one place.
+  function nudgeText(n) {
+    return `${n} inflow${n === 1 ? " still needs" : "s still need"} tagging`;
+  }
+
   function incomeCardHTML(inc, month) {
     // No inflows yet (the state until sync imports income, or an empty
     // month): a muted empty state, not a wall of zeros — same grammar as the
@@ -56,9 +63,7 @@
        </div>`
       : "";
     const n = inc.unclassified_count;
-    const nudge = n > 0
-      ? `<p class="income-nudge">${n} inflow${n === 1 ? " still needs" : "s still need"} tagging</p>`
-      : "";
+    const nudge = n > 0 ? `<p class="income-nudge">${nudgeText(n)}</p>` : "";
     return `
     <div class="card">
       <p class="eyebrow">Income in ${monthName(month)}</p>
@@ -79,5 +84,5 @@
     </div>`;
   }
 
-  return { fmt, esc, ord, monthName, incomeCardHTML };
+  return { fmt, esc, ord, monthName, nudgeText, incomeCardHTML };
 });

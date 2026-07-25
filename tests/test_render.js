@@ -38,6 +38,13 @@ check("monthName renders long month + year", () => {
   assert.strictEqual(R.monthName("2026-01"), "January 2026");
 });
 
+// ---- nudgeText: subject-verb agreement (shared by card + activity banner) ----
+check("nudgeText agrees with count", () => {
+  assert.strictEqual(R.nudgeText(1), "1 inflow still needs tagging");
+  assert.strictEqual(R.nudgeText(2), "2 inflows still need tagging");
+  assert.strictEqual(R.nudgeText(3), "3 inflows still need tagging");
+});
+
 // ---- incomeCardHTML: every state ----
 const base = {
   gross_inflows: 3450, true_income: 3200, month_spend: 1806.5,

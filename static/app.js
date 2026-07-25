@@ -6,7 +6,7 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
 // Pure presentation helpers live in render.js (loaded before this file) so
 // they can be unit-tested in plain node; app.js pulls them off the global.
-const { fmt, esc, ord, monthName, incomeCardHTML } = window.Render;
+const { fmt, esc, ord, monthName, nudgeText, incomeCardHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -251,6 +251,7 @@ async function renderDashboard() {
   // ids match, so the tap-to-edit fallback (window._dash.recent) still
   // resolves the same rows.
   const recentTxns = (await api("/api/activity?filter=all")).transactions.slice(0, 6);
+  window._recent = recentTxns;   // income-aware rows for the tap handler
   const recent = recentTxns.length
     ? `<ul class="list">${recentTxns.map(txnRow).join("")}</ul>`
     : `<p class="empty">No transactions yet. Tap + to add the first one.</p>`;
@@ -328,6 +329,10 @@ async function renderActivity() {
     : `<p class="empty">${emptyLabel} in ${monthName(state.month)}.</p>`;
   const seg = (key, label) =>
     `<button data-filter="${key}"${state.activityFilter === key ? ' class="on"' : ""}>${label}</button>`;
+  // Global (all-months) tag-me nudge; tapping jumps to the Income filter.
+  const badge = data.unclassified_count > 0
+    ? `<button class="tagbanner" data-filter="income">${nudgeText(data.unclassified_count)}</button>`
+    : "";
   return `
     <div class="monthbar">
       <button id="month-prev" aria-label="Previous month">‹</button>
@@ -337,6 +342,7 @@ async function renderActivity() {
     <div class="filterbar">
       ${seg("all", "All")}${seg("spending", "Spending")}${seg("income", "Income")}
     </div>
+    ${badge}
     <div class="card">${list}</div>`;
 }
 
@@ -417,6 +423,19 @@ async function renderGoals() {
 
 /* ================= wiring ================= */
 
+// Resolve a tapped row id against whichever list rendered it — the
+// activity feed (_txns), the dashboard recent (_recent), or the
+// dashboard payload's own recent (last-resort, no direction).
+function findTxn(id) {
+  for (const pool of [window._txns, window._recent, window._dash && window._dash.recent]) {
+    if (pool) {
+      const t = pool.find((x) => x.id === id);
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
 function wireMain() {
   $("#btn-settle")?.addEventListener("click", openSettle);
   $("#month-prev")?.addEventListener("click", () => shiftMonth(-1));
@@ -429,8 +448,15 @@ function wireMain() {
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
   $$("[data-txn]").forEach((el) =>
-    el.addEventListener("click", () => openTxnDialog(
-      (window._txns || window._dash.recent).find((t) => t.id === +el.dataset.txn))));
+    el.addEventListener("click", () => {
+      const t = findTxn(+el.dataset.txn);
+      if (!t) return;
+      // Inflows tag (classify); outflows edit. Inflows never open the
+      // spend edit dialog — it has split controls that don't apply to
+      // income and could write stray split rows.
+      if (t.direction === "in") openClassifyDialog(t);
+      else openTxnDialog(t);
+    }));
   $$("[data-bill-pay]").forEach((el) =>
     el.addEventListener("click", () => openPayDialog(+el.dataset.billPay)));
   $$("[data-bill-unpay]").forEach((el) =>
@@ -555,6 +581,44 @@ $("#btn-txn-delete").addEventListener("click", async () => {
 });
 
 $("#fab").addEventListener("click", () => openTxnDialog(null));
+
+/* ---------- classify (income tagging) dialog ---------- */
+const dlgClassify = $("#dlg-classify");
+// The six real income types a row can be tagged as ('unclassified' is a
+// state, never a target); order matches how often you'd reach for them.
+const INCOME_TYPES_UI = [
+  ["paycheck", "Paycheck"], ["reimbursement", "Reimbursement"],
+  ["refund", "Refund"], ["transfer", "Transfer"],
+  ["gift", "Gift"], ["other", "Other"],
+];
+
+function openClassifyDialog(txn) {
+  $("#classify-error").textContent = "";
+  $("#classify-summary").innerHTML =
+    `<span class="grow">${esc(txn.description)}</span>` +
+    `<span class="amount income-in">+${fmt(txn.amount)}</span>`;
+  const holder = $("#classify-types");
+  holder.innerHTML = "";
+  INCOME_TYPES_UI.forEach(([val, label]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "type-btn" + (txn.income_type === val ? " on" : "");
+    b.textContent = label;
+    b.addEventListener("click", () => classifyInflow(txn.id, val));
+    holder.appendChild(b);
+  });
+  dlgClassify.showModal();
+}
+
+async function classifyInflow(id, income_type) {
+  try {
+    await api(`/api/transactions/${id}/classify`, { method: "PUT", body: { income_type } });
+    dlgClassify.close();
+    render();
+  } catch (e) {
+    $("#classify-error").textContent = e.message;
+  }
+}
 
 /* ---------- bill dialogs ---------- */
 const dlgBill = $("#dlg-bill");

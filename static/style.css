@@ -251,6 +251,28 @@ main {
 }
 .filterbar button.on { color: var(--text); border-color: var(--brass-dim); background: var(--surface-2); }
 .filterbar button:active { transform: translateY(1px); }
+.tagbanner {
+  display: block; width: 100%; margin: 0 0 14px; padding: 10px 14px;
+  border-radius: 10px; cursor: pointer; text-align: left;
+  border: 1px solid var(--brass-dim); background: transparent;
+  color: var(--brass); font-size: 13px;
+}
+.tagbanner:active { transform: translateY(1px); }
+
+/* ---------- classify (income tagging) dialog ---------- */
+.classify-summary {
+  display: flex; align-items: baseline; gap: 12px;
+  margin: 0 0 16px; font-size: 15px;
+}
+.classify-summary .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.type-btn {
+  padding: 12px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  font-size: 15px;
+}
+.type-btn.on { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); color: var(--ok); }
+.type-btn:active { transform: translateY(1px); }
 
 .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 22px 8px; }
 
