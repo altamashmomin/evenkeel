@@ -351,8 +351,19 @@ same-type tag with an editable pre-filled match). Ordered:
    the card nudge now share `nudgeText` in render.js (one tested string,
    not two). Verified live (tag → chip flips, badge decrements w/ correct
    singular grammar; re-tag; outflow→edit intact). Suite at 165.
-4. "Make this a rule?" — on the 2nd same-type tag, offer a rule with an
-   editable pre-filled match string → `POST /api/income/rules`.
+4. "Make this a rule?" — done (Jul 26). On the 2nd inflow tagged with a
+   given real income_type, the classify route returns a `rule_suggestion`
+   (pre-filled `match_desc` from the description, the type just assigned);
+   the SPA offers an editable `dlg-rule` → `POST /api/income/rules`. Fires
+   exactly once per type (count==2), suppressed when an enabled rule
+   already matches the row — the settled auto-rule-aggressiveness call
+   (wait for a repeat match; don't nag). Backend is a read-only helper,
+   `actions.suggest_rule_after_classify`, kept out of `classify_inflow` so
+   that verb stays a pure one-row edit (its docstring already reserved this
+   as a UI-layer concern); `ruleSuggestionText` joins `nudgeText` in
+   render.js (one tested wording). No schema/derivation change → zero-diff
+   gate 10237b8→547b936; suite 175 python + render.js. Live browser check
+   across 1st/2nd/3rd tag, create-rule, and suppression.
 5. Refund netting — refunds reduce their category's spend in
    `spending_summary`; moves that function into the tripwire's EXEMPT set
    with dedicated netting tests, ships with an *enumerated* gate diff
@@ -364,11 +375,14 @@ same-type tag with an editable pre-filled match). Ordered:
 7. Analytics tab + income-vs-spend chart — new nav tab; hand-rolled SVG
    in the app's bespoke style (no chart lib — CSP + no build step).
 
-Next feature increment: **step 3 increment 4 — "Make this a rule?"** (on
-the 2nd same-type tag, offer an editable pre-filled rule → `POST
-/api/income/rules`). Then increments 5–7 (refund netting, income trend,
-analytics tab). Frontend work gets a live-app browser check + the
-`node tests/test_render.js` seam; each backend increment still gates.
+Next feature increment: **step 3 increment 5 — refund netting** (refunds
+reduce their category's spend in `spending_summary`; move that function
+into the tripwire's EXEMPT set with dedicated netting tests; ships with an
+*enumerated* gate diff — spend intentionally moves when refunds exist,
+zero on baseline data; depends on refunds being categorized to what they
+refund via the existing edit flow, no new mechanism). Then increments 6–7
+(income trend, analytics tab). Frontend work gets a live-app browser check
++ the `node tests/test_render.js` seam; each backend increment still gates.
 
 Repo housekeeping (independent of features): merging `rework` → `main` is
 now unblocked (Pi deployed, `v1.0` tagged) and reconciles the topology
