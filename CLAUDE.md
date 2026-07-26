@@ -377,14 +377,60 @@ same-type tag with an editable pre-filled match). Ordered:
 7. Analytics tab + income-vs-spend chart — new nav tab; hand-rolled SVG
    in the app's bespoke style (no chart lib — CSP + no build step).
 
+Deeper-analytics extensions (planned Jul 26, 2026, post-step-3; Alta's
+selected set from a recommendation menu). These ride the two primitives
+that steps 6–7 build — the shared `monthly_series(db, metric_fn,
+months_back)` month-bucketing engine (build it *inside* inc 6, don't
+one-off it) and the analytics tab's SVG seam — so each is a small
+increment: "pass a different `metric_fn`," gated zero-diff, tripwire
+covering the income-isolation filter automatically. Architectural
+throughline: build the trend engine once, then these grow cheaply. Order
+is by leverage (cheapest-onto-the-new-tab first):
+
+Tier A — pure read-time derivations, no schema, zero-diff gate:
+8.  Category trend — per-category monthly series + 3-mo rolling average +
+    MoM delta (`transactions.category` × `monthly_series`).
+9.  Savings-rate trend — `income_summary.savings_rate` across months; the
+    one line Charlee-facing analytics leads with.
+10. Category mix + top merchants — share-of-spend composition for a month,
+    and description-grouped top-N by spend.
+11. Per-member view — each person's paid-vs-owed share over time from
+    `splits` (basis points) × `paid_by`.
+12. Bill-vs-actual variance — defined `bills.amount` vs what
+    `bill_payments`/their transactions actually cost.
+
+Tier B — needs a heuristic, still no schema change:
+13. Recurring-charge / subscription detection — cluster outflows by
+    (normalized description, ~amount, ~monthly cadence); a *suggestion*
+    surface, not an authority (same honesty as INCOME-DESIGN's refused
+    transfer auto-pairing — a coincidence must not silently become a
+    "subscription").
+14. Cash-flow forecast — project end-of-month / next-month position from
+    recurring income (paycheck `income_rules` encode cadence+owner),
+    recurring bills, and scheduled goal contributions. Where rules, bills,
+    and goals finally combine into one forward-looking number; the natural
+    bridge into step 7 (the MCP assistant).
+15. Anomaly flags — "category X is N% above its trailing 3-mo average"; a
+    threshold on top of #8, surfaced passively in the activity feed.
+16. Goal pace / projection — completion-date projection at current
+    contribution rate over `goal_contributions`.
+
+Deferred (Tier C, its own designed feature — NOT smuggled inline):
+category budgets / envelopes. Explicitly out of scope in INCOME-DESIGN;
+needs a `budgets` migration + `set_budget` verb + a `budget_status`
+derivation. Take it on as its own design increment when wanted, not as a
+quick analytics add.
+
 Next feature increment: **step 3 increment 5 — refund netting** (refunds
 reduce their category's spend in `spending_summary`; move that function
 into the tripwire's EXEMPT set with dedicated netting tests; ships with an
 *enumerated* gate diff — spend intentionally moves when refunds exist,
 zero on baseline data; depends on refunds being categorized to what they
 refund via the existing edit flow, no new mechanism). Then increments 6–7
-(income trend, analytics tab). Frontend work gets a live-app browser check
-+ the `node tests/test_render.js` seam; each backend increment still gates.
+(income trend — build the shared `monthly_series` engine here — and the
+analytics tab), then the deeper-analytics extensions 8–16 above (Tier A
+first). Frontend work gets a live-app browser check + the
+`node tests/test_render.js` seam; each backend increment still gates.
 
 Repo housekeeping: `rework` → `main` merge **done (July 26, 2026)** —
 `origin/main` now == `rework`'s tree via merge commit `09c8694`
