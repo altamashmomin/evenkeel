@@ -366,12 +366,24 @@ same-type tag with an editable pre-filled match). Ordered:
    render.js (one tested wording). No schema/derivation change → zero-diff
    gate 10237b8→547b936; suite 175 python + render.js. Live browser check
    across 1st/2nd/3rd tag, create-rule, and suppression.
-5. Refund netting — refunds reduce their category's spend in
-   `spending_summary`; moves that function into the tripwire's EXEMPT set
-   with dedicated netting tests, ships with an *enumerated* gate diff
-   (spend intentionally moves when refunds exist; zero on baseline data).
-   Depends on refunds being categorized to what they refund (existing
-   edit flow; no new mechanism).
+5. Refund netting — done (Jul 26). A `direction='in'` `income_type='refund'`
+   row subtracts from its category's spend in the month it lands
+   (`spending_summary` signed UNION, **no clamp** — a refund can push a
+   category/month total negative, the deliberate honest dip). Moved
+   `spending_summary` into the tripwire's EXEMPT set (it now reads inflows
+   on purpose), bounded to refunds only; the automated coverage that gave
+   up is replaced in `test_income_isolation` — refund nets its own
+   category/month (incl. the negative dip + cross-month scoping) and EVERY
+   non-refund inflow type is proven to leave spend untouched. Netting flows
+   into `income_summary` via the one shared spend total (positive test;
+   one prior assertion updated to the netted number). Zero-diff gate on the
+   refund-free frozen fixture (proves inertness for existing data) **and**
+   an enumerated-diff demonstration (`notes/006-gate-expectation.seed.json`)
+   showing exactly one diff — that month's total reduced by the refund
+   amount, into the negative, nothing else. Live end-to-end: tagging a
+   $2,964.43 inflow Refund dropped July Spent $2,610.92 → −$353.51, balance
+   untouched. Suite 175→181. Depends on refunds being categorized via the
+   existing edit flow (no new mechanism).
 6. Income trend derivation — the deferred `months_back` form, per-month
    income vs. net spend + `GET /api/income/trend`.
 7. Analytics tab + income-vs-spend chart — new nav tab; hand-rolled SVG
@@ -421,16 +433,20 @@ needs a `budgets` migration + `set_budget` verb + a `budget_status`
 derivation. Take it on as its own design increment when wanted, not as a
 quick analytics add.
 
-Next feature increment: **step 3 increment 5 — refund netting** (refunds
-reduce their category's spend in `spending_summary`; move that function
-into the tripwire's EXEMPT set with dedicated netting tests; ships with an
-*enumerated* gate diff — spend intentionally moves when refunds exist,
-zero on baseline data; depends on refunds being categorized to what they
-refund via the existing edit flow, no new mechanism). Then increments 6–7
-(income trend — build the shared `monthly_series` engine here — and the
-analytics tab), then the deeper-analytics extensions 8–16 above (Tier A
+Next feature increment: **step 3 increment 6 — income trend derivation**.
+Build the shared `monthly_series(db, metric_fn, months_back)` month-
+bucketing engine here (don't one-off it — increments 7–16 ride it),
+expose per-month income vs. net spend via `GET /api/income/trend`. Pure
+read, zero-diff gate. Then increment 7 (analytics tab + income-vs-spend
+SVG chart), then the deeper-analytics extensions 8–16 above (Tier A
 first). Frontend work gets a live-app browser check + the
 `node tests/test_render.js` seam; each backend increment still gates.
+
+Cosmetic follow-up surfaced by inc 5 (low priority): now that a month's
+Spent can go negative (a refund exceeding that month's spend), the
+dashboard renders it `$-353.51` — `Render.fmt` puts the minus after the
+`$`. Prefer `−$353.51`. Only reachable in the refund-heavy edge; not a
+correctness issue.
 
 Repo housekeeping: `rework` → `main` merge **done (July 26, 2026)** —
 `origin/main` now == `rework`'s tree via merge commit `09c8694`
