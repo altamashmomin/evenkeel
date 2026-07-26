@@ -61,24 +61,43 @@ def compute_balance(db, as_of=None):
 
 
 def spending_summary(db, month=None):
-    """Outflow totals by month/category, excluding settlement transactions.
+    """Net spend by month/category: outflows minus the refunds that reverse
+    them, excluding settlement transactions.
 
-    direction='out' is mandatory here, not defensive: unlike compute_balance
-    (whose splits join already excludes inflows structurally), this query
-    has no other guard, and every inflow row the sync flip now creates
-    would otherwise inflate spend the moment it landed. INCOME-DESIGN
-    invariant 2 ("spending totals never include inflows") is enforced
-    right here.
+    Two legs, netted in SQL. Every non-settlement direction='out' row adds
+    to its category's spend; every direction='in' income_type='refund' row
+    subtracts from its category's spend in the month it lands. INCOME-DESIGN
+    decided refunds are cost reversals, not income — a returned air fryer
+    un-spends its category. The dip is deliberately NOT clamped: a refund
+    landing a month after the purchase can push a category (or the month
+    total) negative, which is true and occasionally surprising, and honest
+    category analytics is the whole point.
+
+    Only income_type='refund' nets. This is why spending_summary is EXEMPT
+    in the derivation tripwire — it is the one *spend* derivation that reads
+    inflows on purpose — but the exemption is bounded: a paycheck, gift,
+    transfer, or unclassified inflow must never touch spend. The tripwire
+    can no longer prove that for this function (it's exempt), so
+    test_income_isolation carries the guard instead, with fixtures that put
+    every non-refund inflow type in a spent category and assert the total
+    doesn't move. Every other inflow still contributes nothing here.
     """
-    where = "WHERE source != 'settlement' AND direction = 'out'"
+    month_clause = " AND substr(txn_date, 1, 7) = ?" if month is not None else ""
     params = []
     if month is not None:
-        where += " AND substr(txn_date, 1, 7) = ?"
-        params.append(month)
+        params.extend([month, month])  # one per leg of the UNION
     rows = db.execute(
-        f"""SELECT substr(txn_date, 1, 7) AS month, category,
-                   SUM(amount_cents) AS total_cents
-            FROM transactions {where}
+        f"""SELECT month, category, SUM(signed_cents) AS total_cents FROM (
+                SELECT substr(txn_date, 1, 7) AS month, category,
+                       amount_cents AS signed_cents
+                  FROM transactions
+                 WHERE source != 'settlement' AND direction = 'out'{month_clause}
+                UNION ALL
+                SELECT substr(txn_date, 1, 7) AS month, category,
+                       -amount_cents AS signed_cents
+                  FROM transactions
+                 WHERE direction = 'in' AND income_type = 'refund'{month_clause}
+            )
             GROUP BY month, category
             ORDER BY month, total_cents DESC, category""",
         params,

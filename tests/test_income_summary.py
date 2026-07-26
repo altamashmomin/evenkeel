@@ -84,7 +84,23 @@ class IncomeSummaryTests(unittest.TestCase):
         self.inflow(4700, "refund")   # money in, but not income to divide by
         s = derivations.income_summary(self.db, M)
         self.assertIsNone(s["savings_rate"])
-        self.assertEqual(-5000, s["net_cash_flow_cents"])  # still computable
+        # The refund nets spend down to 300 (5000 - 4700), so net cash flow
+        # is -300, not -5000 — refund netting flows through income_summary
+        # via the shared spend total (increment 5).
+        self.assertEqual(-300, s["net_cash_flow_cents"])
+
+    def test_refund_nets_into_month_spend_and_cash_flow(self):
+        # Positive statement of the increment-5 interaction: a refund reaches
+        # income_summary through the one shared spend total. Spend 5000,
+        # paycheck 300000, refund 2000 -> net spend 3000, cash flow 297000.
+        self.outflow(5000)
+        self.inflow(300000, "paycheck")
+        self.inflow(2000, "refund")
+        s = derivations.income_summary(self.db, M)
+        self.assertEqual(3000, s["month_spend_cents"])
+        self.assertEqual(297000, s["net_cash_flow_cents"])
+        self.assertEqual(302000, s["gross_inflows_cents"])  # refund is money in
+        self.assertEqual(300000, s["true_income_cents"])    # but not income
 
     def test_negative_net_cash_flow_when_spend_exceeds_income(self):
         self.outflow(400000)

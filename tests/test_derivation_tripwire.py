@@ -40,6 +40,12 @@ import derivations
 EXEMPT = {
     "income_summary": "the income aggregate itself — the one derivation "
                       "whose entire job is to count inflows (INCOME-DESIGN)",
+    "spending_summary": "nets income_type='refund' inflows against their "
+                        "category (INCOME-DESIGN net-spend rule) — the one "
+                        "SPEND derivation that reads inflows on purpose. The "
+                        "exemption is bounded to refunds only; "
+                        "test_income_isolation proves non-refund inflows "
+                        "still never move spend.",
 }
 
 
@@ -98,7 +104,10 @@ class DerivationIgnoresIncomeTripwireTests(unittest.TestCase):
         # nothing at all.
         names = {name for name, _ in db_functions()}
         self.assertIn("compute_balance", names)
-        self.assertIn("spending_summary", names)
+        # spending_summary is now EXEMPT (it nets refunds on purpose); the
+        # bounded-exemption guard lives in test_income_isolation instead.
+        self.assertNotIn("spending_summary", names)
+        self.assertIn("spending_summary", EXEMPT)
         self.assertNotIn("round_ratio", names)  # takes (numerator, denominator), not db
 
     def test_no_derivation_changes_when_a_large_inflow_is_added(self):
