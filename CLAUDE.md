@@ -59,9 +59,32 @@ script doesn't exist yet, building it precedes the increment it gates.
 
 ## Current position in the sequence
 
-Pre-step-0: the Pi is not yet deployed (hardware pending). Everything so
-far lives on `rework`, unmerged — merging waits for the Pi deploy and the
-`v1.0` tag at the deployed state.
+**Deployed to the Pi and live (July 26, 2026).** The whole `rework` is
+running on the Raspberry Pi 5: a gunicorn systemd service (`pifinance`)
+auto-starting on boot, real bank data synced (income included — a real
+paycheck landed as income, not spend), a daily SimpleFIN sync timer
+(`pifinance-sync.timer`, 06:30), and an off-Pi "golden" backup. `v1.0`
+is tagged at the pristine baseline `41c2040` on origin.
+
+Deploy deviated deliberately from `deploy/pi-deploy.md`'s "v1.0-first
+then gated migration" plan: a fresh Pi has no data to protect, so we
+deployed the current app (`rework` HEAD) directly via `migrate.py init
+finance.db --live` (full v5 schema), created accounts, connected the
+bank. `deploy.sh`'s gated-migration path is for FUTURE updates now that
+`finance.db` holds real data.
+
+**Repo topology — fix next session:** `origin/main` is at `e8f27d6`, a
+stale schema-v3 "hardening" state — NOT pristine v1.0, NOT current. So
+the Pi runs `rework`, not `main` (a deviation from CORE-DESIGN's "Pi runs
+`main`"). Clean fix: merge `rework` → `main` so `main` reflects what's
+deployed, then future increments deploy from `main` via `deploy.sh main`.
+(Local dev `main` = `f34a461` is a stale, unrelated pointer — ignore it.)
+Deploy facts: Pi user `altamash`, path `/home/altamash/pifinance`;
+systemd units carry a `pi`/`/home/pi` assumption — rewrite with `sed` on
+copy, never edit the tracked file (future `git pull` would conflict).
+Remaining deploy task: **Tailscale** for phone access (`sudo tailscale
+up`, approve the URL on a laptop — the Pi's desktop browser browns out
+the board, so keep it headless).
 
 Done (sessions one and two, on `rework`; session one reviewed and
 approved, session two awaiting review):
@@ -341,12 +364,19 @@ same-type tag with an editable pre-filled match). Ordered:
 7. Analytics tab + income-vs-spend chart — new nav tab; hand-rolled SVG
    in the app's bespoke style (no chart lib — CSP + no build step).
 
-Merging to `main` still waits for the Pi deploy and the `v1.0` tag.
+Next feature increment: **step 3 increment 4 — "Make this a rule?"** (on
+the 2nd same-type tag, offer an editable pre-filled rule → `POST
+/api/income/rules`). Then increments 5–7 (refund netting, income trend,
+analytics tab). Frontend work gets a live-app browser check + the
+`node tests/test_render.js` seam; each backend increment still gates.
 
-Tag `v1.0` at the deployed state before the first rework commit lands.
+Repo housekeeping (independent of features): merging `rework` → `main` is
+now unblocked (Pi deployed, `v1.0` tagged) and reconciles the topology
+note above so `main` matches what's live. `v1.0` is already tagged at
+`41c2040` on origin (done July 26).
 
-After each merged increment, update this "Current position in the
-sequence" section to reflect what's done and what's next.
+After each increment, update this "Current position in the sequence"
+section to reflect what's done and what's next.
 
 ## Conventions
 
