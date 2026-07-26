@@ -73,13 +73,15 @@ finance.db --live` (full v5 schema), created accounts, connected the
 bank. `deploy.sh`'s gated-migration path is for FUTURE updates now that
 `finance.db` holds real data.
 
-**Repo topology — fix next session:** `origin/main` is at `e8f27d6`, a
-stale schema-v3 "hardening" state — NOT pristine v1.0, NOT current. So
-the Pi runs `rework`, not `main` (a deviation from CORE-DESIGN's "Pi runs
-`main`"). Clean fix: merge `rework` → `main` so `main` reflects what's
-deployed, then future increments deploy from `main` via `deploy.sh main`.
-(Local dev `main` = `f34a461` is a stale, unrelated pointer — ignore it.)
-Deploy facts: Pi user `altamash`, path `/home/altamash/pifinance`;
+**Repo topology — reconciled (July 26, 2026):** `main` == `rework`'s tree.
+`origin/main` was `e8f27d6`, a stale schema-v3 "hardening" state one merge
+commit off the shared base (its hardening content already lived in
+`rework` via the July 19 merge). Fixed by a merge commit (`09c8694`) whose
+first parent is the old `origin/main` (so the push fast-forwarded — no
+history rewrite) and whose tree is byte-identical to `rework`; `main` now
+reflects what's deployed. Future increments still land on `rework`, gate,
+then deploy from `main` via `deploy.sh main` (fast-forward `main` to
+`rework` per increment). Deploy facts: Pi user `altamash`, path `/home/altamash/pifinance`;
 systemd units carry a `pi`/`/home/pi` assumption — rewrite with `sed` on
 copy, never edit the tracked file (future `git pull` would conflict).
 Remaining deploy task: **Tailscale** for phone access (`sudo tailscale
@@ -384,10 +386,11 @@ refund via the existing edit flow, no new mechanism). Then increments 6–7
 (income trend, analytics tab). Frontend work gets a live-app browser check
 + the `node tests/test_render.js` seam; each backend increment still gates.
 
-Repo housekeeping (independent of features): merging `rework` → `main` is
-now unblocked (Pi deployed, `v1.0` tagged) and reconciles the topology
-note above so `main` matches what's live. `v1.0` is already tagged at
-`41c2040` on origin (done July 26).
+Repo housekeeping: `rework` → `main` merge **done (July 26, 2026)** —
+`origin/main` now == `rework`'s tree via merge commit `09c8694`
+(fast-forward push, see the reconciled topology note above). `v1.0` tagged
+at `41c2040` on origin. Remaining non-feature task: Tailscale on the Pi
+for phone access (headless).
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
