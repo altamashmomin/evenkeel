@@ -384,8 +384,21 @@ same-type tag with an editable pre-filled match). Ordered:
    $2,964.43 inflow Refund dropped July Spent $2,610.92 → −$353.51, balance
    untouched. Suite 175→181. Depends on refunds being categorized via the
    existing edit flow (no new mechanism).
-6. Income trend derivation — the deferred `months_back` form, per-month
-   income vs. net spend + `GET /api/income/trend`.
+6. Income trend derivation — done (Jul 26). The deferred trailing-window
+   form. `_monthly_series(db, metric_fn, months_back, anchor)` is the
+   reusable trend engine increments 7–16 ride — maps ANY per-month
+   `metric_fn` over a window ending at `anchor` (default: latest data
+   month, clock-free), empty months zero-filled for a continuous chart
+   axis; private on purpose (takes a callable, so not a tripwire aggregate).
+   `income_trend(db, …)` = `_monthly_series` over `income_summary`, so each
+   month means exactly what the card does and refund netting flows through;
+   EXEMPT in the tripwire. `GET /api/income/trend` (anchor default
+   `current_period()`, `months_back` clamped 1..24, dollars at the edge;
+   v1 surface frozen). Engine tested with a trivial metric_fn to prove it's
+   content-blind (the reuse property). Zero-diff gate; suite 181→198.
+   (Also: `test_architecture` scan now skips `.claude/`/`venv/` — a harness
+   worktree is a full repo copy whose nested `tests/` dodged the dir
+   exclusion; committed separately.)
 7. Analytics tab + income-vs-spend chart — new nav tab; hand-rolled SVG
    in the app's bespoke style (no chart lib — CSP + no build step).
 
@@ -433,14 +446,15 @@ needs a `budgets` migration + `set_budget` verb + a `budget_status`
 derivation. Take it on as its own design increment when wanted, not as a
 quick analytics add.
 
-Next feature increment: **step 3 increment 6 — income trend derivation**.
-Build the shared `monthly_series(db, metric_fn, months_back)` month-
-bucketing engine here (don't one-off it — increments 7–16 ride it),
-expose per-month income vs. net spend via `GET /api/income/trend`. Pure
-read, zero-diff gate. Then increment 7 (analytics tab + income-vs-spend
-SVG chart), then the deeper-analytics extensions 8–16 above (Tier A
-first). Frontend work gets a live-app browser check + the
-`node tests/test_render.js` seam; each backend increment still gates.
+Next feature increment: **step 3 increment 7 — analytics tab +
+income-vs-spend chart**. New nav tab; hand-rolled SVG in the app's bespoke
+style (no chart lib — CSP + no build step), consuming `GET
+/api/income/trend`. The SVG scaling/path math goes in `render.js` pure
+helpers (testable in the `node tests/test_render.js` seam — exactly the
+kind of pure function that belongs there); frontend gets a live-app browser
+check. Then the deeper-analytics extensions 8–16 above (Tier A first) —
+each new `*_trend` rides the `_monthly_series` engine inc 6 just built
+(pass a different `metric_fn`).
 
 Cosmetic follow-up surfaced by inc 5 (low priority): now that a month's
 Spent can go negative (a refund exceeding that month's spend), the
