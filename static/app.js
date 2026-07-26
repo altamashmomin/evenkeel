@@ -6,7 +6,7 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
 // Pure presentation helpers live in render.js (loaded before this file) so
 // they can be unit-tested in plain node; app.js pulls them off the global.
-const { fmt, esc, ord, monthName, nudgeText, incomeCardHTML } = window.Render;
+const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, incomeCardHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -612,13 +612,50 @@ function openClassifyDialog(txn) {
 
 async function classifyInflow(id, income_type) {
   try {
-    await api(`/api/transactions/${id}/classify`, { method: "PUT", body: { income_type } });
+    const res = await api(`/api/transactions/${id}/classify`,
+                          { method: "PUT", body: { income_type } });
     dlgClassify.close();
     render();
+    // The backend offers a rule once, on the 2nd inflow of a given type
+    // (null otherwise). Chain the offer on top of the re-render.
+    if (res && res.rule_suggestion) openRuleDialog(res.rule_suggestion);
   } catch (e) {
     $("#classify-error").textContent = e.message;
   }
 }
+
+/* ---------- "make this a rule?" dialog ---------- */
+const dlgRule = $("#dlg-rule");
+const formRule = $("#form-rule");
+
+function openRuleDialog(suggestion) {
+  state.ruleSetType = suggestion.set_type;
+  $("#rule-error").textContent = "";
+  $("#rule-prompt").textContent = ruleSuggestionText(suggestion.set_type);
+  $("#rule-hint").textContent =
+    "Trim to a stable part of the description — the source's name, not a date " +
+    "or amount that changes each time.";
+  formRule.match.value = suggestion.match_desc || "";
+  dlgRule.showModal();
+}
+
+formRule.addEventListener("submit", async (ev) => {
+  if (ev.submitter && ev.submitter.value === "cancel") return;
+  ev.preventDefault();
+  const match_desc = formRule.match.value.trim();
+  if (!match_desc) {
+    $("#rule-error").textContent = "Enter some text to match, or tap Not now.";
+    return;
+  }
+  try {
+    await api("/api/income/rules",
+              { method: "POST", body: { set_type: state.ruleSetType, match_desc } });
+    dlgRule.close();
+    render();
+  } catch (e) {
+    $("#rule-error").textContent = e.message;
+  }
+});
 
 /* ---------- bill dialogs ---------- */
 const dlgBill = $("#dlg-bill");

@@ -63,10 +63,35 @@ class ClassifyRouteTests(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(
             ["amount", "category", "date", "description", "direction", "id",
-             "income_type", "is_shared", "paid_by", "payer_share_pct", "source"],
+             "income_type", "is_shared", "paid_by", "payer_share_pct",
+             "rule_suggestion", "source"],
             sorted(body))
         self.assertEqual("paycheck", body["income_type"])
         self.assertEqual("in", body["direction"])
+        # First tag of this type (count == 1): no rule offered yet.
+        self.assertIsNone(body["rule_suggestion"])
+
+    def test_second_same_type_tag_offers_a_prefilled_rule(self):
+        client = self.client()
+        # A second, independent inflow tagged the same way trips the offer.
+        conn = sqlite3.connect(self.db_path)
+        second = conn.execute(
+            """INSERT INTO transactions
+               (txn_date, amount_cents, description, category, paid_by,
+                is_shared, source, direction, income_type)
+               VALUES (?, 411000, 'ACME CORP DIRECT DEP', 'Other', 1, 0,
+                       'simplefin', 'in', 'unclassified')""",
+            (date.today().isoformat(),)).lastrowid
+        conn.commit()
+        conn.close()
+
+        client.put(f"/api/transactions/{self.inflow_id}/classify",
+                   json={"income_type": "paycheck"})
+        body = client.put(f"/api/transactions/{second}/classify",
+                          json={"income_type": "paycheck"}).get_json()
+        self.assertEqual(
+            {"match_desc": "ACME CORP DIRECT DEP", "set_type": "paycheck"},
+            body["rule_suggestion"])
 
         conn = sqlite3.connect(self.db_path)
         try:

@@ -38,6 +38,15 @@
     return `${n} inflow${n === 1 ? " still needs" : "s still need"} tagging`;
   }
 
+  // The "make this a rule?" prompt line, shown after the 2nd same-type
+  // tag. setType is a real income type ('paycheck', 'gift', …), capitalized
+  // for display — all six types are single words that capitalize cleanly.
+  // Pure + tested so the one wording lives in exactly one place.
+  function ruleSuggestionText(setType) {
+    const label = setType.charAt(0).toUpperCase() + setType.slice(1);
+    return `You've tagged two as ${label}. Auto-tag future income that matches?`;
+  }
+
   function incomeCardHTML(inc, month) {
     // No inflows yet (the state until sync imports income, or an empty
     // month): a muted empty state, not a wall of zeros — same grammar as the
@@ -84,5 +93,5 @@
     </div>`;
   }
 
-  return { fmt, esc, ord, monthName, nudgeText, incomeCardHTML };
+  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, incomeCardHTML };
 });

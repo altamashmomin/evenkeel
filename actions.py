@@ -925,6 +925,40 @@ def _first_matching_rule(db, row, rules=None):
     return None
 
 
+def suggest_rule_after_classify(db, row):
+    """The "make this a rule?" decision, deliberately kept out of
+    classify_inflow so that verb stays a pure one-row edit (see its
+    docstring). Read-only: returns a pre-filled rule suggestion for the UI,
+    or None when no offer should be made.
+
+    Offer exactly once per income_type — when tagging brings the count of
+    inflows carrying a given real type to exactly two. That's the settled
+    auto-rule-aggressiveness call: wait for a repeat match rather than fire
+    on the first tag (robustness over fast convergence, per INCOME-DESIGN).
+    Because the offer only fires at count == 2, a decline is a decline —
+    the third same-type tag won't nag again.
+
+    Suppressed when an enabled rule already matches this row: a rule already
+    covers it, so a second would be permanent dead weight, and
+    create_income_rule would reject the duplicate criteria anyway.
+
+    match_desc is pre-filled from the description for the user to trim;
+    set_type is the type just assigned. `row` is a classified inflow Row.
+    """
+    income_type = row["income_type"]
+    if row["direction"] != "in" or income_type not in RULE_TYPES:
+        return None
+    count = db.execute(
+        "SELECT COUNT(*) AS n FROM transactions "
+        "WHERE direction = 'in' AND income_type = ?", (income_type,)).fetchone()["n"]
+    if count != 2:
+        return None
+    if _first_matching_rule(db, row) is not None:
+        return None
+    return {"match_desc": (row["description"] or "").strip(),
+            "set_type": income_type}
+
+
 def _matching_pass(db):
     """Read-only: every enabled rule (priority ascending, ties by id) tried
     in order against every unclassified inflow; first match wins."""

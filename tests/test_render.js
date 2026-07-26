@@ -45,6 +45,16 @@ check("nudgeText agrees with count", () => {
   assert.strictEqual(R.nudgeText(3), "3 inflows still need tagging");
 });
 
+// ---- ruleSuggestionText: type capitalized, one wording ----
+check("ruleSuggestionText capitalizes the type", () => {
+  assert.strictEqual(
+    R.ruleSuggestionText("paycheck"),
+    "You've tagged two as Paycheck. Auto-tag future income that matches?");
+  assert.strictEqual(
+    R.ruleSuggestionText("reimbursement"),
+    "You've tagged two as Reimbursement. Auto-tag future income that matches?");
+});
+
 // ---- incomeCardHTML: every state ----
 const base = {
   gross_inflows: 3450, true_income: 3200, month_spend: 1806.5,

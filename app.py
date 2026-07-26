@@ -342,7 +342,8 @@ def classify_transaction(txn_id):
     except ValueError as e:
         return bad_request(str(e))
     return jsonify({**txn_to_json(db, row),
-                     "direction": row["direction"], "income_type": row["income_type"]})
+                     "direction": row["direction"], "income_type": row["income_type"],
+                     "rule_suggestion": actions.suggest_rule_after_classify(db, row)})
 
 
 # ---------------------------------------------------------------- income rules
