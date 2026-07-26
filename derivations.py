@@ -166,3 +166,58 @@ def income_summary(db, month=None):
         "savings_rate": savings_rate,
         "unclassified_count": row["unclassified"],
     }
+
+
+def _month_window(anchor, months_back):
+    """The list of 'YYYY-MM' strings ending at `anchor` (inclusive), going
+    back `months_back` months, in chronological order. Pure integer math on
+    a months-since-year-zero index, so it crosses year boundaries correctly
+    and reads no clock — the same window every run, which is what keeps the
+    trend derivations deterministic and gate-stable."""
+    year, month = (int(part) for part in anchor.split("-"))
+    end = year * 12 + (month - 1)
+    return [f"{i // 12:04d}-{i % 12 + 1:02d}"
+            for i in range(end - months_back + 1, end + 1)]
+
+
+def _latest_data_month(db):
+    """The most recent 'YYYY-MM' present in transactions, or None when there
+    are none. A plumbing helper (leading underscore) — deliberately not a
+    tripwire-checked 'aggregate': its answer legitimately depends on data
+    extent, inflows included."""
+    row = db.execute(
+        "SELECT MAX(substr(txn_date, 1, 7)) AS month FROM transactions").fetchone()
+    return row["month"]
+
+
+def _monthly_series(db, metric_fn, months_back=6, anchor=None):
+    """Map a per-month derivation over a trailing window — the shared trend
+    engine every *_trend derivation (income now, category/savings-rate/…
+    later) is built on, so month bucketing lives and is tested in one place.
+
+    `metric_fn(db, month)` is called for each of the `months_back` months
+    ending at `anchor`, chronological order, its dict merged under a 'month'
+    key. `anchor` defaults to the latest month with data (clock-free and
+    deterministic; the endpoint passes the month the client is viewing).
+    Empty months are included — metric_fn returns its own zero-state — so a
+    chart gets a continuous monthly axis rather than gaps. Private (leading
+    underscore) on purpose: it takes a callable, not just `db`, so it is not
+    one of the tripwire's income-ignoring aggregates; the *_trend functions
+    that wrap it declare their own tripwire status.
+    """
+    if anchor is None:
+        anchor = _latest_data_month(db)
+    if anchor is None:
+        return []  # no data at all — an empty series, not a window of zeros
+    return [{"month": month, **metric_fn(db, month)}
+            for month in _month_window(anchor, months_back)]
+
+
+def income_trend(db, months_back=6, anchor=None):
+    """Per-month income vs. net spend over a trailing window — the analytics
+    chart's data source (INCOME-DESIGN). Each entry is `income_summary` for
+    that month, so every field means exactly what it does on the dashboard
+    card and refund netting flows through `month_spend_cents`/
+    `net_cash_flow_cents` identically. EXEMPT in the derivation tripwire for
+    the same reason income_summary is — counting inflows is its whole job."""
+    return _monthly_series(db, income_summary, months_back, anchor)

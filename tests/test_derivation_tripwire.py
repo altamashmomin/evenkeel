@@ -46,6 +46,9 @@ EXEMPT = {
                         "exemption is bounded to refunds only; "
                         "test_income_isolation proves non-refund inflows "
                         "still never move spend.",
+    "income_trend": "per-month income_summary over a trailing window — an "
+                    "income aggregate by construction, counting inflows is "
+                    "its whole job (same reason as income_summary).",
 }
 
 

@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import actions
 from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (compute_balance as derive_balance, income_summary,
-                         spending_summary)
+                         income_trend, spending_summary)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -436,6 +436,41 @@ def income_summary_view():
         "net_cash_flow": dollars(s["net_cash_flow_cents"]),
         "savings_rate": s["savings_rate"],
         "unclassified_count": s["unclassified_count"],
+    })
+
+
+@app.get("/api/income/trend")
+@login_required
+def income_trend_view():
+    """Per-month income vs. net spend over a trailing window — the analytics
+    chart's data source. Cents from the income_trend derivation, dollars at
+    the JSON edge (like the income card). `anchor` defaults to the current
+    period (as the dashboard card's month does); `months_back` is clamped to
+    a sane window. New endpoint — the byte-pinned v1 surface stays frozen."""
+    db = get_db()
+    anchor = request.args.get("anchor") or current_period()
+    ym = anchor.split("-")
+    if len(ym) != 2 or not (ym[0].isdigit() and ym[1].isdigit()
+                            and 1 <= int(ym[1]) <= 12):
+        return bad_request("anchor must be YYYY-MM")
+    try:
+        months_back = int(request.args.get("months_back", 6))
+    except (TypeError, ValueError):
+        return bad_request("months_back must be an integer")
+    months_back = max(1, min(months_back, 24))
+    series = income_trend(db, months_back=months_back, anchor=anchor)
+    return jsonify({
+        "anchor": anchor,
+        "months_back": months_back,
+        "series": [{
+            "month": e["month"],
+            "gross_inflows": dollars(e["gross_inflows_cents"]),
+            "true_income": dollars(e["true_income_cents"]),
+            "month_spend": dollars(e["month_spend_cents"]),
+            "net_cash_flow": dollars(e["net_cash_flow_cents"]),
+            "savings_rate": e["savings_rate"],
+            "unclassified_count": e["unclassified_count"],
+        } for e in series],
     })
 
 
