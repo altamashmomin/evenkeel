@@ -34,7 +34,13 @@ WRITE_RE = re.compile(
 # the verbs themselves, schema migrations, and synthetic fixtures (whose
 # whole job is to write rows directly — data, not verb calls).
 ALLOWED_PATHS = {"actions.py", "seed_db.py", "seed_income.py"}
-ALLOWED_DIRS = {"migrations", "tests", ".venv", "__pycache__", ".git"}
+# Non-source trees to skip. `.claude` matters beyond config: a harness/agent
+# git worktree under `.claude/worktrees/<name>/` is a FULL repo copy, so its
+# nested `tests/`/`migrations/` would otherwise be scanned — their top-level
+# path part is `.claude`, not `tests`, so the deeper exclusions never fire.
+# `venv` mirrors `.venv` (this checkout has both virtualenv dir names).
+ALLOWED_DIRS = {"migrations", "tests", ".venv", "venv", "__pycache__",
+                ".git", ".claude"}
 
 # Known, reasoned exceptions keyed by (filename, table). Each is a write
 # that predates or sits outside the verb registry on purpose. Removing a
