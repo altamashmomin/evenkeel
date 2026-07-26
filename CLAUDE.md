@@ -84,9 +84,13 @@ then deploy from `main` via `deploy.sh main` (fast-forward `main` to
 `rework` per increment). Deploy facts: Pi user `altamash`, path `/home/altamash/pifinance`;
 systemd units carry a `pi`/`/home/pi` assumption — rewrite with `sed` on
 copy, never edit the tracked file (future `git pull` would conflict).
-Remaining deploy task: **Tailscale** for phone access (`sudo tailscale
-up`, approve the URL on a laptop — the Pi's desktop browser browns out
-the board, so keep it headless).
+**Tailscale — done (Jul 26, 2026).** Phone access is live: Mac, iPhone,
+and the Pi are all on the tailnet under `altamashmomin@`. Pi tailnet IP
+`100.108.237.13`, MagicDNS name `raspberrypi`; the app is reachable at
+`http://raspberrypi:8080` (or the 100.x IP) over a direct P2P link (~32ms,
+not relayed). Verified end-to-end from this Mac (which is on the tailnet):
+`/api/status` → 200, `{"logged_in":false,"setup_required":false}`. No open
+deploy/infra tasks remain.
 
 Done (sessions one and two, on `rework`; session one reviewed and
 approved, session two awaiting review):
