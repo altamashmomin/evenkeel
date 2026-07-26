@@ -11,9 +11,15 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+SEED_AS_OF = "2026-07-19"
+# The immutable deployed-baseline commit. main currently points here too,
+# but main will advance once increments merge; the baseline must not.
+# Replace with the v1.0 tag when the Pi deploy cuts it.
+V1_BASELINE_REF = "41c2040"
 sys.path.insert(0, str(REPO))
 
 import gate
+from schema_runtime import REQUIRED_SCHEMA_VERSION
 
 
 class GateTests(unittest.TestCase):
@@ -26,13 +32,13 @@ class GateTests(unittest.TestCase):
         cls.legacy_code.mkdir()
         with (cls.legacy_code / "app.py").open("w") as app_file:
             subprocess.run(
-                ["git", "-C", str(REPO), "show", "main:app.py"],
+                ["git", "-C", str(REPO), "show", f"{V1_BASELINE_REF}:app.py"],
                 check=True, stdout=app_file, text=True)
 
         cls.old_db = cls.tmp_path / "old.db"
         subprocess.run(
             [sys.executable, str(REPO / "seed_db.py"), str(cls.old_db),
-             "--seed", "42", "--months", "8"],
+             "--seed", "42", "--months", "8", "--as-of", SEED_AS_OF],
             check=True, capture_output=True, text=True)
         cls.new_db = cls.tmp_path / "new.db"
         shutil.copy2(cls.old_db, cls.new_db)
@@ -58,8 +64,23 @@ class GateTests(unittest.TestCase):
         self.assertNotIn("users", new_counts)
         self.assertEqual(2, new_counts["members"])
         self.assertEqual(352, new_counts["splits"])
-        self.assertEqual(3, new_counts["schema_version"])
+        self.assertEqual(REQUIRED_SCHEMA_VERSION, new_counts["schema_version"])
         self.assertEqual(0, new_counts["links"])
+        conn = sqlite3.connect(self.new_db)
+        try:
+            groups = conn.execute(
+                "SELECT t.id, COUNT(s.member_id), SUM(s.share_bp) "
+                "FROM transactions t JOIN splits s ON s.transaction_id = t.id "
+                "WHERE t.is_shared = 1 GROUP BY t.id"
+            ).fetchall()
+            shared_count = conn.execute(
+                "SELECT COUNT(*) FROM transactions WHERE is_shared = 1"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(shared_count, len(groups))
+        self.assertTrue(all(count == 2 and total == 10000
+                            for _txn_id, count, total in groups))
 
     def test_snapshot_does_not_mutate_source_database(self):
         before = self.old_db.read_bytes()

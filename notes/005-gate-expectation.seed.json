@@ -1,0 +1,7 @@
+{
+  "note": "Migration #005 (income classification foundation: transactions.direction/income_type columns, income_rules table). One new empty table and its schema_version record — nothing else. No verb reads or writes these columns yet, so balance and every monthly total are identical.",
+  "diffs": [
+    {"path": "row_counts.income_rules", "old": null, "new": 0},
+    {"path": "row_counts.schema_version", "old": 4, "new": 5}
+  ]
+}

@@ -10,10 +10,14 @@ One-time setup:
 
 Normal run (designed for a daily systemd timer):
     python simplefin_sync.py
-        Pulls transactions from /accounts, skips incoming deposits (only
-        money out is tracked), dedupes on SimpleFIN's transaction id so
-        re-runs never double-insert, and inserts new rows as shared 50/50
-        (source='simplefin') — editable later in the app.
+        Pulls transactions from /accounts, dedupes on SimpleFIN's
+        transaction id so re-runs never double-insert. Money out inserts
+        shared 50/50 (source='simplefin') — editable later in the app.
+        Money in inserts as an inflow (direction='in'), owned by
+        SYNC_PAID_BY unless a matching income rule overrides the owner,
+        and is classified on the spot by the rules engine — a match sets
+        its income_type immediately, no match lands 'unclassified'
+        (docs/INCOME-DESIGN.md).
 
 Environment (.env):
     DATABASE_PATH           path to the app's SQLite file
@@ -24,6 +28,7 @@ Environment (.env):
 import argparse
 import base64
 import os
+import sqlite3
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -32,6 +37,7 @@ from decimal import Decimal, InvalidOperation
 import requests
 from dotenv import load_dotenv
 
+import actions
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -105,6 +111,7 @@ def sync() -> None:
         print(f"simplefin notice: {err}")
 
     db = connect_existing(DB_PATH)
+    db.row_factory = sqlite3.Row
     db.execute("PRAGMA busy_timeout = 5000")
     member_ids = [r[0] for r in db.execute(
         "SELECT id FROM members WHERE active = 1 ORDER BY id")]
@@ -114,43 +121,63 @@ def sync() -> None:
     if len(member_ids) != 2:
         sys.exit(f"error: {len(member_ids)} active members — the shared-50/50 import "
                  "default needs exactly two. Adjust the sync before changing the household.")
-    other_id = member_ids[0] if PAID_BY == member_ids[1] else member_ids[1]
 
-    inserted = skipped_deposit = skipped_dupe = 0
+    inserted_out = inserted_in = skipped_dupe = 0
     for account in data.get("accounts", []):
         acct_id = account.get("id", "unknown")
         acct_name = account.get("name", acct_id)
         for txn in account.get("transactions", []):
             cents = to_cents(txn.get("amount", "0"))
-            if cents >= 0:           # deposit / credit — only money out is tracked
-                skipped_deposit += 1
-                continue
             external_id = f"simplefin:{acct_id}:{txn['id']}"
             posted = txn.get("posted") or txn.get("transacted_at") or time.time()
             txn_date = datetime.fromtimestamp(int(posted)).date().isoformat()
             desc = (txn.get("description") or txn.get("payee") or "Bank transaction").strip()
-            cur = db.execute(
-                """INSERT INTO transactions
-                   (txn_date, amount_cents, description, category, paid_by,
-                    is_shared, source, external_id)
-                   VALUES (?, ?, ?, 'Other', ?, 1, 'simplefin', ?)
-                   ON CONFLICT(external_id) DO NOTHING""",
-                (txn_date, abs(cents), desc[:200], PAID_BY, external_id),
-            )
-            if cur.rowcount:
-                db.executemany(
-                    "INSERT INTO splits (transaction_id, member_id, share_bp) "
-                    "VALUES (?, ?, ?)",
-                    [(cur.lastrowid, PAID_BY, 5000), (cur.lastrowid, other_id, 5000)],
-                )
-                inserted += 1
-                print(f"  + {txn_date}  {abs(cents)/100:>9.2f}  {desc[:48]}  [{acct_name}]")
-            else:
-                skipped_dupe += 1
-    db.commit()
+            # Thin caller: record_transaction owns validation, the insert's
+            # dedupe on external_id, direction-aware split handling, the
+            # income-rules matching pass for an inflow, and the audit row
+            # (CORE-DESIGN's record_transaction verb, "dedupe stays inside
+            # it"). Money out keeps the legacy shared-50/50 default; money
+            # in gets no share fields at all (INCOME-DESIGN invariant 1) —
+            # record_transaction enforces that regardless of what's passed
+            # here, but is_shared=False is explicit below anyway so the
+            # intent reads without following the call into actions.py.
+            if cents < 0:                      # money out
+                row = actions.record_transaction(
+                    db, actor="sync",
+                    data={
+                        "date": txn_date,
+                        "amount": str(Decimal(abs(cents)) / 100),
+                        "description": desc,
+                        "paid_by": PAID_BY,
+                        "is_shared": True,
+                        "payer_share_pct": 50,
+                    },
+                    source="simplefin", external_id=external_id)
+                if row is not None:
+                    inserted_out += 1
+                    print(f"  + {txn_date}  {abs(cents)/100:>9.2f}  {desc[:48]}  [{acct_name}]")
+                else:
+                    skipped_dupe += 1
+            else:                              # money in -- an inflow
+                row = actions.record_transaction(
+                    db, actor="sync",
+                    data={
+                        "date": txn_date,
+                        "amount": str(Decimal(cents) / 100),
+                        "description": desc,
+                        "paid_by": PAID_BY,
+                        "is_shared": False,
+                    },
+                    source="simplefin", external_id=external_id, direction="in")
+                if row is not None:
+                    inserted_in += 1
+                    print(f"  + {txn_date}  {cents/100:>9.2f}  {desc[:48]}  [{acct_name}]  "
+                          f"(income: {row['income_type']})")
+                else:
+                    skipped_dupe += 1
     db.close()
-    print(f"done: {inserted} inserted, {skipped_dupe} already present, "
-          f"{skipped_deposit} deposits skipped.")
+    print(f"done: {inserted_out} outflows inserted, {inserted_in} inflows inserted, "
+          f"{skipped_dupe} already present.")
 
 
 def main():

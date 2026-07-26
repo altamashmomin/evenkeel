@@ -90,6 +90,36 @@
   </form>
 </dialog>
 
+<dialog id="dlg-classify">
+  <form method="dialog" id="form-classify">
+    <h2>What kind of income?</h2>
+    <p class="classify-summary" id="classify-summary"></p>
+    <div class="type-grid" id="classify-types"></div>
+    <p class="form-error" id="classify-error"></p>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-rule">
+  <form method="dialog" id="form-rule">
+    <h2>Make this a rule?</h2>
+    <p class="classify-summary" id="rule-prompt"></p>
+    <label>Match income whose description contains
+      <input name="match" maxlength="200" placeholder="e.g. ACME CORP" autocomplete="off">
+    </label>
+    <p class="income-label" id="rule-hint"></p>
+    <p class="form-error" id="rule-error"></p>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button class="btn ghost" value="cancel" formnovalidate>Not now</button>
+      <button class="btn primary" type="submit">Create rule</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlg-bill">
   <form method="dialog" id="form-bill">
     <h2 id="bill-title">Add bill</h2>
@@ -170,6 +200,7 @@
   </form>
 </dialog>
 
+<script src="render.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

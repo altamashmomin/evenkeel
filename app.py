@@ -7,13 +7,15 @@ import os
 import secrets
 import sqlite3
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
 
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from derivations import compute_balance as derive_balance, spending_summary
+import actions
+from actions import active_members, current_period, payer_share_pct, to_cents
+from derivations import (compute_balance as derive_balance, income_summary,
+                         spending_summary)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -64,16 +66,6 @@ def close_db(_exc):
 
 # ---------------------------------------------------------------- helpers
 
-def to_cents(value):
-    """Parse a dollar amount (number or string) into integer cents, exactly."""
-    try:
-        d = Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError):
-        raise ValueError("invalid amount")
-    cents = int((d * 100).to_integral_value(rounding="ROUND_HALF_UP"))
-    return cents
-
-
 def dollars(cents):
     return round(cents / 100.0, 2)
 
@@ -91,33 +83,17 @@ def login_required(fn):
     return wrapper
 
 
-def get_users(db):
-    """Active household members. (Name kept from v1.0; rows now come from
-    the members table — departed members stay in the data with active=0.)"""
-    return db.execute(
-        "SELECT id, username, display_name FROM members WHERE active = 1 ORDER BY id"
-    ).fetchall()
+# v1.0 name kept for its many read-side call sites; the canonical query
+# lives with the verbs now (actions.active_members).
+get_users = active_members
 
 
-def parse_iso_date(s, field="date"):
-    try:
-        return date.fromisoformat(s).isoformat()
-    except (TypeError, ValueError):
-        raise ValueError(f"invalid {field} (expected YYYY-MM-DD)")
-
-
-def payer_share_pct(db, txn_id, paid_by):
-    """The payer's share as a percentage, derived from split rows.
-
-    Kept in API responses for byte-compatibility with v1.0: the payer's
-    share_bp / 100 for shared rows, the old default of 50 for unshared rows
-    (which have no split rows at all).
-    """
-    row = db.execute(
-        "SELECT share_bp FROM splits WHERE transaction_id = ? AND member_id = ?",
-        (txn_id, paid_by),
+def ui_actor(db):
+    """Actor string for the logged-in member: 'ui:<username>'."""
+    member = db.execute(
+        "SELECT username FROM members WHERE id = ?", (session["user_id"],)
     ).fetchone()
-    return row["share_bp"] / 100 if row else 50.0
+    return f"ui:{member['username']}" if member else f"ui:{session['user_id']}"
 
 
 def txn_to_json(db, r):
@@ -132,30 +108,6 @@ def txn_to_json(db, r):
         "payer_share_pct": payer_share_pct(db, r["id"], r["paid_by"]),
         "source": r["source"],
     }
-
-
-def write_splits(db, txn_id, paid_by, is_shared, pct):
-    """Replace a transaction's split rows from a payer-share percentage.
-
-    The kernel of the future set_splits verb: unshared rows get no split
-    rows; shared rows get one row per member, basis points summing to 10000.
-    The two-person closed form matches the routes that call it — the routes
-    themselves still assume the deployed two-member household until verb
-    extraction adds proper submission criteria.
-    """
-    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
-    if not is_shared:
-        return
-    payer_bp = round(pct * 100)
-    others = [u["id"] for u in get_users(db) if u["id"] != paid_by]
-    db.execute(
-        "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
-        (txn_id, paid_by, payer_bp),
-    )
-    db.execute(
-        "INSERT INTO splits (transaction_id, member_id, share_bp) VALUES (?, ?, ?)",
-        (txn_id, others[0], 10000 - payer_bp),
-    )
 
 
 def compute_balance(db):
@@ -263,46 +215,6 @@ def me():
 
 # ---------------------------------------------------------------- transactions
 
-def validate_txn_payload(db, data, partial=False):
-    """Returns dict of column->value for insert/update. Raises ValueError.
-
-    payer_share_pct is still the API's vocabulary but no longer a column —
-    callers pop it from the result and hand it to write_splits.
-    """
-    out = {}
-    if "date" in data or not partial:
-        out["txn_date"] = parse_iso_date(data.get("date"), "date")
-    if "amount" in data or not partial:
-        cents = to_cents(data.get("amount"))
-        if cents <= 0:
-            raise ValueError("amount must be positive")
-        out["amount_cents"] = cents
-    if "description" in data or not partial:
-        desc = (data.get("description") or "").strip()
-        if not desc:
-            raise ValueError("description is required")
-        out["description"] = desc[:200]
-    if "category" in data or not partial:
-        out["category"] = (data.get("category") or "Other").strip()[:60] or "Other"
-    if "paid_by" in data or not partial:
-        uid = data.get("paid_by")
-        ids = {u["id"] for u in get_users(db)}
-        if uid not in ids:
-            raise ValueError("paid_by must be one of the two users")
-        out["paid_by"] = uid
-    if "is_shared" in data or not partial:
-        out["is_shared"] = 1 if data.get("is_shared", True) else 0
-    if "payer_share_pct" in data or not partial:
-        try:
-            pct = float(data.get("payer_share_pct", 50))
-        except (TypeError, ValueError):
-            raise ValueError("payer_share_pct must be a number")
-        if not (0 <= pct <= 100):
-            raise ValueError("payer_share_pct must be between 0 and 100")
-        out["payer_share_pct"] = pct
-    return out
-
-
 @app.get("/api/transactions")
 @login_required
 def list_transactions():
@@ -318,23 +230,73 @@ def list_transactions():
     return jsonify([txn_to_json(db, r) for r in rows])
 
 
+@app.get("/api/activity")
+@login_required
+def activity():
+    """The Activity feed's income-aware read surface. Extends the v1 txn
+    shape with direction/income_type (merged on top of txn_to_json rather
+    than added to it, so /api/transactions stays byte-frozen), offers a
+    spending/income filter, and carries the household-wide unclassified
+    inflow count that drives the "tag this" nudge. Read-only."""
+    db = get_db()
+    month = request.args.get("month")            # YYYY-MM, optional
+    filt = request.args.get("filter", "all")     # all | spending | income
+    if filt not in ("all", "spending", "income"):
+        return bad_request("filter must be all, spending, or income")
+
+    clauses, params = [], []
+    if month:
+        clauses.append("substr(txn_date, 1, 7) = ?")
+        params.append(month)
+    if filt == "spending":
+        clauses.append("direction = 'out'")
+    elif filt == "income":
+        clauses.append("direction = 'in'")
+    q = "SELECT * FROM transactions"
+    if clauses:
+        q += " WHERE " + " AND ".join(clauses)
+    q += " ORDER BY txn_date DESC, id DESC LIMIT 500"
+    rows = db.execute(q, params).fetchall()
+
+    # Global (all-time), not month-scoped: the tag-me queue is everything
+    # still waiting, so the badge doesn't hide work in another month.
+    unclassified = db.execute(
+        "SELECT COUNT(*) AS c FROM transactions "
+        "WHERE direction = 'in' AND income_type = 'unclassified'").fetchone()["c"]
+
+    return jsonify({
+        "month": month,
+        "filter": filt,
+        "transactions": [
+            {**txn_to_json(db, r),
+             "direction": r["direction"], "income_type": r["income_type"]}
+            for r in rows
+        ],
+        "unclassified_count": unclassified,
+    })
+
+
 @app.post("/api/transactions")
 @login_required
 def create_transaction():
     db = get_db()
     data = request.get_json(silent=True) or {}
+    if data.get("source") == "settlement":
+        # Thin caller: the settle_up verb owns validation, the edit
+        # (row + splits + settles links + audit, one transaction).
+        try:
+            row = actions.settle_up(db, actor=ui_actor(db), data=data)
+        except ValueError as e:
+            return bad_request(str(e))
+        return jsonify(txn_to_json(db, row)), 201
+    # Thin caller: the record_transaction verb owns validation and the
+    # edit (row + splits + audit, one transaction). A manual entry never
+    # carries an external_id — dedupe is sync's concern, not the UI's.
     try:
-        cols = validate_txn_payload(db, data)
+        row = actions.record_transaction(
+            db, actor=ui_actor(db), data=data, source="manual")
     except ValueError as e:
         return bad_request(str(e))
-    pct = cols.pop("payer_share_pct", 50)
-    cols["source"] = "settlement" if data.get("source") == "settlement" else "manual"
-    keys = ", ".join(cols)
-    marks = ", ".join("?" for _ in cols)
-    cur = db.execute(f"INSERT INTO transactions ({keys}) VALUES ({marks})", list(cols.values()))
-    write_splits(db, cur.lastrowid, cols["paid_by"], cols["is_shared"], pct)
-    db.commit()
-    row = db.execute("SELECT * FROM transactions WHERE id = ?", (cur.lastrowid,)).fetchone()
     return jsonify(txn_to_json(db, row)), 201
 
 
@@ -342,27 +304,13 @@ def create_transaction():
 @login_required
 def update_transaction(txn_id):
     db = get_db()
-    existing = db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
-    if existing is None:
-        return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     try:
-        cols = validate_txn_payload(db, data, partial=True)
+        row = actions.edit_transaction(db, ui_actor(db), txn_id, data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     except ValueError as e:
         return bad_request(str(e))
-    pct = cols.pop("payer_share_pct", None)
-    if not cols and pct is None:
-        return bad_request("nothing to update")
-    if pct is None:
-        # Share not part of this edit: the current payer's share travels,
-        # exactly as the old column did when other fields changed.
-        pct = payer_share_pct(db, txn_id, existing["paid_by"])
-    if cols:
-        sets = ", ".join(f"{k} = ?" for k in cols)
-        db.execute(f"UPDATE transactions SET {sets} WHERE id = ?", [*cols.values(), txn_id])
-    row = db.execute("SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
-    write_splits(db, txn_id, row["paid_by"], row["is_shared"], pct)
-    db.commit()
     return jsonify(txn_to_json(db, row))
 
 
@@ -370,12 +318,125 @@ def update_transaction(txn_id):
 @login_required
 def delete_transaction(txn_id):
     db = get_db()
-    db.execute("DELETE FROM splits WHERE transaction_id = ?", (txn_id,))
-    cur = db.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
-    db.commit()
-    if cur.rowcount == 0:
-        return jsonify({"error": "not found"}), 404
+    try:
+        actions.delete_transaction(db, ui_actor(db), txn_id)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
+
+
+@app.put("/api/transactions/<int:txn_id>/classify")
+@login_required
+def classify_transaction(txn_id):
+    """Thin caller: the classify_inflow verb owns validation and the edit.
+    Response extends the deployed txn_to_json shape with direction/
+    income_type — new fields on a new endpoint, so the frozen listing
+    shape (byte-pinned to v1.0) stays untouched."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.classify_inflow(
+            db, ui_actor(db), txn_id, data.get("income_type"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify({**txn_to_json(db, row),
+                     "direction": row["direction"], "income_type": row["income_type"],
+                     "rule_suggestion": actions.suggest_rule_after_classify(db, row)})
+
+
+# ---------------------------------------------------------------- income rules
+
+def rule_to_json(r):
+    return {
+        "id": r["id"],
+        "priority": r["priority"],
+        "match_desc": r["match_desc"],
+        "match_account": r["match_account"],
+        "min_cents": r["min_cents"],
+        "max_cents": r["max_cents"],
+        "set_type": r["set_type"],
+        "set_paid_by": r["set_paid_by"],
+        "enabled": bool(r["enabled"]),
+        "created_at": r["created_at"],
+        "hit_count": r["hit_count"],
+    }
+
+
+@app.get("/api/income/rules")
+@login_required
+def list_income_rules():
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM income_rules ORDER BY priority ASC, id ASC").fetchall()
+    return jsonify([rule_to_json(r) for r in rows])
+
+
+@app.post("/api/income/rules")
+@login_required
+def create_income_rule():
+    """Thin caller: the create_income_rule verb owns validation, the
+    conflict check, and the edit."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        rule = actions.create_income_rule(db, actor=ui_actor(db), data=data)
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(rule_to_json(rule)), 201
+
+
+@app.put("/api/income/rules/<int:rule_id>")
+@login_required
+def update_income_rule(rule_id):
+    """Thin caller over set_rule_enabled — the only edit the registry
+    backs. There is no general rule-editing verb: correcting match
+    criteria is delete-and-recreate until a standalone caller justifies
+    one (same growth-rule discipline as every other verb here)."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    if "enabled" not in data:
+        return bad_request("only 'enabled' can be changed")
+    try:
+        rule = actions.set_rule_enabled(
+            db, actor=ui_actor(db), rule_id=rule_id, enabled=bool(data["enabled"]))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    return jsonify(rule_to_json(rule))
+
+
+@app.post("/api/income/rules/apply")
+@login_required
+def apply_income_rules():
+    """Thin caller: the apply_rules verb owns the matching pass. dry_run
+    previews without writing, per AGENT-DESIGN's dry-run-first pattern."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    dry_run = bool(data.get("dry_run", False))
+    changes = actions.apply_rules(db, actor=ui_actor(db), dry_run=dry_run)
+    return jsonify({"dry_run": dry_run, "changes": changes})
+
+
+@app.get("/api/income/summary")
+@login_required
+def income_summary_view():
+    """The dashboard income card's data: cents from the income_summary
+    derivation, presented as dollars at the JSON edge (like /api/balance).
+    A new endpoint, not a field on /api/dashboard, so the byte-pinned v1
+    dashboard shape stays frozen."""
+    db = get_db()
+    month = request.args.get("month") or current_period()
+    s = income_summary(db, month)
+    return jsonify({
+        "month": month,
+        "gross_inflows": dollars(s["gross_inflows_cents"]),
+        "true_income": dollars(s["true_income_cents"]),
+        "month_spend": dollars(s["month_spend_cents"]),
+        "net_cash_flow": dollars(s["net_cash_flow_cents"]),
+        "savings_rate": s["savings_rate"],
+        "unclassified_count": s["unclassified_count"],
+    })
 
 
 @app.get("/api/categories")
@@ -412,10 +473,6 @@ def bill_to_json(db, r, period):
     }
 
 
-def current_period():
-    return date.today().strftime("%Y-%m")
-
-
 @app.get("/api/bills")
 @login_required
 def list_bills():
@@ -428,126 +485,74 @@ def list_bills():
 @app.post("/api/bills")
 @login_required
 def create_bill():
+    """Thin caller: the create_bill verb owns validation and the edit."""
     db = get_db()
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return bad_request("name is required")
     try:
-        cents = to_cents(data.get("amount"))
-        due_day = int(data.get("due_day"))
-    except (ValueError, TypeError):
-        return bad_request("invalid amount or due day")
-    if cents <= 0:
-        return bad_request("amount must be positive")
-    if not (1 <= due_day <= 31):
-        return bad_request("due day must be between 1 and 31")
-    category = (data.get("category") or "Bills").strip()[:60] or "Bills"
-    cur = db.execute(
-        "INSERT INTO bills (name, amount_cents, due_day, category) VALUES (?, ?, ?, ?)",
-        (name[:100], cents, due_day, category),
-    )
-    db.commit()
-    row = db.execute("SELECT * FROM bills WHERE id = ?", (cur.lastrowid,)).fetchone()
+        row = actions.create_bill(db, actor=ui_actor(db), data=data)
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(bill_to_json(db, row, current_period())), 201
 
 
 @app.put("/api/bills/<int:bill_id>")
 @login_required
 def update_bill(bill_id):
+    """Thin caller: the update_bill verb owns validation and the edit."""
     db = get_db()
-    row = db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
-    if row is None:
-        return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or row["name"]).strip()[:100]
-    category = (data.get("category") or row["category"]).strip()[:60]
     try:
-        cents = to_cents(data["amount"]) if "amount" in data else row["amount_cents"]
-        due_day = int(data.get("due_day", row["due_day"]))
-    except (ValueError, TypeError):
-        return bad_request("invalid amount or due day")
-    if cents <= 0 or not (1 <= due_day <= 31):
-        return bad_request("invalid amount or due day")
-    db.execute(
-        "UPDATE bills SET name = ?, amount_cents = ?, due_day = ?, category = ? WHERE id = ?",
-        (name, cents, due_day, category, bill_id),
-    )
-    db.commit()
-    row = db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
+        row = actions.update_bill(db, actor=ui_actor(db), bill_id=bill_id, data=data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(bill_to_json(db, row, current_period()))
 
 
 @app.delete("/api/bills/<int:bill_id>")
 @login_required
 def delete_bill(bill_id):
+    """Thin caller: the delete_bill verb soft-deletes and audits the
+    bill's state before deactivation."""
     db = get_db()
-    cur = db.execute("UPDATE bills SET active = 0 WHERE id = ? AND active = 1", (bill_id,))
-    db.commit()
-    if cur.rowcount == 0:
-        return jsonify({"error": "not found"}), 404
+    try:
+        actions.delete_bill(db, actor=ui_actor(db), bill_id=bill_id)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
 
 
 @app.post("/api/bills/<int:bill_id>/pay")
 @login_required
 def pay_bill(bill_id):
-    """Mark a bill paid for a period and log it as a transaction."""
+    """Thin caller: the mark_bill_paid verb owns validation and the edit
+    (transaction + splits + bill_payments row + audit, one transaction)."""
     db = get_db()
-    bill = db.execute("SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
-    if bill is None:
-        return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
-    period = data.get("period") or current_period()
-    if len(period) != 7 or period[4] != "-":
-        return bad_request("period must be YYYY-MM")
-    if db.execute("SELECT id FROM bill_payments WHERE bill_id = ? AND period = ?",
-                  (bill_id, period)).fetchone():
-        return bad_request("already marked paid for this period")
-    paid_by = data.get("paid_by", session["user_id"])
-    if paid_by not in {u["id"] for u in get_users(db)}:
-        return bad_request("paid_by must be one of the two users")
-    is_shared = 1 if data.get("is_shared", True) else 0
     try:
-        pct = float(data.get("payer_share_pct", 50))
-    except (TypeError, ValueError):
-        return bad_request("payer_share_pct must be a number")
-    if not (0 <= pct <= 100):
-        return bad_request("payer_share_pct must be between 0 and 100")
-    today = date.today().isoformat()
-    cur = db.execute(
-        """INSERT INTO transactions
-           (txn_date, amount_cents, description, category, paid_by,
-            is_shared, source)
-           VALUES (?, ?, ?, ?, ?, ?, 'bill')""",
-        (today, bill["amount_cents"], f"{bill['name']} ({period})",
-         bill["category"], paid_by, is_shared),
-    )
-    write_splits(db, cur.lastrowid, paid_by, is_shared, pct)
-    db.execute(
-        "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) VALUES (?, ?, ?, ?)",
-        (bill_id, period, today, cur.lastrowid),
-    )
-    db.commit()
+        bill, period = actions.mark_bill_paid(
+            db, actor=ui_actor(db), bill_id=bill_id, data=data,
+            default_paid_by=session["user_id"])
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(bill_to_json(db, bill, period)), 201
 
 
 @app.delete("/api/bills/<int:bill_id>/pay")
 @login_required
 def unpay_bill(bill_id):
-    """Undo a payment for a period; removes the linked transaction too."""
+    """Thin caller: the unmark_bill_paid verb removes the payment, its
+    transaction, splits, links, and writes the audit row atomically."""
     db = get_db()
     period = request.args.get("period") or current_period()
-    payment = db.execute(
-        "SELECT * FROM bill_payments WHERE bill_id = ? AND period = ?", (bill_id, period)
-    ).fetchone()
-    if payment is None:
-        return jsonify({"error": "no payment for this period"}), 404
-    if payment["txn_id"]:
-        db.execute("DELETE FROM splits WHERE transaction_id = ?", (payment["txn_id"],))
-        db.execute("DELETE FROM transactions WHERE id = ?", (payment["txn_id"],))
-    db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
-    db.commit()
+    try:
+        actions.unmark_bill_paid(db, actor=ui_actor(db), bill_id=bill_id,
+                                 period=period)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
 
 
@@ -579,50 +584,35 @@ def list_goals():
 @app.post("/api/goals")
 @login_required
 def create_goal():
+    """Thin caller: the create_goal verb owns validation and the edit."""
     db = get_db()
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return bad_request("name is required")
     try:
-        cents = to_cents(data.get("target"))
-    except ValueError:
-        return bad_request("invalid target amount")
-    if cents <= 0:
-        return bad_request("target must be positive")
-    target_date = None
-    if data.get("target_date"):
-        try:
-            target_date = parse_iso_date(data["target_date"], "target date")
-        except ValueError as e:
-            return bad_request(str(e))
-    cur = db.execute(
-        "INSERT INTO goals (name, target_cents, target_date) VALUES (?, ?, ?)",
-        (name[:100], cents, target_date),
-    )
-    db.commit()
-    row = db.execute("SELECT * FROM goals WHERE id = ?", (cur.lastrowid,)).fetchone()
+        row = actions.create_goal(db, actor=ui_actor(db), data=data)
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(goal_to_json(db, row)), 201
 
 
 @app.delete("/api/goals/<int:goal_id>")
 @login_required
 def delete_goal(goal_id):
+    """Thin caller: the delete_goal verb audits the goal summary before
+    the contribution cascade erases the history."""
     db = get_db()
-    cur = db.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
-    db.commit()
-    if cur.rowcount == 0:
-        return jsonify({"error": "not found"}), 404
+    try:
+        actions.delete_goal(db, actor=ui_actor(db), goal_id=goal_id)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
 
 
 @app.post("/api/goals/<int:goal_id>/contribute")
 @login_required
 def contribute(goal_id):
+    """Thin dispatcher: sign picks the verb (correction-pass disposition —
+    intent lives in the verb name; the row stores the signed amount)."""
     db = get_db()
-    goal = db.execute("SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
-    if goal is None:
-        return jsonify({"error": "not found"}), 404
     data = request.get_json(silent=True) or {}
     try:
         cents = to_cents(data.get("amount"))
@@ -630,13 +620,14 @@ def contribute(goal_id):
         return bad_request("invalid amount")
     if cents == 0:
         return bad_request("amount cannot be zero")
-    note = (data.get("note") or "").strip()[:200] or None
-    db.execute(
-        """INSERT INTO goal_contributions (goal_id, user_id, amount_cents, c_date, note)
-           VALUES (?, ?, ?, ?, ?)""",
-        (goal_id, session["user_id"], cents, date.today().isoformat(), note),
-    )
-    db.commit()
+    verb = actions.contribute_to_goal if cents > 0 else actions.withdraw_from_goal
+    try:
+        goal = verb(db, ui_actor(db), goal_id, session["user_id"],
+                    abs(cents), data.get("note"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
     return jsonify(goal_to_json(db, goal)), 201
 
 

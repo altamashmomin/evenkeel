@@ -4,20 +4,23 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
+// Pure presentation helpers live in render.js (loaded before this file) so
+// they can be unit-tested in plain node; app.js pulls them off the global.
+const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, incomeCardHTML } = window.Render;
+
 const state = {
   meId: null,
   users: [],          // [{id, display_name}]
   tab: "dashboard",
   month: new Date().toISOString().slice(0, 7),
+  activityFilter: "all",   // all | spending | income
+
   editingTxn: null,
   editingBill: null,
   payingBill: null,
   contribGoal: null,
   openLogs: new Set(),
 };
-
-const fmt = (n) =>
-  "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const todayISO = () => {
   const d = new Date();
@@ -30,11 +33,6 @@ function userById(id) {
 function userColor(id) {
   const idx = state.users.findIndex((u) => u.id === id);
   return idx === 0 ? "var(--p1)" : "var(--p2)";
-}
-function esc(s) {
-  const div = document.createElement("div");
-  div.textContent = s == null ? "" : String(s);
-  return div.innerHTML;
 }
 
 async function api(path, opts = {}) {
@@ -210,6 +208,9 @@ function beamHTML(bal) {
 
 async function renderDashboard() {
   const d = await api("/api/dashboard");
+  // Same month the dashboard resolved to, so the two cards always agree;
+  // the /api/dashboard call itself stays unchanged (parity-frozen shape).
+  const inc = await api(`/api/income/summary?month=${d.month}`);
   window._dash = d;
   const maxCat = Math.max(1, ...d.by_category.map((c) => c.amount));
   const cats = d.by_category.length
@@ -244,8 +245,15 @@ async function renderDashboard() {
         </div>`).join("")
     : `<p class="empty">No goals yet — add one in the Goals tab.</p>`;
 
-  const recent = d.recent.length
-    ? `<ul class="list">${d.recent.map(txnRow).join("")}</ul>`
+  // Render the recent list from /api/activity so inflows show income-aware
+  // (green, chip) rather than as plain spend rows — /api/dashboard's own
+  // `recent` is the parity-frozen txn_to_json shape with no direction. The
+  // ids match, so the tap-to-edit fallback (window._dash.recent) still
+  // resolves the same rows.
+  const recentTxns = (await api("/api/activity?filter=all")).transactions.slice(0, 6);
+  window._recent = recentTxns;   // income-aware rows for the tap handler
+  const recent = recentTxns.length
+    ? `<ul class="list">${recentTxns.map(txnRow).join("")}</ul>`
     : `<p class="empty">No transactions yet. Tap + to add the first one.</p>`;
 
   return `
@@ -255,6 +263,7 @@ async function renderDashboard() {
       <p class="stat-big">${fmt(d.month_total)}</p>
       <div style="margin-top:12px">${cats}</div>
     </div>
+    ${incomeCardHTML(inc, d.month)}
     <div class="card"><p class="eyebrow">Unpaid bills</p>${bills}</div>
     <div class="card"><p class="eyebrow">Goals</p>${goals}</div>
     <div class="card"><p class="eyebrow">Recent</p>${recent}</div>`;
@@ -264,6 +273,29 @@ async function renderDashboard() {
 
 function txnRow(t) {
   const payer = userById(t.paid_by);
+  // direction is absent on the dashboard's "recent" rows (they come from
+  // the frozen txn_to_json), so treat missing as an outflow — those keep
+  // their existing spend styling untouched.
+  if (t.direction === "in") {
+    const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
+    const chip = t.income_type === "unclassified"
+      ? `<span class="badge untagged">tag</span>`
+      : `<span class="badge income">${esc(t.income_type)}</span>`;
+    return `
+      <li class="tap" data-txn="${t.id}">
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(t.paid_by)}"></span>${esc(payer.display_name)}
+            · money in${src} ${chip}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount income-in">+${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+  }
   const shared = t.is_shared
     ? t.payer_share_pct === 50 ? "shared 50/50" : `shared · payer ${t.payer_share_pct}%`
     : "personal";
@@ -286,17 +318,31 @@ function txnRow(t) {
 }
 
 async function renderActivity() {
-  const txns = await api(`/api/transactions?month=${state.month}`);
-  window._txns = txns;
+  const data = await api(
+    `/api/activity?month=${state.month}&filter=${state.activityFilter}`);
+  const txns = data.transactions;
+  window._txns = txns;   // the tap-to-edit path reads this
+  const emptyLabel = { all: "No transactions", spending: "No spending",
+                       income: "No income" }[state.activityFilter];
   const list = txns.length
     ? `<ul class="list">${txns.map(txnRow).join("")}</ul>`
-    : `<p class="empty">No transactions in ${monthName(state.month)}.</p>`;
+    : `<p class="empty">${emptyLabel} in ${monthName(state.month)}.</p>`;
+  const seg = (key, label) =>
+    `<button data-filter="${key}"${state.activityFilter === key ? ' class="on"' : ""}>${label}</button>`;
+  // Global (all-months) tag-me nudge; tapping jumps to the Income filter.
+  const badge = data.unclassified_count > 0
+    ? `<button class="tagbanner" data-filter="income">${nudgeText(data.unclassified_count)}</button>`
+    : "";
   return `
     <div class="monthbar">
       <button id="month-prev" aria-label="Previous month">‹</button>
       <b>${monthName(state.month)}</b>
       <button id="month-next" aria-label="Next month">›</button>
     </div>
+    <div class="filterbar">
+      ${seg("all", "All")}${seg("spending", "Spending")}${seg("income", "Income")}
+    </div>
+    ${badge}
     <div class="card">${list}</div>`;
 }
 
@@ -377,24 +423,40 @@ async function renderGoals() {
 
 /* ================= wiring ================= */
 
-function ord(n) {
-  const s = ["th", "st", "nd", "rd"], v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-function monthName(ym) {
-  const [y, m] = ym.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+// Resolve a tapped row id against whichever list rendered it — the
+// activity feed (_txns), the dashboard recent (_recent), or the
+// dashboard payload's own recent (last-resort, no direction).
+function findTxn(id) {
+  for (const pool of [window._txns, window._recent, window._dash && window._dash.recent]) {
+    if (pool) {
+      const t = pool.find((x) => x.id === id);
+      if (t) return t;
+    }
+  }
+  return null;
 }
 
 function wireMain() {
   $("#btn-settle")?.addEventListener("click", openSettle);
   $("#month-prev")?.addEventListener("click", () => shiftMonth(-1));
   $("#month-next")?.addEventListener("click", () => shiftMonth(1));
+  $$("[data-filter]").forEach((el) =>
+    el.addEventListener("click", () => {
+      state.activityFilter = el.dataset.filter;
+      render();
+    }));
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
   $$("[data-txn]").forEach((el) =>
-    el.addEventListener("click", () => openTxnDialog(
-      (window._txns || window._dash.recent).find((t) => t.id === +el.dataset.txn))));
+    el.addEventListener("click", () => {
+      const t = findTxn(+el.dataset.txn);
+      if (!t) return;
+      // Inflows tag (classify); outflows edit. Inflows never open the
+      // spend edit dialog — it has split controls that don't apply to
+      // income and could write stray split rows.
+      if (t.direction === "in") openClassifyDialog(t);
+      else openTxnDialog(t);
+    }));
   $$("[data-bill-pay]").forEach((el) =>
     el.addEventListener("click", () => openPayDialog(+el.dataset.billPay)));
   $$("[data-bill-unpay]").forEach((el) =>
@@ -519,6 +581,81 @@ $("#btn-txn-delete").addEventListener("click", async () => {
 });
 
 $("#fab").addEventListener("click", () => openTxnDialog(null));
+
+/* ---------- classify (income tagging) dialog ---------- */
+const dlgClassify = $("#dlg-classify");
+// The six real income types a row can be tagged as ('unclassified' is a
+// state, never a target); order matches how often you'd reach for them.
+const INCOME_TYPES_UI = [
+  ["paycheck", "Paycheck"], ["reimbursement", "Reimbursement"],
+  ["refund", "Refund"], ["transfer", "Transfer"],
+  ["gift", "Gift"], ["other", "Other"],
+];
+
+function openClassifyDialog(txn) {
+  $("#classify-error").textContent = "";
+  $("#classify-summary").innerHTML =
+    `<span class="grow">${esc(txn.description)}</span>` +
+    `<span class="amount income-in">+${fmt(txn.amount)}</span>`;
+  const holder = $("#classify-types");
+  holder.innerHTML = "";
+  INCOME_TYPES_UI.forEach(([val, label]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "type-btn" + (txn.income_type === val ? " on" : "");
+    b.textContent = label;
+    b.addEventListener("click", () => classifyInflow(txn.id, val));
+    holder.appendChild(b);
+  });
+  dlgClassify.showModal();
+}
+
+async function classifyInflow(id, income_type) {
+  try {
+    const res = await api(`/api/transactions/${id}/classify`,
+                          { method: "PUT", body: { income_type } });
+    dlgClassify.close();
+    render();
+    // The backend offers a rule once, on the 2nd inflow of a given type
+    // (null otherwise). Chain the offer on top of the re-render.
+    if (res && res.rule_suggestion) openRuleDialog(res.rule_suggestion);
+  } catch (e) {
+    $("#classify-error").textContent = e.message;
+  }
+}
+
+/* ---------- "make this a rule?" dialog ---------- */
+const dlgRule = $("#dlg-rule");
+const formRule = $("#form-rule");
+
+function openRuleDialog(suggestion) {
+  state.ruleSetType = suggestion.set_type;
+  $("#rule-error").textContent = "";
+  $("#rule-prompt").textContent = ruleSuggestionText(suggestion.set_type);
+  $("#rule-hint").textContent =
+    "Trim to a stable part of the description — the source's name, not a date " +
+    "or amount that changes each time.";
+  formRule.match.value = suggestion.match_desc || "";
+  dlgRule.showModal();
+}
+
+formRule.addEventListener("submit", async (ev) => {
+  if (ev.submitter && ev.submitter.value === "cancel") return;
+  ev.preventDefault();
+  const match_desc = formRule.match.value.trim();
+  if (!match_desc) {
+    $("#rule-error").textContent = "Enter some text to match, or tap Not now.";
+    return;
+  }
+  try {
+    await api("/api/income/rules",
+              { method: "POST", body: { set_type: state.ruleSetType, match_desc } });
+    dlgRule.close();
+    render();
+  } catch (e) {
+    $("#rule-error").textContent = e.message;
+  }
+});
 
 /* ---------- bill dialogs ---------- */
 const dlgBill = $("#dlg-bill");
