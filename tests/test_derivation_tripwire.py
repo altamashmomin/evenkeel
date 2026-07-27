@@ -49,6 +49,10 @@ EXEMPT = {
     "income_trend": "per-month income_summary over a trailing window — an "
                     "income aggregate by construction, counting inflows is "
                     "its whole job (same reason as income_summary).",
+    "category_trend": "per-month NET category spend over a window — reads "
+                      "refund inflows on purpose via spending_summary (same "
+                      "bounded exemption), and takes a `category` arg so it "
+                      "isn't a bare db-aggregate.",
 }
 
 

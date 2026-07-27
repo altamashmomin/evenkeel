@@ -221,3 +221,36 @@ def income_trend(db, months_back=6, anchor=None):
     `net_cash_flow_cents` identically. EXEMPT in the derivation tripwire for
     the same reason income_summary is — counting inflows is its whole job."""
     return _monthly_series(db, income_summary, months_back, anchor)
+
+
+def category_trend(db, category, months_back=6, anchor=None):
+    """Per-month NET spend for one category over a trailing window, with a
+    trailing 3-month rolling average and month-over-month delta (increment
+    8, the first deeper-analytics brick).
+
+    Rides `_monthly_series` (increment 6's engine) over `spending_summary`
+    — the "pass a different metric_fn" pattern — so refund netting applies
+    to this category exactly as it does everywhere else: a refund tagged to
+    this category dips this line in the month it lands, and the dip is not
+    clamped. Rolling average uses `round_ratio` (integer cents, ties to
+    even) over the trailing up-to-3 in-window months, so it warms up over
+    the first two; MoM delta is the exact difference from the prior in-window
+    month (None for the first, which has no in-window predecessor).
+
+    EXEMPT in the tripwire for the same reason `spending_summary` is — it
+    reads inflows on purpose (refund netting, via that function), bounded to
+    refunds only; and it needs a `category` argument, so it is not a bare
+    db-aggregate the tripwire could call with just `db`.
+    """
+    def month_metric(conn, month):
+        by_cat = spending_summary(conn, month)[month]["by_category"]
+        entry = next((c for c in by_cat if c["category"] == category), None)
+        return {"spend_cents": entry["amount_cents"] if entry else 0}
+
+    series = _monthly_series(db, month_metric, months_back, anchor)
+    for i, entry in enumerate(series):
+        window = [e["spend_cents"] for e in series[max(0, i - 2):i + 1]]
+        entry["rolling_avg_cents"] = round_ratio(sum(window), len(window))
+        entry["mom_delta_cents"] = (
+            None if i == 0 else entry["spend_cents"] - series[i - 1]["spend_cents"])
+    return series

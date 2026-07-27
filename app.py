@@ -14,8 +14,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 from actions import active_members, current_period, payer_share_pct, to_cents
-from derivations import (compute_balance as derive_balance, income_summary,
-                         income_trend, spending_summary)
+from derivations import (category_trend, compute_balance as derive_balance,
+                         income_summary, income_trend, spending_summary)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -470,6 +470,42 @@ def income_trend_view():
             "net_cash_flow": dollars(e["net_cash_flow_cents"]),
             "savings_rate": e["savings_rate"],
             "unclassified_count": e["unclassified_count"],
+        } for e in series],
+    })
+
+
+@app.get("/api/analytics/category-trend")
+@login_required
+def category_trend_view():
+    """Per-month net spend for one category over a trailing window, with a
+    trailing 3-month rolling average and MoM delta. Cents from the
+    category_trend derivation, dollars at the JSON edge. First of the
+    deeper-analytics endpoints (increment 8)."""
+    db = get_db()
+    category = (request.args.get("category") or "").strip()
+    if not category:
+        return bad_request("category is required")
+    anchor = request.args.get("anchor") or current_period()
+    ym = anchor.split("-")
+    if len(ym) != 2 or not (ym[0].isdigit() and ym[1].isdigit()
+                            and 1 <= int(ym[1]) <= 12):
+        return bad_request("anchor must be YYYY-MM")
+    try:
+        months_back = int(request.args.get("months_back", 6))
+    except (TypeError, ValueError):
+        return bad_request("months_back must be an integer")
+    months_back = max(1, min(months_back, 24))
+    series = category_trend(db, category, months_back=months_back, anchor=anchor)
+    return jsonify({
+        "category": category,
+        "anchor": anchor,
+        "months_back": months_back,
+        "series": [{
+            "month": e["month"],
+            "spend": dollars(e["spend_cents"]),
+            "rolling_avg": dollars(e["rolling_avg_cents"]),
+            "mom_delta": None if e["mom_delta_cents"] is None
+                         else dollars(e["mom_delta_cents"]),
         } for e in series],
     })
 
