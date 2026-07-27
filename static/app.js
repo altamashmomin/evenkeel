@@ -6,7 +6,8 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
 // Pure presentation helpers live in render.js (loaded before this file) so
 // they can be unit-tested in plain node; app.js pulls them off the global.
-const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, incomeCardHTML } = window.Render;
+const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, incomeCardHTML,
+        incomeTrendChartHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -133,6 +134,7 @@ const TABS = [
   ["activity", "Activity"],
   ["bills", "Bills"],
   ["goals", "Goals"],
+  ["analytics", "Analytics"],
 ];
 
 function buildNav() {
@@ -162,6 +164,7 @@ async function render() {
     if (state.tab === "activity") main.innerHTML = await renderActivity();
     if (state.tab === "bills") main.innerHTML = await renderBills();
     if (state.tab === "goals") main.innerHTML = await renderGoals();
+    if (state.tab === "analytics") main.innerHTML = await renderAnalytics();
     wireMain();
   } catch (e) {
     if (e.message !== "authentication required")
@@ -419,6 +422,21 @@ async function renderGoals() {
       <button class="btn small" id="btn-add-goal">New goal</button>
     </div>
     ${cards.join("") || `<p class="empty">No goals yet — create your first.</p>`}`;
+}
+
+/* ================= analytics ================= */
+
+async function renderAnalytics() {
+  // A trailing 6-month window ending at the month the user is viewing;
+  // month-prev/next (wired in wireMain) shift the whole window.
+  const data = await api(`/api/income/trend?anchor=${state.month}&months_back=6`);
+  return `
+    <div class="monthbar">
+      <button id="month-prev" aria-label="Earlier months">‹</button>
+      <b>through ${monthName(state.month)}</b>
+      <button id="month-next" aria-label="Later months">›</button>
+    </div>
+    ${incomeTrendChartHTML(data.series)}`;
 }
 
 /* ================= wiring ================= */

@@ -377,6 +377,25 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .dlg-actions .spacer { flex: 1; }
 .pay-summary { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
 
+/* ---- analytics: income-vs-spend chart ---- */
+.chart-headline { font-family: var(--mono); font-size: 30px; font-weight: 600;
+  letter-spacing: 0.01em; margin: 6px 0 2px; color: var(--muted); }
+.chart-headline .pos { color: var(--ok); }
+.chart-headline .neg { color: var(--danger); }
+.chart-sub { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+.chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-axis, .chart-x { fill: var(--muted); font-family: var(--mono); font-size: 9px; }
+.bar-spent { fill: var(--muted); opacity: 0.55; }
+.bar-saved { fill: var(--ok); }
+.bar-over { fill: var(--danger); }
+.chart-legend { display: flex; gap: 18px; margin: 14px 0 2px;
+  font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.chart-legend .sw { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+.chart-legend .sw-saved { background: var(--ok); }
+.chart-legend .sw-spent { background: var(--muted); opacity: 0.55; }
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
