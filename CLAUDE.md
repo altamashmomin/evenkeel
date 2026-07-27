@@ -442,8 +442,16 @@ Tier A — pure read-time derivations, no schema, zero-diff gate:
     category-trend *visuals* are deferred to a batched analytics-tab
     frontend increment (kept clear of `render.js` while the negative-format
     task edits it). Zero-diff gate; suite 198→210.
-9.  Savings-rate trend — `income_summary.savings_rate` across months; the
-    one line Charlee-facing analytics leads with.
+9.  Savings-rate trend — done (Jul 27). `derivations.savings_rate_trend`
+    reuses `income_trend` (no aggregate recomputed — per-month rate is the
+    card's exactly) and layers a trailing 3-month **rolling** savings rate:
+    cumulative Σ net_cash_flow ÷ Σ true_income (weights by income, not an
+    average of ratios), which smooths the single-month noise. Non-redundant
+    on purpose — the raw per-month rate already lives in `income_trend`, so
+    the rolling rate is the reason this exists. EXEMPT like `income_trend`;
+    `GET /api/analytics/savings-rate-trend` passes ratios through (not
+    money), null on zero income. Backend only. Zero-diff gate; suite
+    214→223.
 10. Category mix + top merchants — share-of-spend composition for a month,
     and description-grouped top-N by spend.
 11. Per-member view — each person's paid-vs-owed share over time from
@@ -497,13 +505,14 @@ tiering). **Awaiting Alta's read on the door before the client/auth work.**
   matches current full-visibility default. Pure read; zero-diff gate; suite
   210→214.
 
-Also queued (analytics extensions, not blocking step 7): **#9 savings-rate
-trend** (`income_summary.savings_rate` via `_monthly_series`, EXEMPT;
-`GET /api/analytics/savings-rate-trend`), then the deferred analytics-tab
-**frontend batch** visualizing #8+#9 (do it after the negative-format task
-lands so the `render.js` merge is trivial), then #10–12 (Tier A), #13–16
-(Tier B); budgets (Tier C) stays deferred. Each backend increment gates;
-frontend work gets the live check + the `node tests/test_render.js` seam.
+Also queued (analytics extensions, not blocking step 7): #8 and #9 are
+done backend. Next here is the deferred analytics-tab **frontend batch**
+visualizing #8+#9 (category picker + its trend line with rolling avg/MoM,
+and the savings-rate line with its rolling smoothing) — do it after the
+negative-format task lands so the `render.js` merge is trivial. Then #10–12
+(Tier A), #13–16 (Tier B); budgets (Tier C) stays deferred. Each backend
+increment gates; frontend work gets the live check + the
+`node tests/test_render.js` seam.
 
 Cosmetic follow-up surfaced by inc 5 (low priority): now that a month's
 Spent can go negative (a refund exceeding that month's spend), the
