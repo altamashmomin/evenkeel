@@ -403,8 +403,21 @@ same-type tag with an editable pre-filled match). Ordered:
    (Also: `test_architecture` scan now skips `.claude/`/`venv/` — a harness
    worktree is a full repo copy whose nested `tests/` dodged the dir
    exclusion; committed separately.)
-7. Analytics tab + income-vs-spend chart — new nav tab; hand-rolled SVG
-   in the app's bespoke style (no chart lib — CSP + no build step).
+7. Analytics tab + income-vs-spend chart — done (Jul 27). New nav tab
+   consuming `GET /api/income/trend` (trailing 6-month window ending at the
+   viewed month; month-prev/next shift the window). Hand-rolled SVG, no
+   chart lib (CSP + no build step): a stacked bar per month — neutral
+   `spent` base + green `saved` cap (the shaded gap) + red `over` cap when
+   spend exceeds income — so surplus, deficit, and refund-month (negative
+   net spend → all-green) all render from one geometry. Pure helpers in
+   `render.js` (`trendBars` geometry, `trendSummary` window aggregate,
+   `shortMonth`, `incomeTrendChartHTML`), unit-tested in the
+   `node tests/test_render.js` seam (26 checks; every sign case + empty
+   state), no `fmt` change (kept clear of the running format task).
+   Frontend only — no gate; suite 198 python + render seam. Live browser
+   check across the real chart, refund netting (a tagged refund shows July
+   all-green), zero-fill (empty months keep their axis label), window
+   navigation, and the per-window savings-rate headline.
 
 Deeper-analytics extensions (planned Jul 26, 2026, post-step-3; Alta's
 selected set from a recommendation menu). These ride the two primitives
@@ -417,8 +430,18 @@ throughline: build the trend engine once, then these grow cheaply. Order
 is by leverage (cheapest-onto-the-new-tab first):
 
 Tier A — pure read-time derivations, no schema, zero-diff gate:
-8.  Category trend — per-category monthly series + 3-mo rolling average +
-    MoM delta (`transactions.category` × `monthly_series`).
+8.  Category trend — done (Jul 27). `derivations.category_trend(db,
+    category, months_back, anchor)` rides `_monthly_series` over
+    `spending_summary` (the "pass a different `metric_fn`" payoff), + a
+    trailing 3-mo rolling average (`round_ratio`, integer cents, ties-even,
+    warms up over 2 months) + exact MoM delta (None first). Refund netting
+    flows through per-category; EXEMPT in the tripwire (reads refunds via
+    `spending_summary`). `GET /api/analytics/category-trend` (new
+    `/api/analytics` namespace; category required, anchor/months_back like
+    the income trend, dollars at the edge). **Backend only** — the
+    category-trend *visuals* are deferred to a batched analytics-tab
+    frontend increment (kept clear of `render.js` while the negative-format
+    task edits it). Zero-diff gate; suite 198→210.
 9.  Savings-rate trend — `income_summary.savings_rate` across months; the
     one line Charlee-facing analytics leads with.
 10. Category mix + top merchants — share-of-spend composition for a month,
@@ -450,15 +473,23 @@ needs a `budgets` migration + `set_budget` verb + a `budget_status`
 derivation. Take it on as its own design increment when wanted, not as a
 quick analytics add.
 
-Next feature increment: **step 3 increment 7 — analytics tab +
-income-vs-spend chart**. New nav tab; hand-rolled SVG in the app's bespoke
-style (no chart lib — CSP + no build step), consuming `GET
-/api/income/trend`. The SVG scaling/path math goes in `render.js` pure
-helpers (testable in the `node tests/test_render.js` seam — exactly the
-kind of pure function that belongs there); frontend gets a live-app browser
-check. Then the deeper-analytics extensions 8–16 above (Tier A first) —
-each new `*_trend` rides the `_monthly_series` engine inc 6 just built
-(pass a different `metric_fn`).
+Income build step 3 is now complete (increments 1–7 all done): the whole
+income/classification feature ships — sync flip, dashboard card, activity
+feed, tagging, auto-rules, refund netting, income trend, and the analytics
+chart.
+
+Next feature increment: **#9 savings-rate trend** (`income_summary.
+savings_rate` across months via `_monthly_series` — EXEMPT like income_trend;
+`GET /api/analytics/savings-rate-trend`), backend, then the deferred
+analytics-tab **frontend batch** that visualizes #8+#9 (a category picker +
+its trend line, and the savings-rate line) — do that after the
+negative-format task lands so the `render.js` merge is trivial. Then #10–12
+(Tier A), #13–16 (Tier B heuristics); budgets (Tier C) stays deferred as
+its own designed feature. **CORE-DESIGN step 7 — the read-only MCP
+"ask-me-anything" assistant** is the last big arc and the highest-value
+feature for Charlee (design discussion opened Jul 27; see AGENT-DESIGN).
+Each backend increment still gates; frontend work gets the live check + the
+`node tests/test_render.js` seam.
 
 Cosmetic follow-up surfaced by inc 5 (low priority): now that a month's
 Spent can go negative (a refund exceeding that month's spend), the
