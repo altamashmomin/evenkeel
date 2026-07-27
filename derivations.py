@@ -256,6 +256,46 @@ def category_trend(db, category, months_back=6, anchor=None):
     return series
 
 
+def member_breakdown(db, month=None):
+    """Per-member shared-expense breakdown for a month (analytics #11): how
+    much each person PAID for shared expenses (fronted the money) versus
+    their OWED fair share (from basis-point splits), and the net
+    (paid − owed; positive = they're owed). Complements `compute_balance`,
+    which gives only the single net pair, with the per-person composition —
+    and the nets sum to zero, same conservation the balance rests on.
+
+    Shared OUTFLOWS only: inflows never carry split rows and the query
+    filters `direction='out'`, so income can't touch this — NOT
+    tripwire-exempt, and the tripwire proves an added inflow leaves it
+    unchanged (`month` defaults so it's callable with just `db`). Uses
+    `round_ratio` per row, matching `compute_balance`'s exact cent rounding.
+    Active members only, like the balance."""
+    members = db.execute(
+        "SELECT id, username, display_name FROM members WHERE active = 1 ORDER BY id"
+    ).fetchall()
+    paid = {m["id"]: 0 for m in members}
+    owed = {m["id"]: 0 for m in members}
+    clause = " AND substr(t.txn_date, 1, 7) = ?" if month is not None else ""
+    params = (month,) if month is not None else ()
+    rows = db.execute(
+        """SELECT t.id AS tid, t.amount_cents, t.paid_by, s.member_id, s.share_bp
+           FROM transactions t JOIN splits s ON s.transaction_id = t.id
+           WHERE t.direction = 'out'""" + clause, params).fetchall()
+    counted = set()
+    for r in rows:
+        if r["member_id"] in owed:
+            owed[r["member_id"]] += round_ratio(r["amount_cents"] * r["share_bp"], 10000)
+        if r["tid"] not in counted:
+            counted.add(r["tid"])
+            if r["paid_by"] in paid:
+                paid[r["paid_by"]] += r["amount_cents"]
+    return [{
+        "member_id": m["id"], "username": m["username"], "name": m["display_name"],
+        "paid_cents": paid[m["id"]], "owed_cents": owed[m["id"]],
+        "net_cents": paid[m["id"]] - owed[m["id"]],
+    } for m in members]
+
+
 def top_merchants(db, month=None, limit=10):
     """Top spending destinations by description (merchant), largest first —
     the axis category totals don't give you ('who did we pay the most?').

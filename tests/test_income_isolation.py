@@ -194,6 +194,20 @@ class IncomeIsolationTests(unittest.TestCase):
         balance = derivations.compute_balance(self.db)
         self.assertEqual("settled", balance["state"])
 
+    # ------------------------------------------------------- member_breakdown
+
+    def test_member_breakdown_ignores_a_mis_split_inflow(self):
+        # Same defense-in-depth as compute_balance: member_breakdown joins
+        # splits too, so its direction='out' filter (not just the absence of
+        # inflow splits) is what protects paid/owed from a mis-split inflow.
+        self.an_outflow(amount_cents=6000, shared=True)     # m1 paid, m2 owes 3000
+        self.an_inflow(amount_cents=999999, with_splits=True)
+        b = {m["member_id"]: m for m in derivations.member_breakdown(self.db)}
+        self.assertEqual((6000, 3000, 3000),
+                         (b[1]["paid_cents"], b[1]["owed_cents"], b[1]["net_cents"]))
+        self.assertEqual((0, 3000, -3000),
+                         (b[2]["paid_cents"], b[2]["owed_cents"], b[2]["net_cents"]))
+
     # --------------------------------------------------------- settle_up coverage
 
     def test_settle_up_never_covers_a_mis_split_inflow(self):
