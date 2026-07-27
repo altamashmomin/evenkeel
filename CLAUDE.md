@@ -452,8 +452,16 @@ Tier A — pure read-time derivations, no schema, zero-diff gate:
     `GET /api/analytics/savings-rate-trend` passes ratios through (not
     money), null on zero income. Backend only. Zero-diff gate; suite
     214→223.
-10. Category mix + top merchants — share-of-spend composition for a month,
-    and description-grouped top-N by spend.
+10. Category mix + top merchants — done (Jul 27).
+    `GET /api/analytics/spending-composition` returns a month's total, by_
+    category with a `share` (= amount/total computed at the edge over
+    `spending_summary`, so shares reflect refund netting — NOT a new
+    aggregate), and `top_merchants`. `derivations.top_merchants(db, month,
+    limit)` IS new — outflows grouped by description ('who did we pay the
+    most?'), outflows only, settlements excluded, deliberately not
+    refund-netted (different axis). Reads outflows only, so NOT exempt — the
+    tripwire proves it ignores inflows. Money `{cents, display}`. Zero-diff
+    gate; suite 233→242.
 11. Per-member view — each person's paid-vs-owed share over time from
     `splits` (basis points) × `paid_by`.
 12. Bill-vs-actual variance — defined `bills.amount` vs what
