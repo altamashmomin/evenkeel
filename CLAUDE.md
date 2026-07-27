@@ -504,6 +504,15 @@ tiering). **Awaiting Alta's read on the door before the client/auth work.**
   independent: serves both doors, needs no auth/exposure decision yet,
   matches current full-visibility default. Pure read; zero-diff gate; suite
   210→214.
+- Second read-tier brick done (Jul 27): `GET /api/transactions/search` —
+  the assistant's EVIDENCE tool (the one read it needed and lacked), vs the
+  summary endpoints for totals. Optional ANDed filters (query substring,
+  date_from/to, direction, income_type, category, paid_by username→owner),
+  paginated (limit 1..100/offset, `total_matches`+`has_more`), money
+  `{cents, display}`. Pure read; zero-diff gate; suite 223→233. **Read tier
+  is now functionally complete** for the assistant (snapshot + summaries +
+  trends + search); what remains for step 7 is the door decision, then
+  `api_tokens`/auth + the client, then the two-phase write tier.
 
 Also queued (analytics extensions, not blocking step 7): #8 and #9 are
 done backend. Next here is the deferred analytics-tab **frontend batch**
