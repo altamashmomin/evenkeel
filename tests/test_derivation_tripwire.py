@@ -53,6 +53,9 @@ EXEMPT = {
                       "refund inflows on purpose via spending_summary (same "
                       "bounded exemption), and takes a `category` arg so it "
                       "isn't a bare db-aggregate.",
+    "savings_rate_trend": "savings rate over a window (raw + rolling) — built "
+                          "on income_trend/income_summary, counting inflows "
+                          "is its whole job (same as income_trend).",
 }
 
 

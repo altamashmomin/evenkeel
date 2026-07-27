@@ -15,7 +15,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import actions
 from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (category_trend, compute_balance as derive_balance,
-                         income_summary, income_trend, spending_summary)
+                         income_summary, income_trend, savings_rate_trend,
+                         spending_summary)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -519,6 +520,36 @@ def category_trend_view():
             "rolling_avg": dollars(e["rolling_avg_cents"]),
             "mom_delta": None if e["mom_delta_cents"] is None
                          else dollars(e["mom_delta_cents"]),
+        } for e in series],
+    })
+
+
+@app.get("/api/analytics/savings-rate-trend")
+@login_required
+def savings_rate_trend_view():
+    """Per-month savings rate over a trailing window, plus a trailing 3-month
+    rolling rate that smooths single-month noise (analytics #9). Both are
+    ratios (0.58 = 58%), not money, so they pass through unconverted; null
+    when the relevant income is 0."""
+    db = get_db()
+    anchor = request.args.get("anchor") or current_period()
+    ym = anchor.split("-")
+    if len(ym) != 2 or not (ym[0].isdigit() and ym[1].isdigit()
+                            and 1 <= int(ym[1]) <= 12):
+        return bad_request("anchor must be YYYY-MM")
+    try:
+        months_back = int(request.args.get("months_back", 6))
+    except (TypeError, ValueError):
+        return bad_request("months_back must be an integer")
+    months_back = max(1, min(months_back, 24))
+    series = savings_rate_trend(db, months_back=months_back, anchor=anchor)
+    return jsonify({
+        "anchor": anchor,
+        "months_back": months_back,
+        "series": [{
+            "month": e["month"],
+            "savings_rate": e["savings_rate"],
+            "rolling_savings_rate": e["rolling_savings_rate"],
         } for e in series],
     })
 

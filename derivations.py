@@ -254,3 +254,33 @@ def category_trend(db, category, months_back=6, anchor=None):
         entry["mom_delta_cents"] = (
             None if i == 0 else entry["spend_cents"] - series[i - 1]["spend_cents"])
     return series
+
+
+def savings_rate_trend(db, months_back=6, anchor=None):
+    """Savings rate over a trailing window (analytics #9). Two rates per
+    month: the raw single-month `savings_rate` (net_cash_flow / true_income,
+    straight from `income_summary`) and a trailing 3-month
+    `rolling_savings_rate` that smooths the noise — one big purchase tanks a
+    single month but shouldn't read as "we stopped saving." The rolling rate
+    is cumulative, not an average of ratios: Σ net_cash_flow ÷ Σ true_income
+    over the up-to-3 in-window months, which weights months by income the
+    way a household actually experiences it.
+
+    Reuses `income_trend` (which rides `_monthly_series` over
+    `income_summary`), so no aggregate is recomputed — the per-month rate is
+    byte-identical to the dashboard card's. Both rates are display ratios
+    (the documented float exception), None when the relevant income is 0.
+    EXEMPT in the tripwire, like `income_trend`."""
+    series = income_trend(db, months_back, anchor)
+    out = []
+    for i, entry in enumerate(series):
+        window = series[max(0, i - 2):i + 1]
+        income_sum = sum(x["true_income_cents"] for x in window)
+        netflow_sum = sum(x["net_cash_flow_cents"] for x in window)
+        out.append({
+            "month": entry["month"],
+            "savings_rate": entry["savings_rate"],
+            "rolling_savings_rate": (None if income_sum == 0
+                                     else round(netflow_sum / income_sum, 4)),
+        })
+    return out
