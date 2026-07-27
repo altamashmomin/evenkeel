@@ -70,6 +70,19 @@ def dollars(cents):
     return round(cents / 100.0, 2)
 
 
+def money_display(cents):
+    """A money value as a display string a client can quote verbatim:
+    '$1,234.56', negatives as '-$1,234.56' (sign before the symbol). Used by
+    the assistant snapshot so an agent never formats or converts units."""
+    return f"{'-' if cents < 0 else ''}${abs(cents) / 100:,.2f}"
+
+
+def money(cents):
+    """The dual money shape the assistant layer emits everywhere: integer
+    cents plus a ready-to-quote display string."""
+    return {"cents": cents, "display": money_display(cents)}
+
+
 def bad_request(msg):
     return jsonify({"error": msg}), 400
 
@@ -507,6 +520,81 @@ def category_trend_view():
             "mom_delta": None if e["mom_delta_cents"] is None
                          else dollars(e["mom_delta_cents"]),
         } for e in series],
+    })
+
+
+@app.get("/api/household_snapshot")
+@login_required
+def household_snapshot_view():
+    """One-call household overview for a month — the assistant layer's entry
+    point (AGENT-DESIGN read tier: 'start here' for open-ended questions).
+
+    Composes the canonical derivations — `compute_balance` (via
+    derive_balance for cents), `spending_summary` (net of refunds), and
+    `income_summary` — with the household's goals and bills. It runs no math
+    of its own; every number comes from the same function a matching surface
+    already uses, so the snapshot can't disagree with the dashboard. Every
+    money field ships as `{cents, display}` so a client never converts
+    units. Matches the app's current full-visibility behaviour; if income
+    visibility is later scoped, that gets enforced upstream and this
+    inherits it. Pure read — no schema, no write."""
+    db = get_db()
+    month = request.args.get("month") or current_period()
+
+    spend = spending_summary(db, month)[month]
+    inc = income_summary(db, month)
+    bal = derive_balance(db)
+    if bal["state"] == "owing":
+        balance = {"state": "owing", **money(bal["amount_cents"]),
+                   "ower": bal["ower"]["display_name"],
+                   "owed": bal["owed"]["display_name"]}
+    else:  # 'settled' or 'waiting'
+        balance = {"state": bal["state"], **money(0), "ower": None, "owed": None}
+
+    goal_rows = db.execute("SELECT * FROM goals ORDER BY created_at, id").fetchall()
+    goals = []
+    for g in goal_rows:
+        saved = db.execute(
+            "SELECT COALESCE(SUM(amount_cents), 0) AS s FROM goal_contributions "
+            "WHERE goal_id = ?", (g["id"],)).fetchone()["s"]
+        goals.append({
+            "name": g["name"],
+            "target": money(g["target_cents"]),
+            "saved": money(saved),
+            "progress": min(1.0, saved / g["target_cents"]) if g["target_cents"] else 0,
+            "target_date": g["target_date"],
+        })
+
+    bill_rows = db.execute(
+        "SELECT * FROM bills WHERE active = 1 ORDER BY due_day, name").fetchall()
+    bills = []
+    for b in bill_rows:
+        paid = db.execute(
+            "SELECT 1 FROM bill_payments WHERE bill_id = ? AND period = ?",
+            (b["id"], month)).fetchone() is not None
+        bills.append({
+            "name": b["name"], "amount": money(b["amount_cents"]),
+            "due_day": b["due_day"], "category": b["category"],
+            "paid_this_period": paid,
+        })
+
+    return jsonify({
+        "month": month,
+        "spend": {
+            "total": money(spend["total_cents"]),
+            "by_category": [{"category": c["category"], "amount": money(c["amount_cents"])}
+                            for c in spend["by_category"]],
+        },
+        "balance": balance,
+        "income": {
+            "gross_inflows": money(inc["gross_inflows_cents"]),
+            "true_income": money(inc["true_income_cents"]),
+            "net_cash_flow": money(inc["net_cash_flow_cents"]),
+            "savings_rate": inc["savings_rate"],
+            "unclassified_count": inc["unclassified_count"],
+        },
+        "goals": goals,
+        "bills": bills,
     })
 
 
