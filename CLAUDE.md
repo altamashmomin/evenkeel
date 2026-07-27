@@ -507,14 +507,29 @@ chart.
 **CORE-DESIGN step 7 — the assistant — started (Jul 27).** Design
 discussion held (see AGENT-DESIGN): much of its "build order" is already
 done (audit_log, one-write-path verbs, INCOME-DESIGN 1–3, and the read
-derivations that make "the agent does no math" true). The open strategic
-fork is **Charlee's door**: an in-app "Ask" tab (no public exposure; she
-already uses the SPA over Tailscale) vs. claude.ai-via-Tailscale-Funnel vs.
-both sharing one read-tool layer — this reopens AGENT-DESIGN's "no embedded
-chatbot" line, deliberately, because Charlee (phone user) is the priority.
-Also pending: income-visibility policy (enforce at the API), and the three
-AGENT-DESIGN ratifications (exposure, one-vs-two token identities, write
-tiering). **Awaiting Alta's read on the door before the client/auth work.**
+derivations that make "the agent does no math" true).
+
+**DOOR DECISION MADE (Jul 27) — two doors on one shared read layer:**
+- **Charlee → in-app "Ask" tab.** A Flask route runs an Anthropic tool-use
+  loop over the read functions IN-PROCESS under the existing session login —
+  no MCP, no bearer token, no Funnel, nothing new exposed. Reopens
+  AGENT-DESIGN's "no embedded chatbot" line *deliberately*: Charlee is
+  non-technical, phone-first, and barely uses claude.ai, so an in-app chat
+  beats a claude.ai connector. Cost accepted: an Anthropic API key on the Pi
+  + modest per-query billing. Satisfies "one write path" *better* than MCP
+  (it reuses the same verbs the UI does). Needs a chat UI in the SPA.
+- **Alta → tailnet-only MCP server.** FastMCP sibling process wrapping the
+  read endpoints over HTTP with a bearer token; connect from Claude
+  Code/Desktop over Tailscale. **No Funnel / no public exposure** — the one
+  option with public exposure is off the table.
+Recommended build order (MCP-first, to get a working assistant fast that
+de-risks the shared tools before Charlee's UI, and needs no Anthropic key):
+`api_tokens` + bearer auth → MCP read tier (Alta soaks it) → in-app Ask
+endpoint + chat UI (Charlee) → two-phase write tier. Still pending:
+income-visibility policy (enforce at the API), the token-identity choice
+(one vs per-person — recommend per-person), and the write-tiering
+ratification (classify direct, rules two-phase). Prereqs Alta must supply:
+an Anthropic API key (for in-app) and their MCP client over Tailscale.
 - First read-tier brick done: `GET /api/household_snapshot` — one-call
   overview composing `derive_balance`/`spending_summary`/`income_summary` +
   goals + bills, every money field as `{cents, display}` (`money_display`
