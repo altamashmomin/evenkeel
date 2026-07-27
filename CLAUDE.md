@@ -478,18 +478,32 @@ income/classification feature ships — sync flip, dashboard card, activity
 feed, tagging, auto-rules, refund netting, income trend, and the analytics
 chart.
 
-Next feature increment: **#9 savings-rate trend** (`income_summary.
-savings_rate` across months via `_monthly_series` — EXEMPT like income_trend;
-`GET /api/analytics/savings-rate-trend`), backend, then the deferred
-analytics-tab **frontend batch** that visualizes #8+#9 (a category picker +
-its trend line, and the savings-rate line) — do that after the
-negative-format task lands so the `render.js` merge is trivial. Then #10–12
-(Tier A), #13–16 (Tier B heuristics); budgets (Tier C) stays deferred as
-its own designed feature. **CORE-DESIGN step 7 — the read-only MCP
-"ask-me-anything" assistant** is the last big arc and the highest-value
-feature for Charlee (design discussion opened Jul 27; see AGENT-DESIGN).
-Each backend increment still gates; frontend work gets the live check + the
-`node tests/test_render.js` seam.
+**CORE-DESIGN step 7 — the assistant — started (Jul 27).** Design
+discussion held (see AGENT-DESIGN): much of its "build order" is already
+done (audit_log, one-write-path verbs, INCOME-DESIGN 1–3, and the read
+derivations that make "the agent does no math" true). The open strategic
+fork is **Charlee's door**: an in-app "Ask" tab (no public exposure; she
+already uses the SPA over Tailscale) vs. claude.ai-via-Tailscale-Funnel vs.
+both sharing one read-tool layer — this reopens AGENT-DESIGN's "no embedded
+chatbot" line, deliberately, because Charlee (phone user) is the priority.
+Also pending: income-visibility policy (enforce at the API), and the three
+AGENT-DESIGN ratifications (exposure, one-vs-two token identities, write
+tiering). **Awaiting Alta's read on the door before the client/auth work.**
+- First read-tier brick done: `GET /api/household_snapshot` — one-call
+  overview composing `derive_balance`/`spending_summary`/`income_summary` +
+  goals + bills, every money field as `{cents, display}` (`money_display`
+  helper), no new math (can't disagree with the dashboard). Decision-
+  independent: serves both doors, needs no auth/exposure decision yet,
+  matches current full-visibility default. Pure read; zero-diff gate; suite
+  210→214.
+
+Also queued (analytics extensions, not blocking step 7): **#9 savings-rate
+trend** (`income_summary.savings_rate` via `_monthly_series`, EXEMPT;
+`GET /api/analytics/savings-rate-trend`), then the deferred analytics-tab
+**frontend batch** visualizing #8+#9 (do it after the negative-format task
+lands so the `render.js` merge is trivial), then #10–12 (Tier A), #13–16
+(Tier B); budgets (Tier C) stays deferred. Each backend increment gates;
+frontend work gets the live check + the `node tests/test_render.js` seam.
 
 Cosmetic follow-up surfaced by inc 5 (low priority): now that a month's
 Spent can go negative (a refund exceeding that month's spend), the
