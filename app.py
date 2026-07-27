@@ -14,8 +14,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 from actions import active_members, current_period, payer_share_pct, to_cents
-from derivations import (compute_balance as derive_balance, income_summary,
-                         spending_summary)
+from derivations import (bill_variance, category_trend,
+                         compute_balance as derive_balance, income_summary,
+                         income_trend, member_breakdown, savings_rate_trend,
+                         spending_summary, top_merchants)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -70,15 +72,73 @@ def dollars(cents):
     return round(cents / 100.0, 2)
 
 
+def money_display(cents):
+    """A money value as a display string a client can quote verbatim:
+    '$1,234.56', negatives as '-$1,234.56' (sign before the symbol). Used by
+    the assistant snapshot so an agent never formats or converts units."""
+    return f"{'-' if cents < 0 else ''}${abs(cents) / 100:,.2f}"
+
+
+def money(cents):
+    """The dual money shape the assistant layer emits everywhere: integer
+    cents plus a ready-to-quote display string."""
+    return {"cents": cents, "display": money_display(cents)}
+
+
 def bad_request(msg):
     return jsonify({"error": msg}), 400
 
 
+def _resolve_auth():
+    """Populate g.auth from the request's session cookie or bearer token, and
+    return it (or None). A browser session carries both scopes — a human in
+    their own browser; a token carries exactly its granted scopes."""
+    if "auth" in g:
+        return g.auth
+    g.auth = None
+    if "user_id" in session:
+        g.auth = {"via": "session", "user_id": session["user_id"],
+                  "scopes": {"read", "write"}}
+    else:
+        header = request.headers.get("Authorization", "")
+        if header.startswith("Bearer "):
+            row = actions.find_active_api_token(get_db(), header[7:].strip())
+            if row is not None:
+                g.auth = {
+                    "via": "token", "user_id": row["user_id"],
+                    "label": row["label"], "token_id": row["id"],
+                    "scopes": {s.strip() for s in row["scopes"].split(",") if s.strip()},
+                }
+    return g.auth
+
+
 def login_required(fn):
+    """Session OR a valid bearer token. Bearer scope is enforced by HTTP
+    method — this API is method-consistent, so GET needs 'read' and any
+    mutating method needs 'write'. A browser session carries both."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth = _resolve_auth()
+        if auth is None:
+            return jsonify({"error": "authentication required"}), 401
+        if auth["via"] == "token":
+            needed = "read" if request.method == "GET" else "write"
+            if needed not in auth["scopes"]:
+                return jsonify({"error": f"token lacks '{needed}' scope"}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def session_required(fn):
+    """Browser-session only — rejects bearer tokens. For human-only surfaces:
+    account setup and token management (a bearer token must never mint or
+    revoke tokens — that would be privilege escalation)."""
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         if "user_id" not in session:
             return jsonify({"error": "authentication required"}), 401
+        g.auth = {"via": "session", "user_id": session["user_id"],
+                  "scopes": {"read", "write"}}
         return fn(*args, **kwargs)
     return wrapper
 
@@ -89,11 +149,14 @@ get_users = active_members
 
 
 def ui_actor(db):
-    """Actor string for the logged-in member: 'ui:<username>'."""
-    member = db.execute(
-        "SELECT username FROM members WHERE id = ?", (session["user_id"],)
-    ).fetchone()
-    return f"ui:{member['username']}" if member else f"ui:{session['user_id']}"
+    """Actor string for the authenticated identity: 'ui:<username>' for a
+    browser session, 'mcp:<label>' for a bearer token."""
+    auth = g.get("auth") or _resolve_auth()
+    if auth and auth["via"] == "token":
+        return f"mcp:{auth['label']}"
+    uid = auth["user_id"] if auth else session.get("user_id")
+    member = db.execute("SELECT username FROM members WHERE id = ?", (uid,)).fetchone()
+    return f"ui:{member['username']}" if member else f"ui:{uid}"
 
 
 def txn_to_json(db, r):
@@ -210,7 +273,63 @@ def me():
     db = get_db()
     users = [{"id": u["id"], "username": u["username"], "display_name": u["display_name"]}
              for u in get_users(db)]
-    return jsonify({"user_id": session["user_id"], "users": users})
+    return jsonify({"user_id": g.auth["user_id"], "users": users})
+
+
+# ------------------------------------------------------ api tokens (agent auth)
+
+@app.post("/api/tokens")
+@session_required
+def create_token():
+    """Mint a bearer token for the current member. Session-only — a token
+    must never mint tokens. Scope is 'read' for now (the write tier will add
+    the option). The plaintext token is returned ONCE and never stored;
+    only its SHA-256 hash is kept."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        result = actions.create_api_token(db, ui_actor(db), {
+            "label": data.get("label"),
+            "user_id": g.auth["user_id"],
+            "scopes": "read",
+        })
+    except actions.ActionError as e:
+        return bad_request(str(e))
+    return jsonify({
+        "id": result["id"], "label": result["label"], "scopes": result["scopes"],
+        "created_at": result["created_at"],
+        "token": result["token"],   # shown once — cannot be recovered later
+    }), 201
+
+
+@app.get("/api/tokens")
+@session_required
+def list_tokens():
+    """The current member's tokens — never the token or its hash."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, label, scopes, created_at, last_used_at, revoked "
+        "FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC",
+        (g.auth["user_id"],)).fetchall()
+    return jsonify([{
+        "id": r["id"], "label": r["label"], "scopes": r["scopes"],
+        "created_at": r["created_at"], "last_used_at": r["last_used_at"],
+        "revoked": bool(r["revoked"]),
+    } for r in rows])
+
+
+@app.post("/api/tokens/<int:token_id>/revoke")
+@session_required
+def revoke_token(token_id):
+    """Revoke one of the current member's own tokens."""
+    db = get_db()
+    owned = db.execute(
+        "SELECT id FROM api_tokens WHERE id = ? AND user_id = ?",
+        (token_id, g.auth["user_id"])).fetchone()
+    if owned is None:
+        return jsonify({"error": "not found"}), 404
+    actions.revoke_api_token(db, ui_actor(db), token_id)
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------- transactions
@@ -436,6 +555,350 @@ def income_summary_view():
         "net_cash_flow": dollars(s["net_cash_flow_cents"]),
         "savings_rate": s["savings_rate"],
         "unclassified_count": s["unclassified_count"],
+    })
+
+
+@app.get("/api/income/trend")
+@login_required
+def income_trend_view():
+    """Per-month income vs. net spend over a trailing window — the analytics
+    chart's data source. Cents from the income_trend derivation, dollars at
+    the JSON edge (like the income card). `anchor` defaults to the current
+    period (as the dashboard card's month does); `months_back` is clamped to
+    a sane window. New endpoint — the byte-pinned v1 surface stays frozen."""
+    db = get_db()
+    anchor = request.args.get("anchor") or current_period()
+    ym = anchor.split("-")
+    if len(ym) != 2 or not (ym[0].isdigit() and ym[1].isdigit()
+                            and 1 <= int(ym[1]) <= 12):
+        return bad_request("anchor must be YYYY-MM")
+    try:
+        months_back = int(request.args.get("months_back", 6))
+    except (TypeError, ValueError):
+        return bad_request("months_back must be an integer")
+    months_back = max(1, min(months_back, 24))
+    series = income_trend(db, months_back=months_back, anchor=anchor)
+    return jsonify({
+        "anchor": anchor,
+        "months_back": months_back,
+        "series": [{
+            "month": e["month"],
+            "gross_inflows": dollars(e["gross_inflows_cents"]),
+            "true_income": dollars(e["true_income_cents"]),
+            "month_spend": dollars(e["month_spend_cents"]),
+            "net_cash_flow": dollars(e["net_cash_flow_cents"]),
+            "savings_rate": e["savings_rate"],
+            "unclassified_count": e["unclassified_count"],
+        } for e in series],
+    })
+
+
+@app.get("/api/analytics/category-trend")
+@login_required
+def category_trend_view():
+    """Per-month net spend for one category over a trailing window, with a
+    trailing 3-month rolling average and MoM delta. Cents from the
+    category_trend derivation, dollars at the JSON edge. First of the
+    deeper-analytics endpoints (increment 8)."""
+    db = get_db()
+    category = (request.args.get("category") or "").strip()
+    if not category:
+        return bad_request("category is required")
+    anchor = request.args.get("anchor") or current_period()
+    ym = anchor.split("-")
+    if len(ym) != 2 or not (ym[0].isdigit() and ym[1].isdigit()
+                            and 1 <= int(ym[1]) <= 12):
+        return bad_request("anchor must be YYYY-MM")
+    try:
+        months_back = int(request.args.get("months_back", 6))
+    except (TypeError, ValueError):
+        return bad_request("months_back must be an integer")
+    months_back = max(1, min(months_back, 24))
+    series = category_trend(db, category, months_back=months_back, anchor=anchor)
+    return jsonify({
+        "category": category,
+        "anchor": anchor,
+        "months_back": months_back,
+        "series": [{
+            "month": e["month"],
+            "spend": dollars(e["spend_cents"]),
+            "rolling_avg": dollars(e["rolling_avg_cents"]),
+            "mom_delta": None if e["mom_delta_cents"] is None
+                         else dollars(e["mom_delta_cents"]),
+        } for e in series],
+    })
+
+
+@app.get("/api/analytics/savings-rate-trend")
+@login_required
+def savings_rate_trend_view():
+    """Per-month savings rate over a trailing window, plus a trailing 3-month
+    rolling rate that smooths single-month noise (analytics #9). Both are
+    ratios (0.58 = 58%), not money, so they pass through unconverted; null
+    when the relevant income is 0."""
+    db = get_db()
+    anchor = request.args.get("anchor") or current_period()
+    ym = anchor.split("-")
+    if len(ym) != 2 or not (ym[0].isdigit() and ym[1].isdigit()
+                            and 1 <= int(ym[1]) <= 12):
+        return bad_request("anchor must be YYYY-MM")
+    try:
+        months_back = int(request.args.get("months_back", 6))
+    except (TypeError, ValueError):
+        return bad_request("months_back must be an integer")
+    months_back = max(1, min(months_back, 24))
+    series = savings_rate_trend(db, months_back=months_back, anchor=anchor)
+    return jsonify({
+        "anchor": anchor,
+        "months_back": months_back,
+        "series": [{
+            "month": e["month"],
+            "savings_rate": e["savings_rate"],
+            "rolling_savings_rate": e["rolling_savings_rate"],
+        } for e in series],
+    })
+
+
+@app.get("/api/analytics/spending-composition")
+@login_required
+def spending_composition_view():
+    """What made up a month's spend (analytics #10): each category's NET
+    spend with its share of the month total, and the top merchants by
+    description. Category shares come from `spending_summary` (net of
+    refunds; share is a ratio, null when the total isn't positive); top
+    merchants come from the `top_merchants` derivation (outflows only). Money
+    as {cents, display}. Pure read."""
+    db = get_db()
+    month = request.args.get("month") or current_period()
+    try:
+        merchant_limit = int(request.args.get("merchant_limit", 10))
+    except (TypeError, ValueError):
+        return bad_request("merchant_limit must be an integer")
+    merchant_limit = max(1, min(merchant_limit, 50))
+
+    summary = spending_summary(db, month)[month]
+    total = summary["total_cents"]
+    by_category = [{
+        "category": c["category"],
+        "amount": money(c["amount_cents"]),
+        "share": round(c["amount_cents"] / total, 4) if total > 0 else None,
+    } for c in summary["by_category"]]
+    merchants = [{
+        "description": m["description"],
+        "amount": money(m["amount_cents"]),
+        "count": m["count"],
+    } for m in top_merchants(db, month, merchant_limit)]
+
+    return jsonify({
+        "month": month,
+        "total": money(total),
+        "by_category": by_category,
+        "top_merchants": merchants,
+    })
+
+
+@app.get("/api/analytics/bill-variance")
+@login_required
+def bill_variance_view():
+    """Defined bill amount vs what actually got paid, per bill, for a period
+    (analytics #12), from the `bill_variance` derivation. Unpaid bills report
+    actual/variance = null. Money as {cents, display}. Pure read."""
+    db = get_db()
+    period = request.args.get("period") or current_period()
+    return jsonify({
+        "period": period,
+        "bills": [{
+            "bill_id": b["bill_id"],
+            "name": b["name"],
+            "due_day": b["due_day"],
+            "category": b["category"],
+            "defined": money(b["defined_cents"]),
+            "actual": None if b["actual_cents"] is None else money(b["actual_cents"]),
+            "variance": None if b["variance_cents"] is None else money(b["variance_cents"]),
+            "paid": b["paid"],
+        } for b in bill_variance(db, period)],
+    })
+
+
+@app.get("/api/analytics/member-breakdown")
+@login_required
+def member_breakdown_view():
+    """Per-member shared-expense breakdown for a month (analytics #11): each
+    person's paid (fronted) vs owed (fair share) vs net, from the
+    `member_breakdown` derivation. Complements the who-owes-whom balance with
+    the per-person composition. Money as {cents, display}. Pure read."""
+    db = get_db()
+    month = request.args.get("month") or current_period()
+    return jsonify({
+        "month": month,
+        "members": [{
+            "member_id": m["member_id"],
+            "username": m["username"],
+            "name": m["name"],
+            "paid": money(m["paid_cents"]),
+            "owed": money(m["owed_cents"]),
+            "net": money(m["net_cents"]),
+        } for m in member_breakdown(db, month)],
+    })
+
+
+@app.get("/api/household_snapshot")
+@login_required
+def household_snapshot_view():
+    """One-call household overview for a month — the assistant layer's entry
+    point (AGENT-DESIGN read tier: 'start here' for open-ended questions).
+
+    Composes the canonical derivations — `compute_balance` (via
+    derive_balance for cents), `spending_summary` (net of refunds), and
+    `income_summary` — with the household's goals and bills. It runs no math
+    of its own; every number comes from the same function a matching surface
+    already uses, so the snapshot can't disagree with the dashboard. Every
+    money field ships as `{cents, display}` so a client never converts
+    units. Matches the app's current full-visibility behaviour; if income
+    visibility is later scoped, that gets enforced upstream and this
+    inherits it. Pure read — no schema, no write."""
+    db = get_db()
+    month = request.args.get("month") or current_period()
+
+    spend = spending_summary(db, month)[month]
+    inc = income_summary(db, month)
+    bal = derive_balance(db)
+    if bal["state"] == "owing":
+        balance = {"state": "owing", **money(bal["amount_cents"]),
+                   "ower": bal["ower"]["display_name"],
+                   "owed": bal["owed"]["display_name"]}
+    else:  # 'settled' or 'waiting'
+        balance = {"state": bal["state"], **money(0), "ower": None, "owed": None}
+
+    goal_rows = db.execute("SELECT * FROM goals ORDER BY created_at, id").fetchall()
+    goals = []
+    for g in goal_rows:
+        saved = db.execute(
+            "SELECT COALESCE(SUM(amount_cents), 0) AS s FROM goal_contributions "
+            "WHERE goal_id = ?", (g["id"],)).fetchone()["s"]
+        goals.append({
+            "name": g["name"],
+            "target": money(g["target_cents"]),
+            "saved": money(saved),
+            "progress": min(1.0, saved / g["target_cents"]) if g["target_cents"] else 0,
+            "target_date": g["target_date"],
+        })
+
+    bill_rows = db.execute(
+        "SELECT * FROM bills WHERE active = 1 ORDER BY due_day, name").fetchall()
+    bills = []
+    for b in bill_rows:
+        paid = db.execute(
+            "SELECT 1 FROM bill_payments WHERE bill_id = ? AND period = ?",
+            (b["id"], month)).fetchone() is not None
+        bills.append({
+            "name": b["name"], "amount": money(b["amount_cents"]),
+            "due_day": b["due_day"], "category": b["category"],
+            "paid_this_period": paid,
+        })
+
+    return jsonify({
+        "month": month,
+        "spend": {
+            "total": money(spend["total_cents"]),
+            "by_category": [{"category": c["category"], "amount": money(c["amount_cents"])}
+                            for c in spend["by_category"]],
+        },
+        "balance": balance,
+        "income": {
+            "gross_inflows": money(inc["gross_inflows_cents"]),
+            "true_income": money(inc["true_income_cents"]),
+            "net_cash_flow": money(inc["net_cash_flow_cents"]),
+            "savings_rate": inc["savings_rate"],
+            "unclassified_count": inc["unclassified_count"],
+        },
+        "goals": goals,
+        "bills": bills,
+    })
+
+
+@app.get("/api/transactions/search")
+@login_required
+def search_transactions_view():
+    """Filtered, paginated transaction search — the assistant read tier's
+    EVIDENCE tool (AGENT-DESIGN): 'show me the three biggest grocery runs',
+    'did the deposit land?'. NOT for totals — those come from the summary
+    endpoints, computed once by the same code as the dashboard. Filters
+    (all optional, ANDed): query (case-insensitive substring on
+    description), date_from/date_to (inclusive ISO), direction, income_type,
+    category, paid_by (username; for inflows this is the money's owner).
+    Paginated: limit 1..100 (default 20), offset. Returns total_matches +
+    has_more so a caller pages rather than extrapolates; money as
+    {cents, display}. Pure read."""
+    db = get_db()
+    args = request.args
+    clauses, params = [], []
+
+    query = (args.get("query") or "").strip()
+    if query:
+        clauses.append("lower(description) LIKE '%' || lower(?) || '%'")
+        params.append(query)
+    if args.get("date_from"):
+        clauses.append("txn_date >= ?"); params.append(args["date_from"])
+    if args.get("date_to"):
+        clauses.append("txn_date <= ?"); params.append(args["date_to"])
+
+    direction = args.get("direction")
+    if direction is not None:
+        if direction not in ("in", "out"):
+            return bad_request("direction must be 'in' or 'out'")
+        clauses.append("direction = ?"); params.append(direction)
+
+    income_type = args.get("income_type")
+    if income_type is not None:
+        if income_type not in actions.INCOME_TYPES:
+            return bad_request(
+                "income_type must be one of: " + ", ".join(sorted(actions.INCOME_TYPES)))
+        clauses.append("income_type = ?"); params.append(income_type)
+
+    if args.get("category"):
+        clauses.append("category = ?"); params.append(args["category"])
+
+    paid_by = args.get("paid_by")
+    if paid_by:
+        member = db.execute(
+            "SELECT id FROM members WHERE username = ?", (paid_by,)).fetchone()
+        if member is None:
+            return bad_request(f"unknown user: {paid_by}")
+        clauses.append("paid_by = ?"); params.append(member["id"])
+
+    try:
+        limit = int(args.get("limit", 20))
+        offset = int(args.get("offset", 0))
+    except (TypeError, ValueError):
+        return bad_request("limit and offset must be integers")
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    total = db.execute(
+        f"SELECT COUNT(*) AS n FROM transactions {where}", params).fetchone()["n"]
+    rows = db.execute(
+        f"""SELECT * FROM transactions {where}
+            ORDER BY txn_date DESC, id DESC LIMIT ? OFFSET ?""",
+        params + [limit, offset]).fetchall()
+    usernames = {m["id"]: m["username"] for m in db.execute(
+        "SELECT id, username FROM members").fetchall()}
+    return jsonify({
+        "total_matches": total,
+        "has_more": offset + limit < total,
+        "limit": limit,
+        "offset": offset,
+        "transactions": [{
+            "id": r["id"],
+            "date": r["txn_date"],
+            "description": r["description"],
+            "amount": money(r["amount_cents"]),
+            "direction": r["direction"],
+            "category": r["category"],
+            "income_type": r["income_type"],
+            "paid_by": usernames.get(r["paid_by"]),
+        } for r in rows],
     })
 
 

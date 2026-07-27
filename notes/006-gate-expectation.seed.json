@@ -1,0 +1,7 @@
+{
+  "note": "Migration #006 (api_tokens table -- AGENT-DESIGN step 1, bearer-token auth for the assistant layer). One new empty table and its schema_version record -- nothing else. No balance/spend path reads or writes it, so the who-owes-whom balance and every monthly total are identical; they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.api_tokens", "old": null, "new": 0},
+    {"path": "row_counts.schema_version", "old": 5, "new": 6}
+  ]
+}

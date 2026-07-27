@@ -61,13 +61,15 @@ class IncomeIsolationTests(unittest.TestCase):
         self.db.commit()
         return txn_id
 
-    def an_inflow(self, amount_cents=320000, category="Groceries", with_splits=False):
+    def an_inflow(self, amount_cents=320000, category="Groceries",
+                  with_splits=False, income_type="unclassified"):
         cur = self.db.execute(
             """INSERT INTO transactions
                (txn_date, amount_cents, description, category, paid_by,
                 is_shared, source, direction, income_type)
-               VALUES (?, ?, 'income', ?, 1, ?, 'simplefin', 'in', 'unclassified')""",
-            (date.today().isoformat(), amount_cents, category, 1 if with_splits else 0))
+               VALUES (?, ?, 'income', ?, 1, ?, 'simplefin', 'in', ?)""",
+            (date.today().isoformat(), amount_cents, category,
+             1 if with_splits else 0, income_type))
         txn_id = cur.lastrowid
         if with_splits:
             # Deliberately manufactures the invariant-1 violation described
@@ -96,6 +98,77 @@ class IncomeIsolationTests(unittest.TestCase):
         self.assertEqual(0, summary["total_cents"])
         self.assertEqual([], summary["by_category"])
 
+    # ------------------------------------------------- spending_summary: refunds
+
+    def test_refund_nets_its_category_in_the_month_it_lands(self):
+        # The whole point of increment 5: a refund reverses spend in its
+        # category. $50 spent, $20 refunded -> $30 net.
+        self.an_outflow(amount_cents=5000, category="Groceries")
+        self.an_inflow(amount_cents=2000, category="Groceries", income_type="refund")
+        month = date.today().strftime("%Y-%m")
+        summary = derivations.spending_summary(self.db, month)[month]
+        self.assertEqual(3000, summary["total_cents"])
+        self.assertEqual(["Groceries"], [c["category"] for c in summary["by_category"]])
+        self.assertEqual(3000, summary["by_category"][0]["amount_cents"])
+
+    def test_refund_nets_only_its_own_category(self):
+        self.an_outflow(amount_cents=5000, category="Groceries")
+        self.an_outflow(amount_cents=3000, category="Dining")
+        self.an_inflow(amount_cents=2000, category="Groceries", income_type="refund")
+        month = date.today().strftime("%Y-%m")
+        summary = derivations.spending_summary(self.db, month)[month]
+        by_cat = {c["category"]: c["amount_cents"] for c in summary["by_category"]}
+        self.assertEqual(3000, by_cat["Groceries"])
+        self.assertEqual(3000, by_cat["Dining"])
+        self.assertEqual(6000, summary["total_cents"])
+
+    def test_refund_without_matching_spend_goes_negative_not_clamped(self):
+        # INCOME-DESIGN's accepted dip: a refund landing before/without its
+        # purchase pushes the category negative. Deliberately not clamped.
+        self.an_inflow(amount_cents=2000, category="Groceries", income_type="refund")
+        month = date.today().strftime("%Y-%m")
+        summary = derivations.spending_summary(self.db, month)[month]
+        self.assertEqual(-2000, summary["total_cents"])
+        self.assertEqual([{"category": "Groceries", "amount_cents": -2000}],
+                         summary["by_category"])
+
+    def test_refund_nets_only_within_its_own_month(self):
+        self.an_outflow(amount_cents=5000, category="Groceries")  # this month
+        # A refund dated in a clearly different month must not touch this one.
+        self.db.execute(
+            """INSERT INTO transactions
+               (txn_date, amount_cents, description, category, paid_by,
+                is_shared, source, direction, income_type)
+               VALUES ('2020-01-15', 2000, 'old refund', 'Groceries', 1, 0,
+                       'simplefin', 'in', 'refund')""")
+        self.db.commit()
+        month = date.today().strftime("%Y-%m")
+        summary = derivations.spending_summary(self.db, month)[month]
+        self.assertEqual(5000, summary["total_cents"])
+        # The all-months form nets each refund into its own month only.
+        all_months = derivations.spending_summary(self.db)
+        self.assertEqual(5000, all_months[month]["total_cents"])
+        self.assertEqual(-2000, all_months["2020-01"]["total_cents"])
+
+    def test_only_refund_income_type_nets_spend(self):
+        # The bounded-exemption guard that replaces the tripwire's automated
+        # coverage: spending_summary is EXEMPT because it nets refunds, but
+        # NO other inflow type may reduce spend. A huge inflow of every
+        # non-refund type sits in a spent category; the total must not budge.
+        month = date.today().strftime("%Y-%m")
+        for itype in sorted(actions.INCOME_TYPES - {"refund"}):
+            with self.subTest(income_type=itype):
+                self.db.execute("DELETE FROM splits")
+                self.db.execute("DELETE FROM transactions")
+                self.db.commit()
+                self.an_outflow(amount_cents=5000, category="Groceries")
+                self.an_inflow(amount_cents=999999, category="Groceries",
+                               income_type=itype)
+                summary = derivations.spending_summary(self.db, month)[month]
+                self.assertEqual(5000, summary["total_cents"],
+                                 f"{itype} inflow must not net spend")
+                self.assertEqual(5000, summary["by_category"][0]["amount_cents"])
+
     # --------------------------------------------------------- compute_balance
 
     def test_compute_balance_ignores_inflow_with_no_splits(self):
@@ -120,6 +193,20 @@ class IncomeIsolationTests(unittest.TestCase):
         self.an_inflow(amount_cents=100000, with_splits=True)
         balance = derivations.compute_balance(self.db)
         self.assertEqual("settled", balance["state"])
+
+    # ------------------------------------------------------- member_breakdown
+
+    def test_member_breakdown_ignores_a_mis_split_inflow(self):
+        # Same defense-in-depth as compute_balance: member_breakdown joins
+        # splits too, so its direction='out' filter (not just the absence of
+        # inflow splits) is what protects paid/owed from a mis-split inflow.
+        self.an_outflow(amount_cents=6000, shared=True)     # m1 paid, m2 owes 3000
+        self.an_inflow(amount_cents=999999, with_splits=True)
+        b = {m["member_id"]: m for m in derivations.member_breakdown(self.db)}
+        self.assertEqual((6000, 3000, 3000),
+                         (b[1]["paid_cents"], b[1]["owed_cents"], b[1]["net_cents"]))
+        self.assertEqual((0, 3000, -3000),
+                         (b[2]["paid_cents"], b[2]["owed_cents"], b[2]["net_cents"]))
 
     # --------------------------------------------------------- settle_up coverage
 

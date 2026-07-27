@@ -73,18 +73,24 @@ finance.db --live` (full v5 schema), created accounts, connected the
 bank. `deploy.sh`'s gated-migration path is for FUTURE updates now that
 `finance.db` holds real data.
 
-**Repo topology — fix next session:** `origin/main` is at `e8f27d6`, a
-stale schema-v3 "hardening" state — NOT pristine v1.0, NOT current. So
-the Pi runs `rework`, not `main` (a deviation from CORE-DESIGN's "Pi runs
-`main`"). Clean fix: merge `rework` → `main` so `main` reflects what's
-deployed, then future increments deploy from `main` via `deploy.sh main`.
-(Local dev `main` = `f34a461` is a stale, unrelated pointer — ignore it.)
-Deploy facts: Pi user `altamash`, path `/home/altamash/pifinance`;
+**Repo topology — reconciled (July 26, 2026):** `main` == `rework`'s tree.
+`origin/main` was `e8f27d6`, a stale schema-v3 "hardening" state one merge
+commit off the shared base (its hardening content already lived in
+`rework` via the July 19 merge). Fixed by a merge commit (`09c8694`) whose
+first parent is the old `origin/main` (so the push fast-forwarded — no
+history rewrite) and whose tree is byte-identical to `rework`; `main` now
+reflects what's deployed. Future increments still land on `rework`, gate,
+then deploy from `main` via `deploy.sh main` (fast-forward `main` to
+`rework` per increment). Deploy facts: Pi user `altamash`, path `/home/altamash/pifinance`;
 systemd units carry a `pi`/`/home/pi` assumption — rewrite with `sed` on
 copy, never edit the tracked file (future `git pull` would conflict).
-Remaining deploy task: **Tailscale** for phone access (`sudo tailscale
-up`, approve the URL on a laptop — the Pi's desktop browser browns out
-the board, so keep it headless).
+**Tailscale — done (Jul 26, 2026).** Phone access is live: Mac, iPhone,
+and the Pi are all on the tailnet under `altamashmomin@`. Pi tailnet IP
+`100.108.237.13`, MagicDNS name `raspberrypi`; the app is reachable at
+`http://raspberrypi:8080` (or the 100.x IP) over a direct P2P link (~32ms,
+not relayed). Verified end-to-end from this Mac (which is on the tailnet):
+`/api/status` → 200, `{"logged_in":false,"setup_required":false}`. No open
+deploy/infra tasks remain.
 
 Done (sessions one and two, on `rework`; session one reviewed and
 approved, session two awaiting review):
@@ -364,30 +370,243 @@ same-type tag with an editable pre-filled match). Ordered:
    render.js (one tested wording). No schema/derivation change → zero-diff
    gate 10237b8→547b936; suite 175 python + render.js. Live browser check
    across 1st/2nd/3rd tag, create-rule, and suppression.
-5. Refund netting — refunds reduce their category's spend in
-   `spending_summary`; moves that function into the tripwire's EXEMPT set
-   with dedicated netting tests, ships with an *enumerated* gate diff
-   (spend intentionally moves when refunds exist; zero on baseline data).
-   Depends on refunds being categorized to what they refund (existing
-   edit flow; no new mechanism).
-6. Income trend derivation — the deferred `months_back` form, per-month
-   income vs. net spend + `GET /api/income/trend`.
-7. Analytics tab + income-vs-spend chart — new nav tab; hand-rolled SVG
-   in the app's bespoke style (no chart lib — CSP + no build step).
+5. Refund netting — done (Jul 26). A `direction='in'` `income_type='refund'`
+   row subtracts from its category's spend in the month it lands
+   (`spending_summary` signed UNION, **no clamp** — a refund can push a
+   category/month total negative, the deliberate honest dip). Moved
+   `spending_summary` into the tripwire's EXEMPT set (it now reads inflows
+   on purpose), bounded to refunds only; the automated coverage that gave
+   up is replaced in `test_income_isolation` — refund nets its own
+   category/month (incl. the negative dip + cross-month scoping) and EVERY
+   non-refund inflow type is proven to leave spend untouched. Netting flows
+   into `income_summary` via the one shared spend total (positive test;
+   one prior assertion updated to the netted number). Zero-diff gate on the
+   refund-free frozen fixture (proves inertness for existing data) **and**
+   an enumerated-diff demonstration (`notes/refund-netting-gate-demo.seed.json`)
+   showing exactly one diff — that month's total reduced by the refund
+   amount, into the negative, nothing else. Live end-to-end: tagging a
+   $2,964.43 inflow Refund dropped July Spent $2,610.92 → −$353.51, balance
+   untouched. Suite 175→181. Depends on refunds being categorized via the
+   existing edit flow (no new mechanism).
+6. Income trend derivation — done (Jul 26). The deferred trailing-window
+   form. `_monthly_series(db, metric_fn, months_back, anchor)` is the
+   reusable trend engine increments 7–16 ride — maps ANY per-month
+   `metric_fn` over a window ending at `anchor` (default: latest data
+   month, clock-free), empty months zero-filled for a continuous chart
+   axis; private on purpose (takes a callable, so not a tripwire aggregate).
+   `income_trend(db, …)` = `_monthly_series` over `income_summary`, so each
+   month means exactly what the card does and refund netting flows through;
+   EXEMPT in the tripwire. `GET /api/income/trend` (anchor default
+   `current_period()`, `months_back` clamped 1..24, dollars at the edge;
+   v1 surface frozen). Engine tested with a trivial metric_fn to prove it's
+   content-blind (the reuse property). Zero-diff gate; suite 181→198.
+   (Also: `test_architecture` scan now skips `.claude/`/`venv/` — a harness
+   worktree is a full repo copy whose nested `tests/` dodged the dir
+   exclusion; committed separately.)
+7. Analytics tab + income-vs-spend chart — done (Jul 27). New nav tab
+   consuming `GET /api/income/trend` (trailing 6-month window ending at the
+   viewed month; month-prev/next shift the window). Hand-rolled SVG, no
+   chart lib (CSP + no build step): a stacked bar per month — neutral
+   `spent` base + green `saved` cap (the shaded gap) + red `over` cap when
+   spend exceeds income — so surplus, deficit, and refund-month (negative
+   net spend → all-green) all render from one geometry. Pure helpers in
+   `render.js` (`trendBars` geometry, `trendSummary` window aggregate,
+   `shortMonth`, `incomeTrendChartHTML`), unit-tested in the
+   `node tests/test_render.js` seam (26 checks; every sign case + empty
+   state), no `fmt` change (kept clear of the running format task).
+   Frontend only — no gate; suite 198 python + render seam. Live browser
+   check across the real chart, refund netting (a tagged refund shows July
+   all-green), zero-fill (empty months keep their axis label), window
+   navigation, and the per-window savings-rate headline.
 
-Next feature increment: **step 3 increment 5 — refund netting** (refunds
-reduce their category's spend in `spending_summary`; move that function
-into the tripwire's EXEMPT set with dedicated netting tests; ships with an
-*enumerated* gate diff — spend intentionally moves when refunds exist,
-zero on baseline data; depends on refunds being categorized to what they
-refund via the existing edit flow, no new mechanism). Then increments 6–7
-(income trend, analytics tab). Frontend work gets a live-app browser check
-+ the `node tests/test_render.js` seam; each backend increment still gates.
+Deeper-analytics extensions (planned Jul 26, 2026, post-step-3; Alta's
+selected set from a recommendation menu). These ride the two primitives
+that steps 6–7 build — the shared `monthly_series(db, metric_fn,
+months_back)` month-bucketing engine (build it *inside* inc 6, don't
+one-off it) and the analytics tab's SVG seam — so each is a small
+increment: "pass a different `metric_fn`," gated zero-diff, tripwire
+covering the income-isolation filter automatically. Architectural
+throughline: build the trend engine once, then these grow cheaply. Order
+is by leverage (cheapest-onto-the-new-tab first):
 
-Repo housekeeping (independent of features): merging `rework` → `main` is
-now unblocked (Pi deployed, `v1.0` tagged) and reconciles the topology
-note above so `main` matches what's live. `v1.0` is already tagged at
-`41c2040` on origin (done July 26).
+Tier A — pure read-time derivations, no schema, zero-diff gate:
+8.  Category trend — done (Jul 27). `derivations.category_trend(db,
+    category, months_back, anchor)` rides `_monthly_series` over
+    `spending_summary` (the "pass a different `metric_fn`" payoff), + a
+    trailing 3-mo rolling average (`round_ratio`, integer cents, ties-even,
+    warms up over 2 months) + exact MoM delta (None first). Refund netting
+    flows through per-category; EXEMPT in the tripwire (reads refunds via
+    `spending_summary`). `GET /api/analytics/category-trend` (new
+    `/api/analytics` namespace; category required, anchor/months_back like
+    the income trend, dollars at the edge). **Backend only** — the
+    category-trend *visuals* are deferred to a batched analytics-tab
+    frontend increment (kept clear of `render.js` while the negative-format
+    task edits it). Zero-diff gate; suite 198→210.
+9.  Savings-rate trend — done (Jul 27). `derivations.savings_rate_trend`
+    reuses `income_trend` (no aggregate recomputed — per-month rate is the
+    card's exactly) and layers a trailing 3-month **rolling** savings rate:
+    cumulative Σ net_cash_flow ÷ Σ true_income (weights by income, not an
+    average of ratios), which smooths the single-month noise. Non-redundant
+    on purpose — the raw per-month rate already lives in `income_trend`, so
+    the rolling rate is the reason this exists. EXEMPT like `income_trend`;
+    `GET /api/analytics/savings-rate-trend` passes ratios through (not
+    money), null on zero income. Backend only. Zero-diff gate; suite
+    214→223.
+10. Category mix + top merchants — done (Jul 27).
+    `GET /api/analytics/spending-composition` returns a month's total, by_
+    category with a `share` (= amount/total computed at the edge over
+    `spending_summary`, so shares reflect refund netting — NOT a new
+    aggregate), and `top_merchants`. `derivations.top_merchants(db, month,
+    limit)` IS new — outflows grouped by description ('who did we pay the
+    most?'), outflows only, settlements excluded, deliberately not
+    refund-netted (different axis). Reads outflows only, so NOT exempt — the
+    tripwire proves it ignores inflows. Money `{cents, display}`. Zero-diff
+    gate; suite 233→242.
+11. Per-member view — done (Jul 27). `derivations.member_breakdown(db,
+    month)`: per active member, paid (fronted shared) vs owed (basis-point
+    share) vs net; nets sum to zero, `round_ratio` per row like
+    `compute_balance`. Shared outflows only → NOT exempt; a
+    `test_income_isolation` case proves the `direction='out'` filter guards
+    paid/owed from a mis-split inflow (same bar as `compute_balance`).
+    `GET /api/analytics/member-breakdown`; money `{cents, display}`.
+    Zero-diff gate; suite 242→251.
+12. Bill-vs-actual variance — done (Jul 27). `derivations.bill_variance(db,
+    period)`: per active bill, defined `bills.amount_cents` vs actual (the
+    `bill_payments`→`transactions` amount) vs variance (actual − defined;
+    +over); unpaid → None. Outflows only → NOT exempt.
+    `GET /api/analytics/bill-variance`; money `{cents, display}`, null for
+    unpaid. Zero-diff gate; suite 251→259. **Completes Tier A (#8–12).**
+
+Tier B — needs a heuristic, still no schema change:
+13. Recurring-charge / subscription detection — cluster outflows by
+    (normalized description, ~amount, ~monthly cadence); a *suggestion*
+    surface, not an authority (same honesty as INCOME-DESIGN's refused
+    transfer auto-pairing — a coincidence must not silently become a
+    "subscription").
+14. Cash-flow forecast — project end-of-month / next-month position from
+    recurring income (paycheck `income_rules` encode cadence+owner),
+    recurring bills, and scheduled goal contributions. Where rules, bills,
+    and goals finally combine into one forward-looking number; the natural
+    bridge into step 7 (the MCP assistant).
+15. Anomaly flags — "category X is N% above its trailing 3-mo average"; a
+    threshold on top of #8, surfaced passively in the activity feed.
+16. Goal pace / projection — completion-date projection at current
+    contribution rate over `goal_contributions`.
+
+Deferred (Tier C, its own designed feature — NOT smuggled inline):
+category budgets / envelopes. Explicitly out of scope in INCOME-DESIGN;
+needs a `budgets` migration + `set_budget` verb + a `budget_status`
+derivation. Take it on as its own design increment when wanted, not as a
+quick analytics add.
+
+Income build step 3 is now complete (increments 1–7 all done): the whole
+income/classification feature ships — sync flip, dashboard card, activity
+feed, tagging, auto-rules, refund netting, income trend, and the analytics
+chart.
+
+**CORE-DESIGN step 7 — the assistant — started (Jul 27).** Design
+discussion held (see AGENT-DESIGN): much of its "build order" is already
+done (audit_log, one-write-path verbs, INCOME-DESIGN 1–3, and the read
+derivations that make "the agent does no math" true).
+
+**DOOR DECISION MADE (Jul 27) — two doors on one shared read layer:**
+- **Charlee → in-app "Ask" tab.** A Flask route runs an Anthropic tool-use
+  loop over the read functions IN-PROCESS under the existing session login —
+  no MCP, no bearer token, no Funnel, nothing new exposed. Reopens
+  AGENT-DESIGN's "no embedded chatbot" line *deliberately*: Charlee is
+  non-technical, phone-first, and barely uses claude.ai, so an in-app chat
+  beats a claude.ai connector. Cost accepted: an Anthropic API key on the Pi
+  + modest per-query billing. Satisfies "one write path" *better* than MCP
+  (it reuses the same verbs the UI does). Needs a chat UI in the SPA.
+- **Alta → tailnet-only MCP server.** FastMCP sibling process wrapping the
+  read endpoints over HTTP with a bearer token; connect from Claude
+  Code/Desktop over Tailscale. **No Funnel / no public exposure** — the one
+  option with public exposure is off the table.
+Recommended build order (MCP-first, to get a working assistant fast that
+de-risks the shared tools before Charlee's UI, and needs no Anthropic key):
+`api_tokens` + bearer auth ✅ → **MCP read tier ✅ (Alta soaks it)** →
+**in-app Ask endpoint + chat UI (Charlee) ← NEXT** → two-phase write tier. Token
+identity = **per-person** (decided). Still pending: income-visibility
+policy (enforce at the API), and the write-tiering ratification (classify
+direct, rules two-phase — due at the write tier). Prereqs Alta must supply:
+an Anthropic API key (for in-app) and their MCP client over Tailscale.
+- Auth foundation done (Jul 27): migration #006 `api_tokens` (v5→v6) +
+  bearer auth. Per-person revocable tokens, SHA-256-hash-only storage,
+  plaintext returned once; `create_api_token`/`revoke_api_token` verbs
+  (registered; `api_tokens` in GOVERNED_TABLES); `find_active_api_token`
+  auth helper bumps `last_used_at`. `login_required` now accepts session OR
+  bearer, **scope enforced by HTTP method** (GET=read, mutating=write);
+  `ui_actor` → `mcp:<label>` for tokens. Token mgmt routes
+  (`POST/GET /api/tokens`, `.../revoke`) are `session_required` (a token
+  can't mint tokens); mint issues `'read'` only until the write tier.
+  Enumerated gate (notes/006): api_tokens + schema_version bump, nothing
+  else. Suite 259→277. Live-verified: bearer read 200, bearer write 403,
+  bearer-mint 401.
+- **MCP read tier built (Jul 27)** — `ledger_mcp.py`, the FastMCP sibling
+  process (AGENT-DESIGN build-order step 2). Holds no state, does no math: a
+  thin `httpx` client of the Flask read API under a **`read` bearer token**
+  (`api_get` maps 401→"issue a new token", 403→lacks scope, other 4xx→the
+  API's own message). 13 read-only tools wrapping every read endpoint —
+  `ledger_household_snapshot` (start-here), `_balance`,
+  `_spending_composition`, `_category_trend`, `_income_summary`,
+  `_income_trend`, `_savings_rate_trend`, `_member_breakdown`,
+  `_bill_variance`, `_list_income_rules`, `_unclassified_inflows` (search
+  wrapper), `_search_transactions` (evidence), `_list_goals_and_bills`.
+  Docstrings ARE the product (units-twice, true_income≠gross_inflows, "search
+  ≠ totals"). Serves over streamable HTTP; `deploy/ledger-mcp.service`
+  (systemd, Requires=pifinance), `.env` vars (`LEDGER_MCP_TOKEN`/`_API_BASE`/
+  `_HOST`/`_PORT`), and `deploy/mcp-read-tier.md` (mint→deploy→`claude mcp
+  add` over Tailscale). Deps: `mcp>=1.2`, `httpx>=0.27`. **No schema/
+  derivation change → no balance gate** (pure HTTP client of already-gated
+  endpoints, like the frontend increments); safety net is
+  `tests/test_ledger_mcp.py` — each tool's JSON proven byte-equal to the
+  Flask endpoint it wraps (can only reshape, never recompute), driven through
+  FastMCP dispatch over an httpx WSGITransport at the real app. Suite 277→289.
+  End-to-end smoke-verified: real streamable-HTTP client lists 13 tools and
+  reads live snapshot/search through the running app.
+  **Next: in-app Ask endpoint + chat UI (Charlee).**
+- First read-tier brick done: `GET /api/household_snapshot` — one-call
+  overview composing `derive_balance`/`spending_summary`/`income_summary` +
+  goals + bills, every money field as `{cents, display}` (`money_display`
+  helper), no new math (can't disagree with the dashboard). Decision-
+  independent: serves both doors, needs no auth/exposure decision yet,
+  matches current full-visibility default. Pure read; zero-diff gate; suite
+  210→214.
+- Second read-tier brick done (Jul 27): `GET /api/transactions/search` —
+  the assistant's EVIDENCE tool (the one read it needed and lacked), vs the
+  summary endpoints for totals. Optional ANDed filters (query substring,
+  date_from/to, direction, income_type, category, paid_by username→owner),
+  paginated (limit 1..100/offset, `total_matches`+`has_more`), money
+  `{cents, display}`. Pure read; zero-diff gate; suite 223→233. **Read tier
+  is now functionally complete** for the assistant (snapshot + summaries +
+  trends + search); what remains for step 7 is the door decision, then
+  `api_tokens`/auth + the client, then the two-phase write tier.
+
+Also queued (analytics extensions, not blocking step 7): **Tier A backend
+is complete (#8–12).** All are pure read-time derivations/endpoints under
+`/api/analytics/*`, zero-diff gated, `{cents, display}` money. What remains
+on the analytics track:
+- The deferred analytics-tab **frontend batch** visualizing the Tier A
+  reads (income/savings-rate/category trends, spending composition,
+  member breakdown, bill variance) — do it after the negative-format task
+  lands so the `render.js` merge is trivial. This is pure SPA polish and
+  feeds the assistant nothing.
+- **Tier B (#13–16)** — heuristics (recurring detection, cash-flow
+  forecast, anomaly flags, goal pace); budgets (Tier C) stays deferred.
+None of this blocks step 7 (the assistant is a sibling surface, not built
+on the analytics). The read tier the assistant needs is already complete.
+
+Cosmetic follow-up surfaced by inc 5 (low priority): now that a month's
+Spent can go negative (a refund exceeding that month's spend), the
+dashboard renders it `$-353.51` — `Render.fmt` puts the minus after the
+`$`. Prefer `−$353.51`. Only reachable in the refund-heavy edge; not a
+correctness issue.
+
+Repo housekeeping: `rework` → `main` merge **done (July 26, 2026)** —
+`origin/main` now == `rework`'s tree via merge commit `09c8694`
+(fast-forward push, see the reconciled topology note above). `v1.0` tagged
+at `41c2040` on origin. Remaining non-feature task: Tailscale on the Pi
+for phone access (headless).
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

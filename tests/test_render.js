@@ -110,4 +110,97 @@ check("empty state when no inflows", () => {
   assert.ok(!html.includes("income-grid"), "no stat grid in empty state");
 });
 
+// ---- shortMonth ----
+check("shortMonth abbreviates", () => {
+  assert.strictEqual(R.shortMonth("2026-07"), "Jul");
+  assert.strictEqual(R.shortMonth("2026-01"), "Jan");
+});
+
+// ---- trendSummary: window aggregate, refund-aware, zero-income guard ----
+check("trendSummary sums income/spend/saved and rate", () => {
+  const s = R.trendSummary([
+    { true_income: 6000, month_spend: 3000 },
+    { true_income: 4000, month_spend: 5000 },
+  ]);
+  assert.strictEqual(s.income, 10000);
+  assert.strictEqual(s.spend, 8000);
+  assert.strictEqual(s.saved, 2000);
+  assert.strictEqual(s.rate, 0.2);
+});
+check("trendSummary rate is null with no income", () => {
+  assert.strictEqual(R.trendSummary([{ true_income: 0, month_spend: 500 }]).rate, null);
+});
+
+// ---- trendBars: the stacked-bar geometry, every sign case ----
+const DIMS = { w: 320, h: 176, padL: 6, padR: 6, padT: 16, padB: 20 };
+const approx = (a, b, tol = 0.5) => assert.ok(Math.abs(a - b) < tol, `${a} ≈ ${b}`);
+
+check("trendBars: max spans income and spend; baseline at plot bottom", () => {
+  const g = R.trendBars([
+    { month: "2026-05", true_income: 6000, month_spend: 3000 },  // surplus
+    { month: "2026-06", true_income: 3000, month_spend: 5000 },  // deficit
+    { month: "2026-07", true_income: 4000, month_spend: -500 },  // refund month
+  ], DIMS);
+  assert.strictEqual(g.max, 6000);        // max(income, spend) across window
+  assert.strictEqual(g.baselineY, 156);   // h - padB
+  assert.strictEqual(g.bars.length, 3);
+});
+check("trendBars: surplus month has a green cap, no red", () => {
+  const b = R.trendBars([{ month: "m", true_income: 6000, month_spend: 3000 }],
+    DIMS).bars[0];
+  approx(b.spent.h, 70); approx(b.saved.h, 70);
+  assert.strictEqual(b.over.h, 0);
+});
+check("trendBars: deficit month has a red cap, no green", () => {
+  const b = R.trendBars([{ month: "m", true_income: 3000, month_spend: 5000 }],
+    DIMS).bars[0];
+  assert.ok(b.over.h > 0, "deficit shows over-cap");
+  assert.strictEqual(b.saved.h, 0);
+});
+check("trendBars: refund month (negative net spend) is all saved", () => {
+  const b = R.trendBars([{ month: "m", true_income: 4000, month_spend: -500 }],
+    DIMS).bars[0];
+  assert.strictEqual(b.spent.h, 0);
+  assert.ok(b.saved.h > 0, "all green when nothing net was spent");
+});
+check("trendBars: bars sit inside the plot area", () => {
+  const g = R.trendBars([
+    { month: "a", true_income: 1000, month_spend: 500 },
+    { month: "b", true_income: 1000, month_spend: 500 },
+  ], DIMS);
+  g.bars.forEach((b) => {
+    assert.ok(b.x >= DIMS.padL, "left of padding");
+    assert.ok(b.x + b.w <= DIMS.w - DIMS.padR + 0.01, "right of padding");
+  });
+});
+
+// ---- incomeTrendChartHTML: states ----
+const SERIES = [
+  { month: "2026-05", true_income: 6000, month_spend: 3000 },
+  { month: "2026-06", true_income: 4000, month_spend: 2000 },
+  { month: "2026-07", true_income: 5000, month_spend: 2500 },
+];
+check("chart renders svg, bars, labels, legend, headline", () => {
+  const html = R.incomeTrendChartHTML(SERIES);
+  assert.ok(html.includes("chart-svg"), "svg present");
+  assert.ok(html.includes("bar-saved"), "a saved bar present");
+  assert.ok(html.includes("Jul"), "month label present");
+  assert.ok(html.includes("saved"), "headline present");
+  assert.ok(html.includes("Spent") && html.includes("Saved"), "legend present");
+});
+check("chart headline is positive class when the window saved", () => {
+  const html = R.incomeTrendChartHTML(SERIES);
+  assert.ok(html.includes('class="pos"'), "pos class for a saving window");
+});
+check("chart headline is negative class when the window overspent", () => {
+  const html = R.incomeTrendChartHTML([
+    { month: "2026-07", true_income: 1000, month_spend: 4000 }]);
+  assert.ok(html.includes('class="neg"'), "neg class when overspent");
+});
+check("chart empty state when there is no data", () => {
+  assert.ok(R.incomeTrendChartHTML([]).includes("No income or spending"), "empty array");
+  assert.ok(R.incomeTrendChartHTML([{ month: "2026-07", true_income: 0, month_spend: 0 }])
+    .includes("No income or spending"), "all-zero months");
+});
+
 console.log(`render tests passed (${passed} checks)`);

@@ -3,7 +3,26 @@
 Giving Ledger the Era architecture: a deterministic financial core with a
 curated MCP tool surface on top, so Claude (or any MCP client) becomes the
 conversational interface — no chatbot embedded in the app.
-Status: **design only, not built.**
+Status: **read endpoints + MCP read-tier server built (`ledger_mcp.py`, 13
+read-only tools over streamable HTTP); write tier not yet built.**
+
+> **DECISION (July 27, 2026) — two doors on one shared read layer.** The
+> "no chatbot embedded in the app" stance below is **deliberately reopened**:
+> it optimized for a technical user, but the priority user (Charlee) is
+> non-technical, phone-first, and barely uses claude.ai. Resolution:
+> - **Charlee → an in-app "Ask" tab.** A Flask route runs an Anthropic
+>   tool-use loop over the read functions **in-process, under the existing
+>   session login** — no MCP, no bearer token, no Tailscale Funnel, nothing
+>   newly exposed. This satisfies invariant 2 ("one write path") *more*
+>   directly than MCP, since it calls the very same verbs the UI does.
+> - **Alta → a tailnet-only MCP server** (the design below), reached from
+>   Claude Code/Desktop over Tailscale. **Funnel / public exposure is
+>   rejected.**
+> Both doors consume the same read layer (`household_snapshot`, the summary
+> and trend endpoints, `search`), which is already built. Exposure decision
+> (§Decisions #1) is therefore settled: **Tailnet-only, plus a private
+> in-app path.** Recommended build order: `api_tokens`+auth → MCP read tier
+> → in-app Ask → two-phase write tier.
 
 ## The core claim
 
