@@ -524,8 +524,8 @@ derivations that make "the agent does no math" true).
   option with public exposure is off the table.
 Recommended build order (MCP-first, to get a working assistant fast that
 de-risks the shared tools before Charlee's UI, and needs no Anthropic key):
-`api_tokens` + bearer auth ✅ → **MCP read tier (Alta soaks it) ← NEXT** →
-in-app Ask endpoint + chat UI (Charlee) → two-phase write tier. Token
+`api_tokens` + bearer auth ✅ → **MCP read tier ✅ (Alta soaks it)** →
+**in-app Ask endpoint + chat UI (Charlee) ← NEXT** → two-phase write tier. Token
 identity = **per-person** (decided). Still pending: income-visibility
 policy (enforce at the API), and the write-tiering ratification (classify
 direct, rules two-phase — due at the write tier). Prereqs Alta must supply:
@@ -542,10 +542,29 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   Enumerated gate (notes/006): api_tokens + schema_version bump, nothing
   else. Suite 259→277. Live-verified: bearer read 200, bearer write 403,
   bearer-mint 401.
-  **MCP read tier next**: a FastMCP sibling process wrapping the read
-  endpoints (`household_snapshot`, the summary/trend/analytics endpoints,
-  `search`) over localhost HTTP with a `read` bearer token; systemd unit;
-  Alta connects from Claude Code over Tailscale (no Funnel).
+- **MCP read tier built (Jul 27)** — `ledger_mcp.py`, the FastMCP sibling
+  process (AGENT-DESIGN build-order step 2). Holds no state, does no math: a
+  thin `httpx` client of the Flask read API under a **`read` bearer token**
+  (`api_get` maps 401→"issue a new token", 403→lacks scope, other 4xx→the
+  API's own message). 13 read-only tools wrapping every read endpoint —
+  `ledger_household_snapshot` (start-here), `_balance`,
+  `_spending_composition`, `_category_trend`, `_income_summary`,
+  `_income_trend`, `_savings_rate_trend`, `_member_breakdown`,
+  `_bill_variance`, `_list_income_rules`, `_unclassified_inflows` (search
+  wrapper), `_search_transactions` (evidence), `_list_goals_and_bills`.
+  Docstrings ARE the product (units-twice, true_income≠gross_inflows, "search
+  ≠ totals"). Serves over streamable HTTP; `deploy/ledger-mcp.service`
+  (systemd, Requires=pifinance), `.env` vars (`LEDGER_MCP_TOKEN`/`_API_BASE`/
+  `_HOST`/`_PORT`), and `deploy/mcp-read-tier.md` (mint→deploy→`claude mcp
+  add` over Tailscale). Deps: `mcp>=1.2`, `httpx>=0.27`. **No schema/
+  derivation change → no balance gate** (pure HTTP client of already-gated
+  endpoints, like the frontend increments); safety net is
+  `tests/test_ledger_mcp.py` — each tool's JSON proven byte-equal to the
+  Flask endpoint it wraps (can only reshape, never recompute), driven through
+  FastMCP dispatch over an httpx WSGITransport at the real app. Suite 277→289.
+  End-to-end smoke-verified: real streamable-HTTP client lists 13 tools and
+  reads live snapshot/search through the running app.
+  **Next: in-app Ask endpoint + chat UI (Charlee).**
 - First read-tier brick done: `GET /api/household_snapshot` — one-call
   overview composing `derive_balance`/`spending_summary`/`income_summary` +
   goals + bills, every money field as `{cents, display}` (`money_display`

@@ -2,3 +2,7 @@ flask>=3.0
 python-dotenv>=1.0
 requests>=2.31
 gunicorn>=21.2
+
+# Agent layer (AGENT-DESIGN): the ledger_mcp read-tier sibling process.
+mcp>=1.2
+httpx>=0.27

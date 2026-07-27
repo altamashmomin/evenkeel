@@ -1,0 +1,38 @@
+# Ledger MCP read tier — /etc/systemd/system/ledger-mcp.service
+# The FastMCP sibling process (AGENT-DESIGN): an HTTP client of the Flask app,
+# serving the read tools over streamable HTTP on the tailnet. No Funnel, no
+# public exposure — reachability is Tailscale only.
+#
+# Adjust User and paths if your username or install dir differs (the deployed
+# Pi is user `altamash` at /home/altamash/pifinance; rewrite with sed on copy,
+# never edit this tracked file — a future `git pull` would conflict).
+#
+# Reads its config from the same .env as the app. Required additions there:
+#   LEDGER_MCP_TOKEN=<a 'read'-scope token minted in Ledger settings>
+#   LEDGER_API_BASE=http://127.0.0.1:8080     # the local Flask app
+#   LEDGER_MCP_HOST=100.108.237.13            # the Pi's Tailscale IP (tailnet-only)
+#   LEDGER_MCP_PORT=8765
+# Binding LEDGER_MCP_HOST to the tailnet IP (not 0.0.0.0) keeps it off the LAN.
+[Unit]
+Description=Ledger MCP read tier (FastMCP)
+After=network-online.target pifinance.service
+Wants=network-online.target
+# Sibling of the app; if the app isn't up there is nothing to talk to.
+Requires=pifinance.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/pifinance
+EnvironmentFile=/home/pi/pifinance/.env
+ExecStart=/home/pi/pifinance/venv/bin/python /home/pi/pifinance/ledger_mcp.py
+Restart=on-failure
+RestartSec=5
+
+# Hardening (safe defaults for a home service)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

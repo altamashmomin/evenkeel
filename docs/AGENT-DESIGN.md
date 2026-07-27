@@ -3,7 +3,8 @@
 Giving Ledger the Era architecture: a deterministic financial core with a
 curated MCP tool surface on top, so Claude (or any MCP client) becomes the
 conversational interface — no chatbot embedded in the app.
-Status: **read tier built; client not yet built.**
+Status: **read endpoints + MCP read-tier server built (`ledger_mcp.py`, 13
+read-only tools over streamable HTTP); write tier not yet built.**
 
 > **DECISION (July 27, 2026) — two doors on one shared read layer.** The
 > "no chatbot embedded in the app" stance below is **deliberately reopened**:
