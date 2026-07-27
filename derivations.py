@@ -256,6 +256,31 @@ def category_trend(db, category, months_back=6, anchor=None):
     return series
 
 
+def top_merchants(db, month=None, limit=10):
+    """Top spending destinations by description (merchant), largest first —
+    the axis category totals don't give you ('who did we pay the most?').
+    Outflows only, settlements excluded; `month` None means all-time.
+
+    Deliberately NOT netted against refunds: merchant grouping is a
+    different axis than category, and a refund's bank description ('Amazon
+    refund') rarely matches its purchase ('AMZN Mktp'), so netting here
+    would mislead. Because it reads outflows ONLY — no inflow of any type
+    touches it — it is NOT tripwire-exempt: adding an inflow must leave it
+    unchanged, and the tripwire proves it (which is why `month`/`limit` have
+    defaults — the tripwire calls it with just `db`)."""
+    clause = " AND substr(txn_date, 1, 7) = ?" if month is not None else ""
+    params = ([month] if month is not None else []) + [limit]
+    rows = db.execute(
+        f"""SELECT description, SUM(amount_cents) AS total, COUNT(*) AS n
+            FROM transactions
+            WHERE direction = 'out' AND source != 'settlement'{clause}
+            GROUP BY description
+            ORDER BY total DESC, description
+            LIMIT ?""", params).fetchall()
+    return [{"description": r["description"], "amount_cents": r["total"],
+             "count": r["n"]} for r in rows]
+
+
 def savings_rate_trend(db, months_back=6, anchor=None):
     """Savings rate over a trailing window (analytics #9). Two rates per
     month: the raw single-month `savings_rate` (net_cash_flow / true_income,

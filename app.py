@@ -16,7 +16,7 @@ import actions
 from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (category_trend, compute_balance as derive_balance,
                          income_summary, income_trend, savings_rate_trend,
-                         spending_summary)
+                         spending_summary, top_merchants)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -551,6 +551,44 @@ def savings_rate_trend_view():
             "savings_rate": e["savings_rate"],
             "rolling_savings_rate": e["rolling_savings_rate"],
         } for e in series],
+    })
+
+
+@app.get("/api/analytics/spending-composition")
+@login_required
+def spending_composition_view():
+    """What made up a month's spend (analytics #10): each category's NET
+    spend with its share of the month total, and the top merchants by
+    description. Category shares come from `spending_summary` (net of
+    refunds; share is a ratio, null when the total isn't positive); top
+    merchants come from the `top_merchants` derivation (outflows only). Money
+    as {cents, display}. Pure read."""
+    db = get_db()
+    month = request.args.get("month") or current_period()
+    try:
+        merchant_limit = int(request.args.get("merchant_limit", 10))
+    except (TypeError, ValueError):
+        return bad_request("merchant_limit must be an integer")
+    merchant_limit = max(1, min(merchant_limit, 50))
+
+    summary = spending_summary(db, month)[month]
+    total = summary["total_cents"]
+    by_category = [{
+        "category": c["category"],
+        "amount": money(c["amount_cents"]),
+        "share": round(c["amount_cents"] / total, 4) if total > 0 else None,
+    } for c in summary["by_category"]]
+    merchants = [{
+        "description": m["description"],
+        "amount": money(m["amount_cents"]),
+        "count": m["count"],
+    } for m in top_merchants(db, month, merchant_limit)]
+
+    return jsonify({
+        "month": month,
+        "total": money(total),
+        "by_category": by_category,
+        "top_merchants": merchants,
     })
 
 
