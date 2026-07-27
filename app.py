@@ -629,6 +629,91 @@ def household_snapshot_view():
     })
 
 
+@app.get("/api/transactions/search")
+@login_required
+def search_transactions_view():
+    """Filtered, paginated transaction search — the assistant read tier's
+    EVIDENCE tool (AGENT-DESIGN): 'show me the three biggest grocery runs',
+    'did the deposit land?'. NOT for totals — those come from the summary
+    endpoints, computed once by the same code as the dashboard. Filters
+    (all optional, ANDed): query (case-insensitive substring on
+    description), date_from/date_to (inclusive ISO), direction, income_type,
+    category, paid_by (username; for inflows this is the money's owner).
+    Paginated: limit 1..100 (default 20), offset. Returns total_matches +
+    has_more so a caller pages rather than extrapolates; money as
+    {cents, display}. Pure read."""
+    db = get_db()
+    args = request.args
+    clauses, params = [], []
+
+    query = (args.get("query") or "").strip()
+    if query:
+        clauses.append("lower(description) LIKE '%' || lower(?) || '%'")
+        params.append(query)
+    if args.get("date_from"):
+        clauses.append("txn_date >= ?"); params.append(args["date_from"])
+    if args.get("date_to"):
+        clauses.append("txn_date <= ?"); params.append(args["date_to"])
+
+    direction = args.get("direction")
+    if direction is not None:
+        if direction not in ("in", "out"):
+            return bad_request("direction must be 'in' or 'out'")
+        clauses.append("direction = ?"); params.append(direction)
+
+    income_type = args.get("income_type")
+    if income_type is not None:
+        if income_type not in actions.INCOME_TYPES:
+            return bad_request(
+                "income_type must be one of: " + ", ".join(sorted(actions.INCOME_TYPES)))
+        clauses.append("income_type = ?"); params.append(income_type)
+
+    if args.get("category"):
+        clauses.append("category = ?"); params.append(args["category"])
+
+    paid_by = args.get("paid_by")
+    if paid_by:
+        member = db.execute(
+            "SELECT id FROM members WHERE username = ?", (paid_by,)).fetchone()
+        if member is None:
+            return bad_request(f"unknown user: {paid_by}")
+        clauses.append("paid_by = ?"); params.append(member["id"])
+
+    try:
+        limit = int(args.get("limit", 20))
+        offset = int(args.get("offset", 0))
+    except (TypeError, ValueError):
+        return bad_request("limit and offset must be integers")
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    total = db.execute(
+        f"SELECT COUNT(*) AS n FROM transactions {where}", params).fetchone()["n"]
+    rows = db.execute(
+        f"""SELECT * FROM transactions {where}
+            ORDER BY txn_date DESC, id DESC LIMIT ? OFFSET ?""",
+        params + [limit, offset]).fetchall()
+    usernames = {m["id"]: m["username"] for m in db.execute(
+        "SELECT id, username FROM members").fetchall()}
+    return jsonify({
+        "total_matches": total,
+        "has_more": offset + limit < total,
+        "limit": limit,
+        "offset": offset,
+        "transactions": [{
+            "id": r["id"],
+            "date": r["txn_date"],
+            "description": r["description"],
+            "amount": money(r["amount_cents"]),
+            "direction": r["direction"],
+            "category": r["category"],
+            "income_type": r["income_type"],
+            "paid_by": usernames.get(r["paid_by"]),
+        } for r in rows],
+    })
+
+
 @app.get("/api/categories")
 @login_required
 def categories():
