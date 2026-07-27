@@ -89,11 +89,56 @@ def bad_request(msg):
     return jsonify({"error": msg}), 400
 
 
+def _resolve_auth():
+    """Populate g.auth from the request's session cookie or bearer token, and
+    return it (or None). A browser session carries both scopes — a human in
+    their own browser; a token carries exactly its granted scopes."""
+    if "auth" in g:
+        return g.auth
+    g.auth = None
+    if "user_id" in session:
+        g.auth = {"via": "session", "user_id": session["user_id"],
+                  "scopes": {"read", "write"}}
+    else:
+        header = request.headers.get("Authorization", "")
+        if header.startswith("Bearer "):
+            row = actions.find_active_api_token(get_db(), header[7:].strip())
+            if row is not None:
+                g.auth = {
+                    "via": "token", "user_id": row["user_id"],
+                    "label": row["label"], "token_id": row["id"],
+                    "scopes": {s.strip() for s in row["scopes"].split(",") if s.strip()},
+                }
+    return g.auth
+
+
 def login_required(fn):
+    """Session OR a valid bearer token. Bearer scope is enforced by HTTP
+    method — this API is method-consistent, so GET needs 'read' and any
+    mutating method needs 'write'. A browser session carries both."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth = _resolve_auth()
+        if auth is None:
+            return jsonify({"error": "authentication required"}), 401
+        if auth["via"] == "token":
+            needed = "read" if request.method == "GET" else "write"
+            if needed not in auth["scopes"]:
+                return jsonify({"error": f"token lacks '{needed}' scope"}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def session_required(fn):
+    """Browser-session only — rejects bearer tokens. For human-only surfaces:
+    account setup and token management (a bearer token must never mint or
+    revoke tokens — that would be privilege escalation)."""
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         if "user_id" not in session:
             return jsonify({"error": "authentication required"}), 401
+        g.auth = {"via": "session", "user_id": session["user_id"],
+                  "scopes": {"read", "write"}}
         return fn(*args, **kwargs)
     return wrapper
 
@@ -104,11 +149,14 @@ get_users = active_members
 
 
 def ui_actor(db):
-    """Actor string for the logged-in member: 'ui:<username>'."""
-    member = db.execute(
-        "SELECT username FROM members WHERE id = ?", (session["user_id"],)
-    ).fetchone()
-    return f"ui:{member['username']}" if member else f"ui:{session['user_id']}"
+    """Actor string for the authenticated identity: 'ui:<username>' for a
+    browser session, 'mcp:<label>' for a bearer token."""
+    auth = g.get("auth") or _resolve_auth()
+    if auth and auth["via"] == "token":
+        return f"mcp:{auth['label']}"
+    uid = auth["user_id"] if auth else session.get("user_id")
+    member = db.execute("SELECT username FROM members WHERE id = ?", (uid,)).fetchone()
+    return f"ui:{member['username']}" if member else f"ui:{uid}"
 
 
 def txn_to_json(db, r):
@@ -225,7 +273,63 @@ def me():
     db = get_db()
     users = [{"id": u["id"], "username": u["username"], "display_name": u["display_name"]}
              for u in get_users(db)]
-    return jsonify({"user_id": session["user_id"], "users": users})
+    return jsonify({"user_id": g.auth["user_id"], "users": users})
+
+
+# ------------------------------------------------------ api tokens (agent auth)
+
+@app.post("/api/tokens")
+@session_required
+def create_token():
+    """Mint a bearer token for the current member. Session-only — a token
+    must never mint tokens. Scope is 'read' for now (the write tier will add
+    the option). The plaintext token is returned ONCE and never stored;
+    only its SHA-256 hash is kept."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        result = actions.create_api_token(db, ui_actor(db), {
+            "label": data.get("label"),
+            "user_id": g.auth["user_id"],
+            "scopes": "read",
+        })
+    except actions.ActionError as e:
+        return bad_request(str(e))
+    return jsonify({
+        "id": result["id"], "label": result["label"], "scopes": result["scopes"],
+        "created_at": result["created_at"],
+        "token": result["token"],   # shown once — cannot be recovered later
+    }), 201
+
+
+@app.get("/api/tokens")
+@session_required
+def list_tokens():
+    """The current member's tokens — never the token or its hash."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, label, scopes, created_at, last_used_at, revoked "
+        "FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC",
+        (g.auth["user_id"],)).fetchall()
+    return jsonify([{
+        "id": r["id"], "label": r["label"], "scopes": r["scopes"],
+        "created_at": r["created_at"], "last_used_at": r["last_used_at"],
+        "revoked": bool(r["revoked"]),
+    } for r in rows])
+
+
+@app.post("/api/tokens/<int:token_id>/revoke")
+@session_required
+def revoke_token(token_id):
+    """Revoke one of the current member's own tokens."""
+    db = get_db()
+    owned = db.execute(
+        "SELECT id FROM api_tokens WHERE id = ? AND user_id = ?",
+        (token_id, g.auth["user_id"])).fetchone()
+    if owned is None:
+        return jsonify({"error": "not found"}), 404
+    actions.revoke_api_token(db, ui_actor(db), token_id)
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------- transactions

@@ -382,7 +382,7 @@ same-type tag with an editable pre-filled match). Ordered:
    into `income_summary` via the one shared spend total (positive test;
    one prior assertion updated to the netted number). Zero-diff gate on the
    refund-free frozen fixture (proves inertness for existing data) **and**
-   an enumerated-diff demonstration (`notes/006-gate-expectation.seed.json`)
+   an enumerated-diff demonstration (`notes/refund-netting-gate-demo.seed.json`)
    showing exactly one diff — that month's total reduced by the refund
    amount, into the negative, nothing else. Live end-to-end: tagging a
    $2,964.43 inflow Refund dropped July Spent $2,610.92 → −$353.51, balance

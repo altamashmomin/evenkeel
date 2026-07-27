@@ -21,7 +21,9 @@ create_income_rule, set_rule_enabled, and apply_rules build the income
 classification foundation (CORE-DESIGN sequence step 6). set_splits is
 promoted separately, only once a standalone caller needs it.
 """
+import hashlib
 import json
+import secrets
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -1014,3 +1016,85 @@ def apply_rules(db, actor, dry_run=False):
         if matches:
             _write_audit(db, actor, "apply_rules", None, {"applied": matches})
     return matches
+
+
+# ─────────────────────────── api tokens (AGENT-DESIGN step 1) ────────────
+
+API_TOKEN_SCOPES = frozenset({"read", "read,write"})
+
+
+def _hash_token(token):
+    """The stored form of a bearer token: its SHA-256 hex. The token is
+    high-entropy, so a fast hash is right — this is not a password."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_api_token(db, actor, data):
+    """Issue a revocable bearer token for a non-browser client (the tailnet
+    MCP server, any future API client).
+
+    validate — label non-empty; user_id is an active member (per-person
+    tokens); scopes is 'read' or 'read,write'.
+    edit — one transaction: the token row (storing ONLY the SHA-256 hash,
+    never the token) + an audit row recording label/user/scopes (never the
+    token or its hash).
+    Returns a dict of the row PLUS 'token' — the plaintext, returned exactly
+    once; it can never be recovered after this call.
+    """
+    with action_transaction(db):
+        label = (data.get("label") or "").strip()[:100]
+        if not label:
+            raise ActionError("label is required")
+        user_id = data.get("user_id")
+        if user_id not in {m["id"] for m in active_members(db)}:
+            raise ActionError("user_id must be an active member")
+        scopes = data.get("scopes", "read")
+        if scopes not in API_TOKEN_SCOPES:
+            raise ActionError("scopes must be 'read' or 'read,write'")
+        token = secrets.token_urlsafe(32)
+        cur = db.execute(
+            "INSERT INTO api_tokens (token_hash, label, user_id, scopes, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (_hash_token(token), label, user_id, scopes, _now()))
+        row = db.execute(
+            "SELECT * FROM api_tokens WHERE id = ?", (cur.lastrowid,)).fetchone()
+        _write_audit(db, actor, "create_api_token", f"api_token:{row['id']}",
+                     {"label": label, "user_id": user_id, "scopes": scopes})
+    result = dict(row)
+    result["token"] = token   # plaintext — shown once, never stored
+    return result
+
+
+def revoke_api_token(db, actor, token_id):
+    """Revoke a token. No delete — a revoked row keeps its audit trail and
+    stops matching immediately.
+
+    validate — the token exists (NotFound otherwise).
+    edit — one transaction: set revoked=1 + an audit row. Idempotent.
+    Returns the updated row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM api_tokens WHERE id = ?", (token_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        db.execute("UPDATE api_tokens SET revoked = 1 WHERE id = ?", (token_id,))
+        _write_audit(db, actor, "revoke_api_token", f"api_token:{token_id}",
+                     {"label": existing["label"],
+                      "was_revoked": bool(existing["revoked"])})
+    return db.execute("SELECT * FROM api_tokens WHERE id = ?", (token_id,)).fetchone()
+
+
+def find_active_api_token(db, token):
+    """Resolve a bearer token to its row, or None if unknown or revoked, and
+    bump last_used_at. Not a verb — it's an auth-layer read with an
+    observability touch, not a financial mutation; it lives here only so the
+    raw write to api_tokens stays inside actions.py."""
+    row = db.execute(
+        "SELECT * FROM api_tokens WHERE token_hash = ? AND revoked = 0",
+        (_hash_token(token),)).fetchone()
+    if row is None:
+        return None
+    db.execute("UPDATE api_tokens SET last_used_at = ? WHERE id = ?", (_now(), row["id"]))
+    db.commit()
+    return row

@@ -1,0 +1,10 @@
+{
+  "note": "DEMONSTRATION fixture (not the standing inc-5 gate, which is zero-diff on the refund-free frozen fixture). Built from seed 42 / months 8 + seed_income, then inflow id=243 (amount_cents=406455) reclassified income_type='refund' in month 2026-07. Refund netting must reduce ONLY that month's spend total by exactly the refund amount; balance and row counts must not move \u2014 they are absent here on purpose.",
+  "diffs": [
+    {
+      "path": "monthly_totals.2026-07",
+      "old": 263953,
+      "new": -142502
+    }
+  ]
+}

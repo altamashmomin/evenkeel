@@ -1,10 +1,7 @@
 {
-  "note": "DEMONSTRATION fixture (not the standing inc-5 gate, which is zero-diff on the refund-free frozen fixture). Built from seed 42 / months 8 + seed_income, then inflow id=243 (amount_cents=406455) reclassified income_type='refund' in month 2026-07. Refund netting must reduce ONLY that month's spend total by exactly the refund amount; balance and row counts must not move \u2014 they are absent here on purpose.",
+  "note": "Migration #006 (api_tokens table -- AGENT-DESIGN step 1, bearer-token auth for the assistant layer). One new empty table and its schema_version record -- nothing else. No balance/spend path reads or writes it, so the who-owes-whom balance and every monthly total are identical; they are deliberately absent from this list.",
   "diffs": [
-    {
-      "path": "monthly_totals.2026-07",
-      "old": 263953,
-      "new": -142502
-    }
+    {"path": "row_counts.api_tokens", "old": null, "new": 0},
+    {"path": "row_counts.schema_version", "old": 5, "new": 6}
   ]
 }

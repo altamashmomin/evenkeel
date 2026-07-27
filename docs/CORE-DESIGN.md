@@ -230,6 +230,8 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `delete_goal` | UI | — | Hard delete during the bounded transition; audit captures the goal summary, contribution count, and saved total before the cascade |
 | `contribute_to_goal` | UI | amount positive | Signed event row; the verb name carries intent |
 | `withdraw_from_goal` | UI | amount positive | Stores the negative contribution row; intent lives in the verb name, not a sign the reader must infer (correction-pass disposition). `archive_goal`/`restore_goal` deferred to their own migration increment |
+| `create_api_token` | UI (session only) | label required; `user_id` an active member; scopes ∈ {`read`, `read,write`} | AGENT-DESIGN step 1. Stores only the SHA-256 hash; returns the plaintext once. Token mint is browser-session-only — a bearer token can't mint more |
+| `revoke_api_token` | UI (session only) | token exists | No delete; a revoked row keeps its audit trail and stops matching immediately |
 
 The table grows as features land (scenario verbs arrive with the
 scenarios build), but growth means *adding rows here first* — a write
