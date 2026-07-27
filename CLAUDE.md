@@ -462,10 +462,20 @@ Tier A — pure read-time derivations, no schema, zero-diff gate:
     refund-netted (different axis). Reads outflows only, so NOT exempt — the
     tripwire proves it ignores inflows. Money `{cents, display}`. Zero-diff
     gate; suite 233→242.
-11. Per-member view — each person's paid-vs-owed share over time from
-    `splits` (basis points) × `paid_by`.
-12. Bill-vs-actual variance — defined `bills.amount` vs what
-    `bill_payments`/their transactions actually cost.
+11. Per-member view — done (Jul 27). `derivations.member_breakdown(db,
+    month)`: per active member, paid (fronted shared) vs owed (basis-point
+    share) vs net; nets sum to zero, `round_ratio` per row like
+    `compute_balance`. Shared outflows only → NOT exempt; a
+    `test_income_isolation` case proves the `direction='out'` filter guards
+    paid/owed from a mis-split inflow (same bar as `compute_balance`).
+    `GET /api/analytics/member-breakdown`; money `{cents, display}`.
+    Zero-diff gate; suite 242→251.
+12. Bill-vs-actual variance — done (Jul 27). `derivations.bill_variance(db,
+    period)`: per active bill, defined `bills.amount_cents` vs actual (the
+    `bill_payments`→`transactions` amount) vs variance (actual − defined;
+    +over); unpaid → None. Outflows only → NOT exempt.
+    `GET /api/analytics/bill-variance`; money `{cents, display}`, null for
+    unpaid. Zero-diff gate; suite 251→259. **Completes Tier A (#8–12).**
 
 Tier B — needs a heuristic, still no schema change:
 13. Recurring-charge / subscription detection — cluster outflows by
@@ -522,14 +532,19 @@ tiering). **Awaiting Alta's read on the door before the client/auth work.**
   trends + search); what remains for step 7 is the door decision, then
   `api_tokens`/auth + the client, then the two-phase write tier.
 
-Also queued (analytics extensions, not blocking step 7): #8 and #9 are
-done backend. Next here is the deferred analytics-tab **frontend batch**
-visualizing #8+#9 (category picker + its trend line with rolling avg/MoM,
-and the savings-rate line with its rolling smoothing) — do it after the
-negative-format task lands so the `render.js` merge is trivial. Then #10–12
-(Tier A), #13–16 (Tier B); budgets (Tier C) stays deferred. Each backend
-increment gates; frontend work gets the live check + the
-`node tests/test_render.js` seam.
+Also queued (analytics extensions, not blocking step 7): **Tier A backend
+is complete (#8–12).** All are pure read-time derivations/endpoints under
+`/api/analytics/*`, zero-diff gated, `{cents, display}` money. What remains
+on the analytics track:
+- The deferred analytics-tab **frontend batch** visualizing the Tier A
+  reads (income/savings-rate/category trends, spending composition,
+  member breakdown, bill variance) — do it after the negative-format task
+  lands so the `render.js` merge is trivial. This is pure SPA polish and
+  feeds the assistant nothing.
+- **Tier B (#13–16)** — heuristics (recurring detection, cash-flow
+  forecast, anomaly flags, goal pace); budgets (Tier C) stays deferred.
+None of this blocks step 7 (the assistant is a sibling surface, not built
+on the analytics). The read tier the assistant needs is already complete.
 
 Cosmetic follow-up surfaced by inc 5 (low priority): now that a month's
 Spent can go negative (a refund exceeding that month's spend), the
