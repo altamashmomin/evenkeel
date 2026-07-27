@@ -256,6 +256,40 @@ def category_trend(db, category, months_back=6, anchor=None):
     return series
 
 
+def bill_variance(db, period=None):
+    """Defined bill amount vs what was actually paid, per active bill, for a
+    period (analytics #12): each bill's defined amount, the actual amount of
+    the transaction that paid it this period (bill_payments → transactions),
+    and the variance (actual − defined; positive = over budget). Unpaid bills
+    report actual/variance = None. Surfaces 'Electric was $12 over its usual
+    $90'.
+
+    Bill payments are OUTFLOWS, so this never reads inflows — NOT
+    tripwire-exempt. `period` defaults to None (which matches no payment, so
+    every bill reads unpaid) purely so the tripwire can call it with just
+    `db`; real callers always pass a period."""
+    rows = db.execute(
+        """SELECT b.id, b.name, b.amount_cents AS defined_cents, b.due_day,
+                  b.category, t.amount_cents AS actual_cents
+           FROM bills b
+           LEFT JOIN bill_payments bp ON bp.bill_id = b.id AND bp.period = ?
+           LEFT JOIN transactions t ON t.id = bp.txn_id
+           WHERE b.active = 1
+           ORDER BY b.due_day, b.name""", (period,)).fetchall()
+    out = []
+    for r in rows:
+        actual = r["actual_cents"]
+        out.append({
+            "bill_id": r["id"], "name": r["name"], "due_day": r["due_day"],
+            "category": r["category"],
+            "defined_cents": r["defined_cents"],
+            "actual_cents": actual,
+            "variance_cents": None if actual is None else actual - r["defined_cents"],
+            "paid": actual is not None,
+        })
+    return out
+
+
 def member_breakdown(db, month=None):
     """Per-member shared-expense breakdown for a month (analytics #11): how
     much each person PAID for shared expenses (fronted the money) versus

@@ -14,9 +14,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 from actions import active_members, current_period, payer_share_pct, to_cents
-from derivations import (category_trend, compute_balance as derive_balance,
-                         income_summary, income_trend, member_breakdown,
-                         savings_rate_trend, spending_summary, top_merchants)
+from derivations import (bill_variance, category_trend,
+                         compute_balance as derive_balance, income_summary,
+                         income_trend, member_breakdown, savings_rate_trend,
+                         spending_summary, top_merchants)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -589,6 +590,29 @@ def spending_composition_view():
         "total": money(total),
         "by_category": by_category,
         "top_merchants": merchants,
+    })
+
+
+@app.get("/api/analytics/bill-variance")
+@login_required
+def bill_variance_view():
+    """Defined bill amount vs what actually got paid, per bill, for a period
+    (analytics #12), from the `bill_variance` derivation. Unpaid bills report
+    actual/variance = null. Money as {cents, display}. Pure read."""
+    db = get_db()
+    period = request.args.get("period") or current_period()
+    return jsonify({
+        "period": period,
+        "bills": [{
+            "bill_id": b["bill_id"],
+            "name": b["name"],
+            "due_day": b["due_day"],
+            "category": b["category"],
+            "defined": money(b["defined_cents"]),
+            "actual": None if b["actual_cents"] is None else money(b["actual_cents"]),
+            "variance": None if b["variance_cents"] is None else money(b["variance_cents"]),
+            "paid": b["paid"],
+        } for b in bill_variance(db, period)],
     })
 
 
