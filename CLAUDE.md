@@ -524,12 +524,28 @@ derivations that make "the agent does no math" true).
   option with public exposure is off the table.
 Recommended build order (MCP-first, to get a working assistant fast that
 de-risks the shared tools before Charlee's UI, and needs no Anthropic key):
-`api_tokens` + bearer auth → MCP read tier (Alta soaks it) → in-app Ask
-endpoint + chat UI (Charlee) → two-phase write tier. Still pending:
-income-visibility policy (enforce at the API), the token-identity choice
-(one vs per-person — recommend per-person), and the write-tiering
-ratification (classify direct, rules two-phase). Prereqs Alta must supply:
+`api_tokens` + bearer auth ✅ → **MCP read tier (Alta soaks it) ← NEXT** →
+in-app Ask endpoint + chat UI (Charlee) → two-phase write tier. Token
+identity = **per-person** (decided). Still pending: income-visibility
+policy (enforce at the API), and the write-tiering ratification (classify
+direct, rules two-phase — due at the write tier). Prereqs Alta must supply:
 an Anthropic API key (for in-app) and their MCP client over Tailscale.
+- Auth foundation done (Jul 27): migration #006 `api_tokens` (v5→v6) +
+  bearer auth. Per-person revocable tokens, SHA-256-hash-only storage,
+  plaintext returned once; `create_api_token`/`revoke_api_token` verbs
+  (registered; `api_tokens` in GOVERNED_TABLES); `find_active_api_token`
+  auth helper bumps `last_used_at`. `login_required` now accepts session OR
+  bearer, **scope enforced by HTTP method** (GET=read, mutating=write);
+  `ui_actor` → `mcp:<label>` for tokens. Token mgmt routes
+  (`POST/GET /api/tokens`, `.../revoke`) are `session_required` (a token
+  can't mint tokens); mint issues `'read'` only until the write tier.
+  Enumerated gate (notes/006): api_tokens + schema_version bump, nothing
+  else. Suite 259→277. Live-verified: bearer read 200, bearer write 403,
+  bearer-mint 401.
+  **MCP read tier next**: a FastMCP sibling process wrapping the read
+  endpoints (`household_snapshot`, the summary/trend/analytics endpoints,
+  `search`) over localhost HTTP with a `read` bearer token; systemd unit;
+  Alta connects from Claude Code over Tailscale (no Funnel).
 - First read-tier brick done: `GET /api/household_snapshot` — one-call
   overview composing `derive_balance`/`spending_summary`/`income_summary` +
   goals + bills, every money field as `{cents, display}` (`money_display`
