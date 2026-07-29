@@ -396,6 +396,30 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .chart-legend .sw-saved { background: var(--ok); }
 .chart-legend .sw-spent { background: var(--muted); opacity: 0.55; }
 
+/* Analytics — per-member breakdown */
+.mb-row { display: flex; align-items: center; gap: 10px; padding: 9px 0;
+  border-bottom: 1px solid var(--line); }
+.mb-row:last-of-type { border-bottom: none; }
+.mb-name { flex: 1; font-weight: 500; }
+.mb-fig { display: flex; flex-direction: column; align-items: flex-end;
+  min-width: 78px; }
+.mb-fig b { font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 14px; font-weight: 500; }
+.mb-fig small { color: var(--muted); font-size: 11px; letter-spacing: 0.04em; }
+.mb-fig.pos b { color: var(--ok); }
+.mb-fig.neg b { color: var(--danger); }
+
+/* Analytics — savings-rate strip */
+.sr-strip { display: flex; gap: 6px; margin-top: 12px; }
+.sr-cell { flex: 1; display: flex; flex-direction: column; align-items: center;
+  gap: 4px; padding: 8px 2px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; }
+.sr-pct { font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 14px; }
+.sr-pct.pos { color: var(--ok); }
+.sr-pct.neg { color: var(--danger); }
+.sr-mo { color: var(--muted); font-family: var(--mono); font-size: 10.5px; }
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }

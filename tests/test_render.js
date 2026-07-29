@@ -31,6 +31,12 @@ check("fmt formats money", () => {
   assert.strictEqual(R.fmt(0), "$0.00");
   assert.strictEqual(R.fmt(3200), "$3,200.00");
 });
+check("fmt puts the minus before the symbol (−$X, not $-X)", () => {
+  assert.strictEqual(R.fmt(-353.51), "−$353.51");
+  assert.strictEqual(R.fmt(-1234.5), "−$1,234.50");
+  assert.ok(!R.fmt(-5).includes("$-"), "no $- form");
+  assert.strictEqual(R.fmt(-0), "$0.00", "negative zero has no minus");
+});
 
 // ---- monthName ----
 check("monthName renders long month + year", () => {
@@ -201,6 +207,79 @@ check("chart empty state when there is no data", () => {
   assert.ok(R.incomeTrendChartHTML([]).includes("No income or spending"), "empty array");
   assert.ok(R.incomeTrendChartHTML([{ month: "2026-07", true_income: 0, month_spend: 0 }])
     .includes("No income or spending"), "all-zero months");
+});
+
+// ---- analytics tab (Tier A) ----
+const M = (c) => ({ cents: c, display: "$" + (c / 100).toFixed(2) });
+
+check("spendingComposition renders category bars + top merchants", () => {
+  const html = R.spendingCompositionHTML({
+    month: "2026-07", total: M(232074),
+    by_category: [{ category: "Rent", amount: M(185000), share: 0.797 },
+                  { category: "Dining", amount: M(1526), share: 0.0066 }],
+    top_merchants: [{ description: "Whole Foods", amount: M(8210), count: 3 }],
+  });
+  assert.ok(html.includes("Rent") && html.includes("$1,850.00"), "category + amount");
+  assert.ok(html.includes("cat-bar"), "reuses the bar visual");
+  assert.ok(html.includes("Whole Foods") && html.includes("3 charges"), "merchant + count");
+});
+check("spendingComposition empty state", () => {
+  assert.ok(R.spendingCompositionHTML({ month: "2026-07", total: M(0), by_category: [] })
+    .includes("Nothing spent"), "empty copy");
+});
+
+check("memberBreakdown signs net and colors it", () => {
+  const html = R.memberBreakdownHTML({ month: "2026-07", members: [
+    { name: "Avery", paid: M(185000), owed: M(92500), net: M(92500) },
+    { name: "Blake", paid: M(0), owed: M(92500), net: M(-92500) },
+  ]});
+  assert.ok(html.includes("+$925.00"), "positive net signed +");
+  assert.ok(html.includes("−$925.00"), "negative net signed − before $");
+  assert.ok(html.includes("mb-fig pos") && html.includes("mb-fig neg"), "net color classes");
+});
+check("memberBreakdown empty when no shared spend", () => {
+  assert.ok(R.memberBreakdownHTML({ month: "2026-07", members: [
+    { name: "Avery", paid: M(0), owed: M(0), net: M(0) }]}).includes("No shared spending"));
+});
+
+check("billVariance flags over/under/unpaid", () => {
+  const html = R.billVarianceHTML({ period: "2026-07", bills: [
+    { name: "Rent", defined: M(185000), actual: M(185000), variance: M(0), paid: true },
+    { name: "Electric", defined: M(9000), actual: M(9500), variance: M(500), paid: true },
+    { name: "Water", defined: M(4000), actual: M(3600), variance: M(-400), paid: true },
+    { name: "Internet", defined: M(6500), actual: null, variance: null, paid: false },
+  ]});
+  assert.ok(html.includes("on budget"), "zero variance label");
+  assert.ok(html.includes("+$5.00 over") && html.includes("badge overdue"), "over = red badge");
+  assert.ok(html.includes("−$4.00 under") && html.includes("badge paid"), "under = green badge");
+  assert.ok(html.includes("unpaid"), "unpaid bill");
+});
+
+check("savingsRateTrend headlines latest rolling rate, strips months", () => {
+  const html = R.savingsRateTrendHTML({ series: [
+    { month: "2026-05", savings_rate: 0.2, rolling_savings_rate: 0.2 },
+    { month: "2026-06", savings_rate: -0.3, rolling_savings_rate: -0.05 },
+    { month: "2026-07", savings_rate: 0.4, rolling_savings_rate: 0.18 },
+  ]});
+  assert.ok(html.includes("18%"), "headline latest rolling");
+  assert.ok(html.includes("sr-pct neg"), "a negative rolling month is red");
+  assert.ok(html.includes("May") && html.includes("Jul"), "month labels");
+});
+check("savingsRateTrend empty when no rate yet", () => {
+  assert.ok(R.savingsRateTrendHTML({ series: [
+    { month: "2026-07", savings_rate: null, rolling_savings_rate: null }]})
+    .includes("Not enough income"));
+});
+
+check("categoryTrend renders dollar bars + MoM delta, empty -> ''", () => {
+  const html = R.categoryTrendHTML({ category: "Groceries", series: [
+    { month: "2026-06", spend: 420.5, rolling_avg: 400, mom_delta: null },
+    { month: "2026-07", spend: 512.25, rolling_avg: 466, mom_delta: 91.75 },
+  ]});
+  assert.ok(html.includes("Groceries") && html.includes("$512.25"), "category + dollar amount");
+  assert.ok(html.includes("+$91.75 vs the month before"), "MoM delta");
+  assert.strictEqual(R.categoryTrendHTML({ category: "X", series: [
+    { month: "2026-07", spend: 0, rolling_avg: 0, mom_delta: null }]}), "", "no activity -> omitted");
 });
 
 console.log(`render tests passed (${passed} checks)`);
