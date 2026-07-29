@@ -576,10 +576,17 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   (`household_snapshot`, `transactions/search`, all `/api/analytics/*`,
   `income/trend`) now 401 (exist, auth-gated), `POST /api/tokens` now 401 (was
   405), bad bearer → 401. The Pi now runs the full read tier + bearer auth.
-  Rollback backup: `finance.db.bak-2026-07-27-190635`. The Pi's `ledger_mcp`
-  server over Tailscale is NOT yet stood up (optional next: install
-  `ledger-mcp.service`, `.env` `LEDGER_MCP_*`, mint a read token, `claude mcp
-  add` at the tailnet IP — per `deploy/mcp-read-tier.md`).
+  Rollback backup: `finance.db.bak-2026-07-27-190635`.
+- **MCP server stood up on the Pi over Tailscale (Jul 29, 2026) — Phase 3
+  done.** `ledger-mcp.service` installed (sed-rewritten pi→altamash), `.env`
+  `LEDGER_MCP_*` set (a per-person `read` token minted through the app's
+  login→`POST /api/tokens`, bound to the Pi's tailnet IP `100.108.237.13:8765`,
+  tailnet-only, no Funnel). Verified from this Mac over the tailnet: a real
+  streamable-HTTP client at `http://raspberrypi:8765/mcp` lists all 13 tools
+  and `ledger_household_snapshot` returns live data (full chain proven: token
+  valid → Flask reachable → real numbers). Alta's Claude Code `ledger` client
+  repointed from the local synthetic soak to the Pi. Alta now soaks the read
+  tier against REAL data over Tailscale (the design's intended week-long soak).
 - First read-tier brick done: `GET /api/household_snapshot` — one-call
   overview composing `derive_balance`/`spending_summary`/`income_summary` +
   goals + bills, every money field as `{cents, display}` (`money_display`
