@@ -10,8 +10,16 @@
   else root.Render = api;                                                  // browser (app.js)
 })(typeof self !== "undefined" ? self : globalThis, function () {
 
-  const fmt = (n) =>
-    "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // US currency, two decimals. A negative renders with the minus BEFORE the
+  // symbol (−$353.51), not after ($-353.51) — matching money_display on the
+  // server and the − already used in the income card. Reachable since a
+  // month's Spent can go negative when a refund exceeds that month's spend.
+  const fmt = (n) => {
+    const v = Number(n);
+    const body = "$" + Math.abs(v).toLocaleString(
+      "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return v < 0 ? "−" + body : body;
+  };
 
   // Escape &, <, > for safe interpolation into HTML text — the exact
   // subset the old document.createElement/textContent trick produced, now
@@ -193,6 +201,158 @@
     </div>`;
   }
 
+  /* ===== analytics tab (Tier A reads) =====
+     Each is a pure function of one endpoint's JSON. The composition, member
+     and bill endpoints speak the {cents, display} money shape (`amt` below);
+     income/category trends predate it and speak plain dollars (`fmt`). */
+
+  const amt = (m) => fmt((m && m.cents != null ? m.cents : 0) / 100);
+  // Signed dollars from cents, with an explicit +/− and the minus before $.
+  const signedCents = (c) => (c > 0 ? "+" : c < 0 ? "−" : "") + fmt(Math.abs(c) / 100);
+
+  // Spending composition (#10): category mix (reusing the dashboard's cat-bar)
+  // plus the top-merchants list. Net of refunds, outflows only.
+  function spendingCompositionHTML(comp) {
+    const cats = comp.by_category || [];
+    const merchants = comp.top_merchants || [];
+    const monthLbl = monthName(comp.month);
+    if (!cats.length) {
+      return `<div class="card"><p class="eyebrow">Where the money went — ${monthLbl}</p>
+        <p class="empty">Nothing spent this month.</p></div>`;
+    }
+    const maxCat = Math.max(1, ...cats.map((c) => Math.abs(c.amount.cents)));
+    const catRows = cats.map((c) => `
+      <div class="cat-row">
+        <span class="cat-name">${esc(c.category)}</span>
+        <span class="cat-bar"><i style="width:${(Math.abs(c.amount.cents) / maxCat) * 100}%"></i></span>
+        <span class="amt amount">${amt(c.amount)}</span>
+      </div>`).join("");
+    const merchCard = merchants.length ? `
+      <div class="card">
+        <p class="eyebrow">Paid the most — ${monthLbl}</p>
+        <ul class="list">${merchants.map((m) => `
+          <li>
+            <div class="grow"><div class="title">${esc(m.description)}</div>
+              <div class="sub">${m.count} charge${m.count === 1 ? "" : "s"}</div></div>
+            <span class="amt amount">${amt(m.amount)}</span>
+          </li>`).join("")}</ul>
+      </div>` : "";
+    return `
+      <div class="card">
+        <p class="eyebrow">Where the money went — ${monthLbl}</p>
+        <p class="stat-big">${amt(comp.total)}</p>
+        <div style="margin-top:12px">${catRows}</div>
+      </div>
+      ${merchCard}`;
+  }
+
+  // Per-member breakdown (#11): paid (fronted) vs owed (fair share) vs net.
+  // Nets sum to zero; net colored (up = green, down = red). Shared outflows.
+  function memberBreakdownHTML(mb) {
+    const members = mb.members || [];
+    const any = members.some((m) => m.paid.cents || m.owed.cents);
+    if (!members.length || !any) {
+      return `<div class="card"><p class="eyebrow">Who paid what — ${monthName(mb.month)}</p>
+        <p class="empty">No shared spending this month.</p></div>`;
+    }
+    const rows = members.map((m) => {
+      const net = m.net.cents;
+      const cls = net > 0 ? "pos" : net < 0 ? "neg" : "";
+      return `<div class="mb-row">
+        <span class="mb-name">${esc(m.name)}</span>
+        <span class="mb-fig"><b class="amount">${amt(m.paid)}</b><small>paid</small></span>
+        <span class="mb-fig"><b class="amount">${amt(m.owed)}</b><small>owed</small></span>
+        <span class="mb-fig ${cls}"><b class="amount">${net === 0 ? fmt(0) : signedCents(net)}</b><small>net</small></span>
+      </div>`;
+    }).join("");
+    return `<div class="card">
+      <p class="eyebrow">Who paid what — ${monthName(mb.month)}</p>
+      ${rows}
+      <p class="chart-sub">Net is how much each person is up (+) or down (−) on shared costs this month.</p>
+    </div>`;
+  }
+
+  // Bill variance (#12): defined vs actual per bill; over = red badge, under =
+  // green, unpaid = neutral. Reuses the existing badge palette.
+  function billVarianceHTML(bv) {
+    const bills = bv.bills || [];
+    if (!bills.length) {
+      return `<div class="card"><p class="eyebrow">Bills — planned vs actual</p>
+        <p class="empty">No bills set up.</p></div>`;
+    }
+    const rows = bills.map((b) => {
+      if (!b.paid || b.actual == null) {
+        return `<li>
+          <div class="grow"><div class="title">${esc(b.name)}</div>
+            <div class="sub">${amt(b.defined)} planned</div></div>
+          <span class="badge due">unpaid</span>
+        </li>`;
+      }
+      const v = b.variance.cents;
+      const label = v === 0 ? "on budget"
+        : (v > 0 ? "+" : "−") + fmt(Math.abs(v) / 100) + (v > 0 ? " over" : " under");
+      return `<li>
+        <div class="grow"><div class="title">${esc(b.name)}</div>
+          <div class="sub">${amt(b.defined)} planned</div></div>
+        <span class="badge ${v > 0 ? "overdue" : "paid"}">${label}</span>
+        <span class="amt amount">${amt(b.actual)}</span>
+      </li>`;
+    }).join("");
+    return `<div class="card"><p class="eyebrow">Bills — planned vs actual</p>
+      <ul class="list">${rows}</ul></div>`;
+  }
+
+  // Savings-rate trend (#9): the trailing 3-month rolling rate per month, as a
+  // strip of month cells (ratios, not money), with the latest as the headline.
+  function savingsRateTrendHTML(data) {
+    const series = data.series || [];
+    const rated = series.filter((e) => e.rolling_savings_rate != null);
+    if (!rated.length) {
+      return `<div class="card"><p class="eyebrow">Savings rate</p>
+        <p class="empty">Not enough income yet to show a rate.</p></div>`;
+    }
+    const latest = rated[rated.length - 1].rolling_savings_rate;
+    const cells = series.map((e) => {
+      const r = e.rolling_savings_rate;
+      const cls = r == null ? "" : r >= 0 ? "pos" : "neg";
+      return `<div class="sr-cell">
+        <span class="sr-pct ${cls}">${r == null ? "—" : Math.round(r * 100) + "%"}</span>
+        <span class="sr-mo">${shortMonth(e.month)}</span>
+      </div>`;
+    }).join("");
+    return `<div class="card">
+      <p class="eyebrow">Savings rate — rolling 3-month</p>
+      <p class="chart-headline"><span class="${latest >= 0 ? "pos" : "neg"}">${Math.round(latest * 100)}%</span></p>
+      <p class="chart-sub">Share of paycheck income kept, smoothed over 3 months.</p>
+      <div class="sr-strip">${cells}</div>
+    </div>`;
+  }
+
+  // Category trend (#8): monthly NET spend for one category (dollars, not the
+  // {cents} shape), as horizontal bars, with the latest MoM delta. Returns ""
+  // when the category had no activity in the window (caller omits the card).
+  function categoryTrendHTML(data) {
+    const series = data.series || [];
+    if (!series.length || !series.some((e) => e.spend !== 0)) return "";
+    const max = Math.max(1, ...series.map((e) => Math.abs(e.spend)));
+    const rows = series.map((e) => `
+      <div class="cat-row">
+        <span class="cat-name">${shortMonth(e.month)}</span>
+        <span class="cat-bar"><i style="width:${(Math.abs(e.spend) / max) * 100}%"></i></span>
+        <span class="amt amount">${fmt(e.spend)}</span>
+      </div>`).join("");
+    const last = series[series.length - 1];
+    const sub = last.mom_delta == null ? ""
+      : `<p class="chart-sub">${last.mom_delta > 0 ? "+" : "−"}${fmt(Math.abs(last.mom_delta))} vs the month before</p>`;
+    return `<div class="card">
+      <p class="eyebrow">${esc(data.category)} — last ${series.length} months</p>
+      ${sub}
+      <div style="margin-top:12px">${rows}</div>
+    </div>`;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText,
-           incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML };
+           incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
+           spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
+           savingsRateTrendHTML, categoryTrendHTML };
 });

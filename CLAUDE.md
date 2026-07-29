@@ -565,6 +565,21 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   End-to-end smoke-verified: real streamable-HTTP client lists 13 tools and
   reads live snapshot/search through the running app.
   **Next: in-app Ask endpoint + chat UI (Charlee).**
+- **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
+  commits behind `rework`; reconciled and shipped the same day. Pushed
+  `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
+  merge `2ba5056` (first parent = old `main`, fast-forward push); ran
+  `deploy/deploy.sh origin/main` on the Pi. GATE PASSED — no money moved, only
+  the enumerated structural diff (`api_tokens` table + `schema_version` 5→6);
+  migration #006 (the only pending one) applied `--live`; service restarted
+  clean. Live-verified over the tailnet: the formerly-404 read endpoints
+  (`household_snapshot`, `transactions/search`, all `/api/analytics/*`,
+  `income/trend`) now 401 (exist, auth-gated), `POST /api/tokens` now 401 (was
+  405), bad bearer → 401. The Pi now runs the full read tier + bearer auth.
+  Rollback backup: `finance.db.bak-2026-07-27-190635`. The Pi's `ledger_mcp`
+  server over Tailscale is NOT yet stood up (optional next: install
+  `ledger-mcp.service`, `.env` `LEDGER_MCP_*`, mint a read token, `claude mcp
+  add` at the tailnet IP — per `deploy/mcp-read-tier.md`).
 - First read-tier brick done: `GET /api/household_snapshot` — one-call
   overview composing `derive_balance`/`spending_summary`/`income_summary` +
   goals + bills, every money field as `{cents, display}` (`money_display`
@@ -586,21 +601,33 @@ Also queued (analytics extensions, not blocking step 7): **Tier A backend
 is complete (#8–12).** All are pure read-time derivations/endpoints under
 `/api/analytics/*`, zero-diff gated, `{cents, display}` money. What remains
 on the analytics track:
-- The deferred analytics-tab **frontend batch** visualizing the Tier A
-  reads (income/savings-rate/category trends, spending composition,
-  member breakdown, bill variance) — do it after the negative-format task
-  lands so the `render.js` merge is trivial. This is pure SPA polish and
-  feeds the assistant nothing.
+- Analytics-tab **frontend batch — done (Jul 29, 2026).** The Analytics tab
+  now renders all Tier A reads under the existing month-window nav: the
+  income-vs-spend chart (unchanged), a rolling savings-rate strip
+  (`savingsRateTrendHTML`), spending composition — category mix reusing the
+  dashboard `cat-bar` + a top-merchants list (`spendingCompositionHTML`), a
+  category-trend drill-in for the month's biggest category, no picker
+  (`categoryTrendHTML`), per-member paid/owed/net (`memberBreakdownHTML`),
+  and bill planned-vs-actual reusing the badge palette (`billVarianceHTML`).
+  All pure helpers in `render.js`, unit-tested in the `node tests/test_render.js`
+  seam (26→35 checks); `renderAnalytics` fans out the six endpoints with
+  `Promise.all`. Money shapes handled per-endpoint: composition/member/bill
+  speak `{cents, display}`, income/category trends speak plain dollars.
+  Frontend only — no gate. Visually verified against `style.css` in a
+  throwaway harness across a refund month (all-green chart) and negative
+  member-net / bill-variance / category-delta (the −$X fix below in action).
 - **Tier B (#13–16)** — heuristics (recurring detection, cash-flow
   forecast, anomaly flags, goal pace); budgets (Tier C) stays deferred.
 None of this blocks step 7 (the assistant is a sibling surface, not built
 on the analytics). The read tier the assistant needs is already complete.
 
-Cosmetic follow-up surfaced by inc 5 (low priority): now that a month's
-Spent can go negative (a refund exceeding that month's spend), the
-dashboard renders it `$-353.51` — `Render.fmt` puts the minus after the
-`$`. Prefer `−$353.51`. Only reachable in the refund-heavy edge; not a
-correctness issue.
+Cosmetic follow-up surfaced by inc 5 — **done (Jul 29, 2026).** A negative
+money value (a month's Spent when a refund exceeds spend; a negative member
+net, bill under-run, or category MoM delta) now renders `−$353.51`, minus
+before the symbol, matching the server's `money_display` and the income
+card's existing `−`. The fix was one function: `Render.fmt` in `render.js`
+(the backend `money_display` was already correct). Pinned in
+`tests/test_render.js`.
 
 Repo housekeeping: `rework` → `main` merge **done (July 26, 2026)** —
 `origin/main` now == `rework`'s tree via merge commit `09c8694`

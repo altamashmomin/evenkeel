@@ -7,7 +7,8 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 // Pure presentation helpers live in render.js (loaded before this file) so
 // they can be unit-tested in plain node; app.js pulls them off the global.
 const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, incomeCardHTML,
-        incomeTrendChartHTML } = window.Render;
+        incomeTrendChartHTML, spendingCompositionHTML, memberBreakdownHTML,
+        billVarianceHTML, savingsRateTrendHTML, categoryTrendHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -428,15 +429,37 @@ async function renderGoals() {
 
 async function renderAnalytics() {
   // A trailing 6-month window ending at the month the user is viewing;
-  // month-prev/next (wired in wireMain) shift the whole window.
-  const data = await api(`/api/income/trend?anchor=${state.month}&months_back=6`);
+  // month-prev/next (wired in wireMain) shift the whole window. Every card
+  // reads a Tier A endpoint — no math here, the server computed it all.
+  const m = state.month;
+  const [trend, comp, members, bills, savings] = await Promise.all([
+    api(`/api/income/trend?anchor=${m}&months_back=6`),
+    api(`/api/analytics/spending-composition?month=${m}`),
+    api(`/api/analytics/member-breakdown?month=${m}`),
+    api(`/api/analytics/bill-variance?period=${m}`),
+    api(`/api/analytics/savings-rate-trend?anchor=${m}&months_back=6`),
+  ]);
+  // Drill into the biggest category this month — a trend without a picker.
+  let catCard = "";
+  const top = (comp.by_category || [])[0];
+  if (top) {
+    const ct = await api(
+      `/api/analytics/category-trend?category=${encodeURIComponent(top.category)}` +
+      `&anchor=${m}&months_back=6`);
+    catCard = categoryTrendHTML(ct);
+  }
   return `
     <div class="monthbar">
       <button id="month-prev" aria-label="Earlier months">‹</button>
-      <b>through ${monthName(state.month)}</b>
+      <b>through ${monthName(m)}</b>
       <button id="month-next" aria-label="Later months">›</button>
     </div>
-    ${incomeTrendChartHTML(data.series)}`;
+    ${incomeTrendChartHTML(trend.series)}
+    ${savingsRateTrendHTML(savings)}
+    ${spendingCompositionHTML(comp)}
+    ${catCard}
+    ${memberBreakdownHTML(members)}
+    ${billVarianceHTML(bills)}`;
 }
 
 /* ================= wiring ================= */
