@@ -524,8 +524,9 @@ derivations that make "the agent does no math" true).
   option with public exposure is off the table.
 Recommended build order (MCP-first, to get a working assistant fast that
 de-risks the shared tools before Charlee's UI, and needs no Anthropic key):
-`api_tokens` + bearer auth ✅ → **MCP read tier ✅ (Alta soaks it)** →
-**in-app Ask endpoint + chat UI (Charlee) ← NEXT** → two-phase write tier. Token
+`api_tokens` + bearer auth ✅ → **MCP read tier ✅ (deployed to Pi, Alta
+soaks it over Tailscale)** → **in-app Ask endpoint + chat UI (Charlee) ←
+SCOPED, building** → two-phase write tier. Token
 identity = **per-person** (decided). Still pending: income-visibility
 policy (enforce at the API), and the write-tiering ratification (classify
 direct, rules two-phase — due at the write tier). Prereqs Alta must supply:
@@ -564,7 +565,19 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   FastMCP dispatch over an httpx WSGITransport at the real app. Suite 277→289.
   End-to-end smoke-verified: real streamable-HTTP client lists 13 tools and
   reads live snapshot/search through the running app.
-  **Next: in-app Ask endpoint + chat UI (Charlee).**
+  **Charlee's Ask tab — scoped (Jul 29, 2026)**, decisions settled with
+  Alta (full plan in AGENT-DESIGN "Ask tab — v1 build plan"): read-only
+  Q&A, model Haiku 4.5, send-and-wait UX, one shared read-tool spec that
+  both `ledger_mcp` and the in-app loop consume (no docstring drift),
+  client-side history, full income visibility (current default). Build in a
+  tool-loop-round cap + Anthropic prompt caching. Increments: (1) shared
+  read-tool registry + bounded loop harness, tests via a MOCKED Anthropic
+  client + endpoint-parity (no key/live calls in tests); (2) `POST /api/ask`
+  (session_required, model+key from env, vocabulary system prompt); (3) the
+  "Ask" SPA tab (chat UI, render.js helpers, node-seam tests). Read surface
+  → no schema/migration/gate. Prereqs Alta supplies: `ANTHROPIC_API_KEY` in
+  the Pi `.env` (only for live test + deploy — inc 1 & 3 need no key) and the
+  `anthropic` SDK in requirements. **Next: build increment 1.**
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
