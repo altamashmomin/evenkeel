@@ -32,6 +32,8 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 from typing import Annotated, Optional
 
+from agent_read_tools import DESCRIPTIONS  # the shared, single-source tool docs
+
 API_BASE = os.environ.get("LEDGER_API_BASE", "http://127.0.0.1:8080")
 
 mcp = FastMCP(
@@ -123,37 +125,23 @@ _READ = ToolAnnotations(readOnlyHint=True, idempotentHint=True,
 # ═════════════════════════════════ READ TIER ════════════════════════════════
 
 @mcp.tool(name="ledger_household_snapshot", title="Household snapshot",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_household_snapshot"], annotations=_READ)
 def ledger_household_snapshot(
     month: Annotated[Optional[str], Field(
         default=None, pattern=r"^\d{4}-\d{2}$",
         description="ISO month 'YYYY-MM'. Omit for the current month.")] = None,
 ) -> str:
-    """One-call overview of the household for a month. START HERE for any
-    open-ended question ("how are we doing?", "can we afford X?").
-
-    Composes, with no math of its own: spend total + per-category (net of
-    refunds), the who-owes-whom balance, income (gross_inflows, true_income,
-    net_cash_flow, savings_rate, unclassified_count), goals, and this month's
-    bills. Every money field is {cents, display}; quote `display` verbatim.
-
-    'income' = true_income (paychecks only); gross_inflows also counts refunds
-    and transfers and is NOT income. savings_rate is null when true income is
-    0. If unclassified_count > 0, say the income figures are provisional and
-    offer to tag (ledger_unclassified_inflows)."""
     return _json(api_get("/api/household_snapshot", {"month": month}))
 
 
-@mcp.tool(name="ledger_balance", title="Who owes whom", annotations=_READ)
+@mcp.tool(name="ledger_balance", title="Who owes whom",
+          description=DESCRIPTIONS["ledger_balance"], annotations=_READ)
 def ledger_balance() -> str:
-    """The settle-up number: who owes whom, from shared-spending splits.
-    Income NEVER affects this — a paycheck belongs to its earner and carries
-    no share math. Recording a settlement happens in the app, not here."""
     return _json(api_get("/api/balance"))
 
 
 @mcp.tool(name="ledger_spending_composition", title="Spending composition",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_spending_composition"], annotations=_READ)
 def ledger_spending_composition(
     month: Annotated[Optional[str], Field(
         default=None, pattern=r"^\d{4}-\d{2}$",
@@ -162,18 +150,12 @@ def ledger_spending_composition(
         default=10, ge=1, le=50,
         description="How many top merchants to return.")] = 10,
 ) -> str:
-    """What made up a month's spending: each category's NET spend (refunds
-    subtracted) with its `share` of the total, plus the top merchants by
-    total paid (outflows only, settlements excluded). Money as {cents,
-    display}. OUTFLOWS ONLY — money in never appears here; use the income
-    tools for that. For totals over several months use ledger_category_trend
-    or ledger_income_trend, not this."""
     return _json(api_get("/api/analytics/spending-composition",
                          {"month": month, "merchant_limit": merchant_limit}))
 
 
 @mcp.tool(name="ledger_category_trend", title="Category trend",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_category_trend"], annotations=_READ)
 def ledger_category_trend(
     category: Annotated[str, Field(
         description="Category name, e.g. 'Groceries'. Case-sensitive; must "
@@ -185,36 +167,23 @@ def ledger_category_trend(
         default=None, pattern=r"^\d{4}-\d{2}$",
         description="Last month of the window, 'YYYY-MM'. Omit for current.")] = None,
 ) -> str:
-    """Per-month NET spend for ONE category over a trailing window, with a
-    trailing 3-month rolling average and month-over-month delta (null for the
-    first month). Refund netting flows through, so a heavy-refund month can
-    dip. Use for "are we spending more on X?". Money as {cents, display}."""
     return _json(api_get("/api/analytics/category-trend",
                          {"category": category, "months_back": months_back,
                           "anchor": anchor}))
 
 
 @mcp.tool(name="ledger_income_summary", title="Income summary",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_income_summary"], annotations=_READ)
 def ledger_income_summary(
     month: Annotated[Optional[str], Field(
         default=None, pattern=r"^\d{4}-\d{2}$",
         description="ISO month 'YYYY-MM'. Omit for the current month.")] = None,
 ) -> str:
-    """Income aggregates for a month. The vocabulary matters — use it exactly:
-      gross_inflows  = every deposit (paychecks + refunds + transfers + …)
-      true_income    = paycheck rows ONLY. When the user says "income" they
-                       mean this — never present gross_inflows as income.
-      net_cash_flow  = true_income − spending
-      savings_rate   = net_cash_flow / true_income (null when income is 0)
-      unclassified_count = inflows still awaiting a type; if > 0 the numbers
-                       above are provisional — say so and offer to tag.
-    Money as dollars. Use ledger_income_trend for multiple months."""
     return _json(api_get("/api/income/summary", {"month": month}))
 
 
 @mcp.tool(name="ledger_income_trend", title="Income vs. spend trend",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_income_trend"], annotations=_READ)
 def ledger_income_trend(
     months_back: Annotated[int, Field(
         default=6, ge=1, le=24,
@@ -223,17 +192,12 @@ def ledger_income_trend(
         default=None, pattern=r"^\d{4}-\d{2}$",
         description="Last month of the window, 'YYYY-MM'. Omit for current.")] = None,
 ) -> str:
-    """Per-month income vs. net spend over a trailing window — the data behind
-    the analytics chart. Each month carries the same fields as
-    ledger_income_summary (gross_inflows, true_income, net_cash_flow,
-    savings_rate, unclassified_count). Empty months are zero-filled so the
-    series is continuous. Use for "are we saving more over time?"."""
     return _json(api_get("/api/income/trend",
                          {"months_back": months_back, "anchor": anchor}))
 
 
 @mcp.tool(name="ledger_savings_rate_trend", title="Savings-rate trend",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_savings_rate_trend"], annotations=_READ)
 def ledger_savings_rate_trend(
     months_back: Annotated[int, Field(
         default=6, ge=1, le=24,
@@ -242,72 +206,50 @@ def ledger_savings_rate_trend(
         default=None, pattern=r"^\d{4}-\d{2}$",
         description="Last month of the window, 'YYYY-MM'. Omit for current.")] = None,
 ) -> str:
-    """Per-month savings rate plus a trailing 3-month ROLLING rate that
-    smooths single-month noise (cumulative net cash flow ÷ cumulative true
-    income — income-weighted, not an average of ratios). Both are ratios
-    (0.58 = 58%), not money; null when the relevant income is 0."""
     return _json(api_get("/api/analytics/savings-rate-trend",
                          {"months_back": months_back, "anchor": anchor}))
 
 
 @mcp.tool(name="ledger_member_breakdown", title="Per-member breakdown",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_member_breakdown"], annotations=_READ)
 def ledger_member_breakdown(
     month: Annotated[Optional[str], Field(
         default=None, pattern=r"^\d{4}-\d{2}$",
         description="ISO month 'YYYY-MM'. Omit for the current month.")] = None,
 ) -> str:
-    """Per-member shared-expense breakdown for a month: each person's paid
-    (fronted) vs owed (fair share) vs net; nets sum to zero. Shared OUTFLOWS
-    only — income is excluded. Complements ledger_balance (the single
-    who-owes-whom number) with the per-person composition. Money as {cents,
-    display}."""
     return _json(api_get("/api/analytics/member-breakdown", {"month": month}))
 
 
 @mcp.tool(name="ledger_bill_variance", title="Bill vs. actual",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_bill_variance"], annotations=_READ)
 def ledger_bill_variance(
     period: Annotated[Optional[str], Field(
         default=None, pattern=r"^\d{4}-\d{2}$",
         description="ISO month 'YYYY-MM'. Omit for the current month.")] = None,
 ) -> str:
-    """Defined bill amount vs what actually got paid, per bill, for a period.
-    variance = actual − defined (positive = over). Unpaid bills report
-    actual/variance = null. Money as {cents, display}."""
     return _json(api_get("/api/analytics/bill-variance", {"period": period}))
 
 
 @mcp.tool(name="ledger_list_income_rules", title="List income rules",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_list_income_rules"], annotations=_READ)
 def ledger_list_income_rules() -> str:
-    """All income-classification rules in priority order (lower priority runs
-    first; first match wins), each with its enabled flag and hit_count. A
-    disabled rule keeps its history and drops out of matching. A rule with
-    hit_count 0 after a month is probably dead — worth mentioning."""
     return _json(api_get("/api/income/rules"))
 
 
 @mcp.tool(name="ledger_unclassified_inflows", title="Inflow tagging queue",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_unclassified_inflows"], annotations=_READ)
 def ledger_unclassified_inflows(
     limit: Annotated[int, Field(
         default=50, ge=1, le=100,
         description="Max rows to return (most recent first).")] = 50,
 ) -> str:
-    """The tagging queue: inflows still typed 'unclassified' (money in whose
-    kind isn't known yet), most recent first. Present each with a suggested
-    type AND your reason, let the user confirm or correct — then tagging
-    happens in the app (this read tier can't write). While these exist, income
-    totals are provisional. Returns the same shape as
-    ledger_search_transactions."""
     return _json(api_get("/api/transactions/search",
                          {"direction": "in", "income_type": "unclassified",
                           "limit": limit}))
 
 
 @mcp.tool(name="ledger_search_transactions", title="Search transactions",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_search_transactions"], annotations=_READ)
 def ledger_search_transactions(
     query: Annotated[Optional[str], Field(
         default=None, max_length=80,
@@ -331,11 +273,6 @@ def ledger_search_transactions(
     limit: Annotated[int, Field(default=20, ge=1, le=100)] = 20,
     offset: Annotated[int, Field(default=0, ge=0)] = 0,
 ) -> str:
-    """Find specific transactions — the EVIDENCE tool ("show me the three
-    biggest grocery runs", "did the deposit land?"). NOT for totals: those
-    come from the summary/trend tools, computed once by the app's own code.
-    All filters are optional and ANDed. Paginated: returns total_matches and
-    has_more, so page rather than extrapolate. Money as {cents, display}."""
     return _json(api_get("/api/transactions/search", {
         "query": query, "date_from": date_from, "date_to": date_to,
         "direction": direction, "income_type": income_type,
@@ -345,16 +282,13 @@ def ledger_search_transactions(
 
 
 @mcp.tool(name="ledger_list_goals_and_bills", title="Goals and bills",
-          annotations=_READ)
+          description=DESCRIPTIONS["ledger_list_goals_and_bills"], annotations=_READ)
 def ledger_list_goals_and_bills(
     period: Annotated[Optional[str], Field(
         default=None, pattern=r"^\d{4}-\d{2}$",
         description="ISO month 'YYYY-MM' for bill paid/unpaid status. Omit "
                     "for the current month.")] = None,
 ) -> str:
-    """Savings goals (target, saved-so-far, %) and recurring bills (name,
-    amount, due day, category, and whether this period's payment has landed).
-    Read-only — goal and bill management lives in the app. Money as dollars."""
     return _json({
         "goals": api_get("/api/goals"),
         "bills": api_get("/api/bills", {"period": period}),

@@ -88,9 +88,12 @@ class AgentReadToolsTests(unittest.TestCase):
     def test_tool_set_matches_ledger_mcp(self):
         import asyncio
         import ledger_mcp
-        mcp_names = {t.name for t in asyncio.run(ledger_mcp.mcp.list_tools())}
-        self.assertEqual(mcp_names, {t["name"] for t in art.READ_TOOLS},
-                         "the two doors must expose the same read surface")
+        mcp_tools = asyncio.run(ledger_mcp.mcp.list_tools())
+        mcp_desc = {t.name: t.description for t in mcp_tools}
+        # Same surface AND the same descriptions — one source, no drift. If
+        # someone re-adds a docstring to ledger_mcp, this fails.
+        self.assertEqual(art.DESCRIPTIONS, mcp_desc,
+                         "the two doors must share one copy of the tool docs")
 
     def test_anthropic_tools_schema_and_caching(self):
         tools = art.anthropic_tools()

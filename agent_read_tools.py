@@ -222,6 +222,10 @@ READ_TOOLS = [
 
 _BY_NAME = {t["name"]: t for t in READ_TOOLS}
 
+# The canonical descriptions, keyed by tool name. `ledger_mcp` imports this so
+# the two doors share one copy — the descriptions never drift.
+DESCRIPTIONS = {t["name"]: t["description"] for t in READ_TOOLS}
+
 
 def anthropic_tools(cache: bool = True) -> list:
     """The tool list in Anthropic Messages API format. When `cache` is set,
