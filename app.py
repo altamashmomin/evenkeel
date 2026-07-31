@@ -13,6 +13,7 @@ from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
+import ask_loop
 from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (bill_variance, category_trend,
                          compute_balance as derive_balance, income_summary,
@@ -900,6 +901,31 @@ def search_transactions_view():
             "paid_by": usernames.get(r["paid_by"]),
         } for r in rows],
     })
+
+
+@app.post("/api/ask")
+@session_required
+def ask():
+    """Charlee's in-app assistant. Runs a bounded Anthropic tool-use loop over
+    the read tools IN-PROCESS under the caller's own session (no MCP, no bearer
+    token) and returns the answer. session_required — not bearer: a read token
+    must never trigger paid API calls. Read-only; the loop can only read.
+    History is client-held and passed back each turn."""
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    if not message:
+        return bad_request("ask a question")
+    history = data.get("history")
+    if history is not None and not isinstance(history, list):
+        return bad_request("history must be a list of prior messages")
+    try:
+        result = ask_loop.answer(
+            app, session["user_id"], message,
+            period=current_period(), history=history)
+    except ask_loop.NotConfigured:
+        return jsonify({"error": "The assistant isn't set up yet — no API key "
+                                 "is configured on the server."}), 503
+    return jsonify(result)
 
 
 @app.get("/api/categories")

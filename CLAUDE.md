@@ -591,8 +591,23 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   asserts its live tool descriptions equal `DESCRIPTIONS`. Loop tested against
   a MOCKED Anthropic client (no key/live calls); registry tested over a
   seeded app. `anthropic>=0.40` added (runtime-only). Suite 289→300; read
-  surface, no gate. **Next: increment 2 — `POST /api/ask` (needs the key +
-  `anthropic` installed), then increment 3 — the SPA "Ask" tab.**
+  surface, no gate.
+- **Ask tab increment 2 — done (Jul 29, 2026).** `POST /api/ask` in `app.py`:
+  `session_required` (NOT bearer — a read token must never trigger paid API
+  calls), reads message + client-held history, runs the loop, returns
+  `{answer, tools_used, rounds, stopped}`; 503 when no key, 400 on empty. The
+  plumbing lives in `ask_loop.py`: `answer()` (client injectable — tests pass a
+  mock, prod builds it from env), `make_app_getter(app, user_id)` (in-process
+  getter running the app's read endpoints under the caller's session via a test
+  client — no HTTP/token), `system_prompt(period)` (the vocabulary rules the
+  model reads), and a LAZY `_make_client` (app imports fine with no SDK).
+  5 route tests via a mocked client (loop runs+answers, empty→400, no-key→503,
+  no-session→401, bearer→401); suite 300→305. `anthropic` installed. Live
+  smoke-verified end-to-end against the REAL Anthropic API (`ask_smoke.py`,
+  untracked, synthetic data): "is rent paid?" → correct warm answer quoting
+  the display string, real tool call — proving the SDK response shape matches
+  the loop. **Next: increment 3 — the SPA "Ask" tab (chat UI, render.js
+  helpers, node-seam tests; no key needed to build/test).**
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
