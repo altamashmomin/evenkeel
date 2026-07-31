@@ -577,7 +577,22 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   "Ask" SPA tab (chat UI, render.js helpers, node-seam tests). Read surface
   → no schema/migration/gate. Prereqs Alta supplies: `ANTHROPIC_API_KEY` in
   the Pi `.env` (only for live test + deploy — inc 1 & 3 need no key) and the
-  `anthropic` SDK in requirements. **Next: build increment 1.**
+  `anthropic` SDK in requirements.
+- **Ask tab increment 1 — done (Jul 29, 2026).** `agent_read_tools.py`: the
+  ONE read-tool surface both doors consume — all 13 tools' name/description/
+  input_schema in one place (`DESCRIPTIONS` is the single source), plus
+  `call_read_tool(getter, name, args)` routing each tool to its real read
+  endpoint via an injected getter (reshape only, never recompute) and
+  `anthropic_tools()` (Messages-API format, prompt-cache breakpoint).
+  `ask_loop.py`: `run_ask`, the bounded tool-use loop (client + getter
+  injected, round cap, tool errors caught + recoverable, read-only).
+  `ledger_mcp` refactored to import `DESCRIPTIONS` (docstrings dropped; typed
+  params still drive its schemas) so the two doors can't drift — a test
+  asserts its live tool descriptions equal `DESCRIPTIONS`. Loop tested against
+  a MOCKED Anthropic client (no key/live calls); registry tested over a
+  seeded app. `anthropic>=0.40` added (runtime-only). Suite 289→300; read
+  surface, no gate. **Next: increment 2 — `POST /api/ask` (needs the key +
+  `anthropic` installed), then increment 3 — the SPA "Ask" tab.**
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
