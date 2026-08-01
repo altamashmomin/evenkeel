@@ -538,6 +538,49 @@ def apply_income_rules():
     return jsonify({"dry_run": dry_run, "changes": changes})
 
 
+# ------------------------------------------ two-phase agent actions (step 7)
+
+@app.post("/api/actions/propose")
+@login_required
+def propose_action_view():
+    """Thin caller: PHASE 1 of the agent write tier's two-phase choreography
+    (AGENT-DESIGN step 4). Dry-runs the action, parks a frozen payload +
+    preview server-side, and returns a single-use confirmation token — no
+    financial table is written here. Body is {action_type, ...payload}; the
+    proposing token (when a bearer) is recorded as created_by."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    action_type = data.get("action_type")
+    payload = {k: v for k, v in data.items() if k != "action_type"}
+    created_by = (g.get("auth") or {}).get("token_id")
+    try:
+        result = actions.propose_action(
+            db, actor=ui_actor(db), created_by=created_by,
+            action_type=action_type, payload=payload)
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(result), 201
+
+
+@app.post("/api/actions/confirm")
+@login_required
+def confirm_action_view():
+    """Thin caller: PHASE 2. Executes exactly the frozen payload the token
+    points to. Single-use; an expired or already-consumed token is refused."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    token = data.get("confirmation_token")
+    if not token:
+        return bad_request("confirmation_token is required")
+    try:
+        result = actions.confirm_action(db, ui_actor(db), token)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(result)
+
+
 @app.get("/api/income/summary")
 @login_required
 def income_summary_view():
