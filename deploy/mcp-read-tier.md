@@ -22,8 +22,10 @@ curl -sX POST http://raspberrypi:8080/api/tokens \
 ```
 
 The plaintext token is returned **once** — copy it now. (Token management
-routes are session-only; a bearer token cannot mint tokens.) The mint issues
-`read` scope only until the write tier ships.
+routes are session-only; a bearer token cannot mint tokens.) Omitting
+`scopes` defaults to `read` — correct for this read-only tier. The write
+tier accepts `"scopes":"read,write"` for an agent that also proposes/confirms
+writes (see the write-tier deploy notes); keep this MCP token `read`.
 
 ## 2. Configure and start the service (on the Pi)
 

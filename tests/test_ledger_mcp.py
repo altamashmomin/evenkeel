@@ -97,12 +97,13 @@ class LedgerMcpReadTierTests(unittest.TestCase):
 
     # -- registration ---------------------------------------------------------
     def test_all_read_tools_registered_and_read_only(self):
-        tools = asyncio.run(ledger_mcp.mcp.list_tools())
-        names = {t.name for t in tools}
-        self.assertEqual(READ_TOOLS, names)
-        for t in tools:
+        by_name = {t.name: t for t in asyncio.run(ledger_mcp.mcp.list_tools())}
+        self.assertTrue(READ_TOOLS <= set(by_name),
+                        "a read tool went missing from ledger_mcp")
+        for name in READ_TOOLS:  # write tools live alongside and are not read-only
+            t = by_name[name]
             self.assertTrue(t.annotations and t.annotations.readOnlyHint,
-                            f"{t.name} is not marked read-only")
+                            f"{name} is not marked read-only")
 
     # -- passthrough (the 'does no math' proof) -------------------------------
     def test_household_snapshot_matches_direct_api(self):

@@ -7,14 +7,18 @@ tool returns comes from a Flask endpoint that runs the same derivation the
 app's own dashboard runs, so the assistant can never disagree with the app or
 hallucinate a total (AGENT-DESIGN invariants 1 and 2).
 
-This module is the READ tier only. Every tool is read-only; the token it
-carries is minted with `scopes='read'`, so the Flask API rejects any write
-(HTTP 403) even if a tool tried. The write tools (classify, rules, the
-two-phase confirm choreography) are a later increment.
+Tiers (AGENT-DESIGN's blast-radius ceremony): 13 READ tools; two DIRECT
+writes (classify one inflow, enable/disable one rule — logged, reversible,
+single-row); and a TWO-PHASE write tier (propose a rule / propose a backlog
+sweep → the human approves the computed preview → confirm the frozen action).
+The read tools work under a `read` token; every write tool needs a
+`read,write` token, so the Flask API rejects writes (HTTP 403) from a read
+token even if a tool tried. Dangerous operations (settle-up, transaction
+edit/delete, money movement) deliberately don't exist as tools.
 
 Run it (over the tailnet, from the Pi):
 
-    LEDGER_MCP_TOKEN=<a read token from Ledger settings> \
+    LEDGER_MCP_TOKEN=<a token from Ledger settings — 'read,write' for writes> \
     LEDGER_API_BASE=http://127.0.0.1:8080 \
     LEDGER_MCP_HOST=127.0.0.1 LEDGER_MCP_PORT=8765 \
         python ledger_mcp.py
@@ -47,9 +51,12 @@ mcp = FastMCP(
         "with ledger_household_snapshot for open-ended questions. Money fields "
         "arrive as {cents, display}; quote the `display` string verbatim and "
         "never convert units yourself. 'income' means true_income (paychecks), "
-        "never gross_inflows (which includes refunds and transfers). This tier "
-        "is read-only: recording settlements, editing transactions, and "
-        "creating rules happen in the app, not here."
+        "never gross_inflows (which includes refunds and transfers). You can "
+        "tag inflows and manage income rules, but only after the user confirms "
+        "in their own words — and creating a rule or sweeping the backlog is "
+        "two-phase: propose, show the user the preview, get an explicit yes, "
+        "then confirm. Recording settlements, editing or deleting transactions, "
+        "and moving money are NOT possible here — those happen in the app."
     ),
 )
 
@@ -103,6 +110,40 @@ def api_get(path: str, params: Optional[dict] = None) -> dict:
         raise LedgerAPIError(
             "This token lacks 'read' scope (403). It cannot be used for the "
             "read tier.")
+    if resp.status_code >= 400:
+        try:
+            detail = resp.json().get("error", resp.text)
+        except (ValueError, AttributeError):
+            detail = resp.text
+        raise LedgerAPIError(f"Ledger API error {resp.status_code}: {detail}")
+    return resp.json()
+
+
+def api_write(method: str, path: str, body: Optional[dict] = None) -> dict:
+    """Send a mutating request (PUT/POST) to the Flask API with the bearer
+    token, returning the decoded JSON. Write tools need a `read,write` token —
+    a `read` token is rejected 403. A 4xx from a verb (e.g. a rule conflict, or
+    confirming an expired/consumed token) carries the API's own message, which
+    is written for a human, so it is surfaced verbatim for the agent to relay."""
+    token = os.environ.get("LEDGER_MCP_TOKEN", "")
+    try:
+        resp = get_client().request(
+            method, path, json=body or {},
+            headers={"Authorization": f"Bearer {token}"})
+    except httpx.RequestError as e:
+        raise LedgerAPIError(
+            f"Cannot reach the Ledger API at {API_BASE} ({e}). Is the "
+            "pifinance service running on the Pi?") from e
+    if resp.status_code == 401:
+        raise LedgerAPIError(
+            "Ledger rejected the token (401): it is missing, revoked, or "
+            "expired. Ask the user to issue a new 'read,write' token in "
+            "Ledger's settings and set LEDGER_MCP_TOKEN.")
+    if resp.status_code == 403:
+        raise LedgerAPIError(
+            "This token lacks 'write' scope (403). Write tools need a "
+            "'read,write' token — ask the user to mint one in Ledger and "
+            "update LEDGER_MCP_TOKEN.")
     if resp.status_code >= 400:
         try:
             detail = resp.json().get("error", resp.text)
@@ -295,9 +336,170 @@ def ledger_list_goals_and_bills(
     })
 
 
+# ═══════════════════════════ DIRECT WRITE TIER ══════════════════════════════
+# Logged, reversible, single-row/flag — no preview (AGENT-DESIGN's routine
+# teaching actions; a two-call dance for every tag would make the agent worse
+# than the app at the one job it's best at). Every write needs a read,write
+# token.
+
+_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                         idempotentHint=True, openWorldHint=False)
+_PROPOSE = ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                           idempotentHint=False, openWorldHint=False)
+
+
+@mcp.tool(
+    name="ledger_classify_inflow", title="Classify an inflow",
+    description=(
+        "Set the income_type on ONE inflow, after the user has confirmed the "
+        "type in their own words. DIRECT write — no preview: it's the routine "
+        "tagging action, touches one row, is reversible (call again with a "
+        "different type), and is logged. Only valid on money-IN rows (the API "
+        "rejects outflows). Effect on the numbers you must respect when "
+        "explaining: paycheck → counts toward true_income; refund → nets "
+        "against its category's spending; transfer → excluded from every "
+        "aggregate; reimbursement → excluded from income, NOT netted against "
+        "spending; gift/other → excluded from income. Returns the updated row. "
+        "If this description will clearly recur, offer a rule next "
+        "(ledger_propose_income_rule)."),
+    annotations=_WRITE)
+def ledger_classify_inflow(
+    transaction_id: Annotated[int, Field(
+        description="The inflow's transaction id (from a search or the "
+                    "unclassified-inflows queue).")],
+    income_type: Annotated[str, Field(
+        description="One of: paycheck, reimbursement, refund, transfer, gift, "
+                    "other.")],
+) -> str:
+    return _json(api_write(
+        "PUT", f"/api/transactions/{transaction_id}/classify",
+        {"income_type": income_type}))
+
+
+@mcp.tool(
+    name="ledger_set_rule_enabled", title="Enable/disable a rule",
+    description=(
+        "Enable or disable ONE income-classification rule after the user asks. "
+        "DIRECT write, logged. Disabling never reclassifies existing rows — it "
+        "only stops future matches; there is deliberately no delete (a disabled "
+        "rule keeps its history). Find the rule id via ledger_list_income_rules."),
+    annotations=_WRITE)
+def ledger_set_rule_enabled(
+    rule_id: Annotated[int, Field(
+        description="The rule id (from ledger_list_income_rules).")],
+    enabled: Annotated[bool, Field(
+        description="True to enable, false to disable.")],
+) -> str:
+    return _json(api_write(
+        "PUT", f"/api/income/rules/{rule_id}", {"enabled": enabled}))
+
+
+# ═══════════════════════════ TWO-PHASE WRITE TIER ═══════════════════════════
+# A rule touches all FUTURE data and can bulk-apply backwards — that's the
+# blast-radius line that earns ceremony. Propose parks a frozen action + a
+# computed preview; the human approves the preview; confirm executes exactly
+# that frozen action. Never propose and confirm in the same turn.
+
+@mcp.tool(
+    name="ledger_propose_income_rule", title="Propose income rule (preview)",
+    description=(
+        "PHASE 1 of 2 — does NOT create the rule. Validates it and dry-runs the "
+        "matcher, parks the proposal server-side, and returns "
+        "{confirmation_token, expires_at, preview}. The preview has "
+        "would_match_now (current unclassified inflows this rule would "
+        "classify), sample_rows, conflicts (existing enabled rules that also "
+        "match those rows), and future_effect. REQUIRED next step: show the "
+        "user the count, a sample, and any conflicts, and ask. Only after the "
+        "user approves IN THEIR OWN REPLY may you call ledger_confirm_action "
+        "with the token. Never propose and confirm in the same turn. If a match "
+        "looks wrong (a transfer caught by a paycheck rule), tighten the "
+        "matcher and propose again. also_apply_to_existing (default true) — on "
+        "confirm, reclassify exactly the previewed rows (this new rule only); "
+        "set false to create the rule without touching existing rows."),
+    annotations=_PROPOSE)
+def ledger_propose_income_rule(
+    set_type: Annotated[str, Field(
+        description="Type to assign on a match: paycheck, reimbursement, "
+                    "refund, transfer, gift, other.")],
+    match_desc: Annotated[Optional[str], Field(
+        default=None, max_length=200,
+        description="Case-insensitive substring of the description, e.g. 'ADP "
+                    "PAYROLL'. Prefer the stable prefix; trailing digits vary "
+                    "per deposit.")] = None,
+    match_account: Annotated[Optional[str], Field(
+        default=None,
+        description="SimpleFIN account id, or omit for any account.")] = None,
+    min_cents: Annotated[Optional[int], Field(
+        default=None, ge=0, description="Minimum amount in cents.")] = None,
+    max_cents: Annotated[Optional[int], Field(
+        default=None, ge=0,
+        description="Maximum amount in cents. Amount bounds catch collisions "
+                    "(only deposits over $X from this payer are the paycheck).")] = None,
+    set_paid_by: Annotated[Optional[int], Field(
+        default=None,
+        description="Member id to set as the money's OWNER on matched inflows; "
+                    "omit to keep each row's existing owner. Member ids appear "
+                    "in ledger_member_breakdown / ledger_household_snapshot.")] = None,
+    priority: Annotated[Optional[int], Field(
+        default=None,
+        description="Lower runs first among rules (default 0).")] = None,
+    also_apply_to_existing: Annotated[bool, Field(
+        default=True,
+        description="Whether confirming also reclassifies the current "
+                    "unclassified rows this rule matches.")] = True,
+) -> str:
+    body = {
+        "action_type": "create_rule", "set_type": set_type,
+        "match_desc": match_desc, "match_account": match_account,
+        "min_cents": min_cents, "max_cents": max_cents,
+        "set_paid_by": set_paid_by, "priority": priority,
+        "also_apply_to_existing": also_apply_to_existing,
+    }
+    body = {k: v for k, v in body.items() if v is not None}
+    return _json(api_write("POST", "/api/actions/propose", body))
+
+
+@mcp.tool(
+    name="ledger_apply_rules", title="Apply rules to the backlog (preview)",
+    description=(
+        "PHASE 1 of 2 — dry-runs ALL enabled rules over the current "
+        "unclassified inflows and parks the proposal. Returns "
+        "{confirmation_token, expires_at, preview:{rows_affected, by_rule:"
+        "[{rule_id, count}]}}. Same contract as ledger_propose_income_rule: "
+        "show the preview, get the user's yes in their own reply, then "
+        "ledger_confirm_action. Use after adding or enabling rules to sweep the "
+        "backlog."),
+    annotations=_PROPOSE)
+def ledger_apply_rules() -> str:
+    return _json(api_write(
+        "POST", "/api/actions/propose", {"action_type": "apply_rules"}))
+
+
+@mcp.tool(
+    name="ledger_confirm_action", title="Execute an approved action",
+    description=(
+        "PHASE 2 of 2 — executes exactly the parked proposal the token points "
+        "to (the frozen payload, never your current arguments). Single-use; "
+        "expires ~10 minutes after propose; a reused or expired token is "
+        "refused — re-propose, never guess a token. ONLY call after the user "
+        "has seen the preview and said yes in their own message. Returns what "
+        "was executed."),
+    annotations=_WRITE)
+def ledger_confirm_action(
+    confirmation_token: Annotated[str, Field(
+        min_length=8, max_length=64,
+        description="The token a propose tool returned, after the user "
+                    "approved the preview.")],
+) -> str:
+    return _json(api_write(
+        "POST", "/api/actions/confirm",
+        {"confirmation_token": confirmation_token}))
+
+
 if __name__ == "__main__":
     if not os.environ.get("LEDGER_MCP_TOKEN"):
         raise SystemExit(
-            "LEDGER_MCP_TOKEN is not set. Mint a 'read' token in Ledger's "
-            "settings and export it before starting the MCP server.")
+            "LEDGER_MCP_TOKEN is not set. Mint a token in Ledger's settings "
+            "('read', or 'read,write' to enable the write tools) and export it "
+            "before starting the MCP server.")
     mcp.run(transport="streamable-http")

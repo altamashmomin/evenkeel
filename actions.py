@@ -25,7 +25,7 @@ import hashlib
 import json
 import secrets
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
 from derivations import compute_balance
@@ -818,66 +818,83 @@ def _rule_matches(rule, row):
     return True
 
 
+def _validate_income_rule(db, data):
+    """Validate + normalize a rule payload, returning the canonical field
+    dict (priority, match_desc, match_account, min_cents, max_cents,
+    set_type, set_paid_by). Pure read (the conflict check queries but writes
+    nothing), so both create_income_rule (inside its transaction) and
+    propose_action (dry-run, before parking anything) share ONE validator —
+    a proposed rule that would be rejected at create is rejected at propose,
+    never a surprise at confirm.
+
+    set_type is one of the real income types ('unclassified' excluded — a
+    rule exists to assign a real type); at least one match criterion
+    (description, account, or amount bounds) is required, else the rule would
+    match every inflow; min_cents/max_cents, if both given, don't cross;
+    set_paid_by, if given, is an active member; and no other ENABLED rule
+    already has the exact same match criteria (the registry's submission
+    criterion — a duplicate would make one of them permanently dead weight).
+    """
+    set_type = data.get("set_type")
+    if set_type not in RULE_TYPES:
+        raise ActionError(
+            "set_type must be one of: " + ", ".join(sorted(RULE_TYPES)))
+    match_desc = (data.get("match_desc") or "").strip()[:200] or None
+    match_account = (data.get("match_account") or "").strip()[:100] or None
+    min_cents = data.get("min_cents")
+    max_cents = data.get("max_cents")
+    for label, value in (("min_cents", min_cents), ("max_cents", max_cents)):
+        if value is not None and not isinstance(value, int):
+            raise ActionError(f"{label} must be an integer number of cents")
+    if (match_desc is None and match_account is None
+            and min_cents is None and max_cents is None):
+        raise ActionError(
+            "at least one match criterion (description, account, or "
+            "amount bounds) is required")
+    if min_cents is not None and max_cents is not None and min_cents > max_cents:
+        raise ActionError("min_cents must not exceed max_cents")
+    set_paid_by = data.get("set_paid_by")
+    if (set_paid_by is not None
+            and set_paid_by not in {m["id"] for m in active_members(db)}):
+        raise ActionError("set_paid_by must be an active member")
+    try:
+        priority = int(data.get("priority", 0))
+    except (TypeError, ValueError):
+        raise ActionError("priority must be an integer")
+
+    conflict = db.execute(
+        """SELECT id FROM income_rules WHERE enabled = 1
+           AND match_desc IS ? AND match_account IS ?
+           AND min_cents IS ? AND max_cents IS ?""",
+        (match_desc, match_account, min_cents, max_cents)).fetchone()
+    if conflict:
+        raise ActionError("a rule with these match criteria already exists")
+
+    return {"priority": priority, "match_desc": match_desc,
+            "match_account": match_account, "min_cents": min_cents,
+            "max_cents": max_cents, "set_type": set_type,
+            "set_paid_by": set_paid_by}
+
+
 def create_income_rule(db, actor, data):
     """Create an income-classification rule.
 
-    validate — set_type is one of the real income types ('unclassified'
-    excluded — a rule exists to assign a real type); at least one match
-    criterion (description, account, or amount bounds) is required, else
-    the rule would match every inflow; min_cents/max_cents, if both given,
-    don't cross; set_paid_by, if given, is an active member; conflict
-    check against existing rules (the registry's submission criterion) —
-    no other enabled rule may already have the exact same match criteria,
-    which would make one of them permanently dead weight.
+    validate — via _validate_income_rule (the shared validator; see there).
     edit — one transaction: the rule row and the audit row carrying the
     created shape.
-    side effects — none yet; two-phase pending_actions wrapping for an
-    agent caller is the MCP write tier's job (sequence step 7).
+    side effects — none directly. An agent caller reaches this two-phase
+    through propose_action/confirm_action (the MCP write tier), never raw.
     Returns the rule row.
     """
     with action_transaction(db):
-        set_type = data.get("set_type")
-        if set_type not in RULE_TYPES:
-            raise ActionError(
-                "set_type must be one of: " + ", ".join(sorted(RULE_TYPES)))
-        match_desc = (data.get("match_desc") or "").strip()[:200] or None
-        match_account = (data.get("match_account") or "").strip()[:100] or None
-        min_cents = data.get("min_cents")
-        max_cents = data.get("max_cents")
-        for label, value in (("min_cents", min_cents), ("max_cents", max_cents)):
-            if value is not None and not isinstance(value, int):
-                raise ActionError(f"{label} must be an integer number of cents")
-        if (match_desc is None and match_account is None
-                and min_cents is None and max_cents is None):
-            raise ActionError(
-                "at least one match criterion (description, account, or "
-                "amount bounds) is required")
-        if min_cents is not None and max_cents is not None and min_cents > max_cents:
-            raise ActionError("min_cents must not exceed max_cents")
-        set_paid_by = data.get("set_paid_by")
-        if (set_paid_by is not None
-                and set_paid_by not in {m["id"] for m in active_members(db)}):
-            raise ActionError("set_paid_by must be an active member")
-        try:
-            priority = int(data.get("priority", 0))
-        except (TypeError, ValueError):
-            raise ActionError("priority must be an integer")
-
-        conflict = db.execute(
-            """SELECT id FROM income_rules WHERE enabled = 1
-               AND match_desc IS ? AND match_account IS ?
-               AND min_cents IS ? AND max_cents IS ?""",
-            (match_desc, match_account, min_cents, max_cents)).fetchone()
-        if conflict:
-            raise ActionError("a rule with these match criteria already exists")
-
+        f = _validate_income_rule(db, data)
         cur = db.execute(
             """INSERT INTO income_rules
                (priority, match_desc, match_account, min_cents, max_cents,
                 set_type, set_paid_by, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (priority, match_desc, match_account, min_cents, max_cents,
-             set_type, set_paid_by, _now()))
+            (f["priority"], f["match_desc"], f["match_account"], f["min_cents"],
+             f["max_cents"], f["set_type"], f["set_paid_by"], _now()))
         rule = db.execute(
             "SELECT * FROM income_rules WHERE id = ?", (cur.lastrowid,)).fetchone()
         _write_audit(db, actor, "create_income_rule", f"rule:{rule['id']}",
@@ -961,12 +978,15 @@ def suggest_rule_after_classify(db, row):
             "set_type": income_type}
 
 
-def _matching_pass(db):
-    """Read-only: every enabled rule (priority ascending, ties by id) tried
-    in order against every unclassified inflow; first match wins."""
-    rules = db.execute(
-        "SELECT * FROM income_rules WHERE enabled = 1 "
-        "ORDER BY priority ASC, id ASC").fetchall()
+def _matching_pass(db, rules=None):
+    """Read-only: each rule (priority ascending, ties by id) tried in order
+    against every unclassified inflow; first match wins. Defaults to all
+    enabled rules; pass a single-element `rules` list to scope the pass to
+    one rule (the new-rule-only application confirm_action needs)."""
+    if rules is None:
+        rules = db.execute(
+            "SELECT * FROM income_rules WHERE enabled = 1 "
+            "ORDER BY priority ASC, id ASC").fetchall()
     rows = db.execute(
         "SELECT * FROM transactions WHERE direction = 'in' "
         "AND income_type = 'unclassified' ORDER BY id").fetchall()
@@ -980,17 +1000,36 @@ def _matching_pass(db):
     return matches
 
 
+def _write_matches(db, actor, matches, action="apply_rules"):
+    """Apply a computed match list: each matched row's income_type (and
+    paid_by, when the rule sets an owner override), each winning rule's
+    hit_count, and one audit row listing every reclassification — skipped if
+    nothing matched, the same "a no-op isn't audited" discipline
+    record_transaction's dedupe uses. Assumes an OPEN transaction (the
+    caller owns the boundary): it writes, it does not begin or commit."""
+    for match in matches:
+        if match["set_paid_by"] is not None:
+            db.execute(
+                "UPDATE transactions SET income_type = ?, paid_by = ? WHERE id = ?",
+                (match["set_type"], match["set_paid_by"], match["transaction_id"]))
+        else:
+            db.execute(
+                "UPDATE transactions SET income_type = ? WHERE id = ?",
+                (match["set_type"], match["transaction_id"]))
+        db.execute(
+            "UPDATE income_rules SET hit_count = hit_count + 1 WHERE id = ?",
+            (match["rule_id"],))
+    if matches:
+        _write_audit(db, actor, action, None, {"applied": matches})
+
+
 def apply_rules(db, actor, dry_run=False):
     """Re-run enabled rules over every unclassified inflow, in priority
     order; first match wins; no match leaves a row unclassified.
 
     validate — none.
     edit — skipped entirely when dry_run (a pure preview, no transaction
-    opened at all). Otherwise, one transaction: every matched row's
-    income_type (and paid_by, when the rule sets an owner override), each
-    winning rule's hit_count, and one audit row listing every
-    reclassification — skipped if nothing matched, the same "a no-op
-    isn't audited" discipline record_transaction's dedupe uses.
+    opened at all). Otherwise, one transaction via _write_matches.
     side effects — none yet.
     Returns the list of {transaction_id, rule_id, set_type, set_paid_by}
     — a preview under dry_run, the applied changes otherwise; empty if
@@ -1001,21 +1040,173 @@ def apply_rules(db, actor, dry_run=False):
 
     with action_transaction(db):
         matches = _matching_pass(db)
-        for match in matches:
-            if match["set_paid_by"] is not None:
-                db.execute(
-                    "UPDATE transactions SET income_type = ?, paid_by = ? WHERE id = ?",
-                    (match["set_type"], match["set_paid_by"], match["transaction_id"]))
-            else:
-                db.execute(
-                    "UPDATE transactions SET income_type = ? WHERE id = ?",
-                    (match["set_type"], match["transaction_id"]))
-            db.execute(
-                "UPDATE income_rules SET hit_count = hit_count + 1 WHERE id = ?",
-                (match["rule_id"],))
-        if matches:
-            _write_audit(db, actor, "apply_rules", None, {"applied": matches})
+        _write_matches(db, actor, matches)
     return matches
+
+
+def _apply_single_rule(db, actor, rule):
+    """Apply exactly one already-created, enabled rule to the current
+    unclassified inflows — the new-rule-only scope a confirmed rule proposal
+    uses (see confirm_action). Filtering the pass to this one rule is what
+    makes the confirmed effect equal the previewed would_match_now count,
+    never a wider full-queue apply_rules that could sweep in rows an older
+    enabled rule happens to match. Returns the applied matches."""
+    with action_transaction(db):
+        matches = _matching_pass(db, rules=[rule])
+        _write_matches(db, actor, matches)
+    return matches
+
+
+# ──────────────── two-phase agent writes (AGENT-DESIGN step 4) ───────────
+
+PROPOSABLE_ACTIONS = frozenset({"create_rule", "apply_rules"})
+PENDING_ACTION_TTL_SECONDS = 600   # ~10 minutes; a stale approval dies
+
+
+def _preview_create_rule(db, fields):
+    """The dry-run a rule proposal shows the human: how many unclassified
+    inflows this rule would match NOW (`would_match_now` + up to 5
+    `sample_rows`), which existing enabled rules ALSO match those rows
+    (`conflicts` — overlap to surface, distinct from the hard duplicate-
+    criteria conflict _validate_income_rule already rejects), and a plain
+    sentence of the forward effect. Money is integer cents here; the
+    presenting layer (route / MCP tool) adds display strings at the edge.
+    Read-only."""
+    unclassified = db.execute(
+        "SELECT * FROM transactions WHERE direction = 'in' "
+        "AND income_type = 'unclassified' ORDER BY id").fetchall()
+    matched = [row for row in unclassified if _rule_matches(fields, row)]
+    enabled = db.execute(
+        "SELECT * FROM income_rules WHERE enabled = 1 "
+        "ORDER BY priority ASC, id ASC").fetchall()
+    conflicts = [
+        {"transaction_id": row["id"], "rule_id": er["id"],
+         "set_type": er["set_type"]}
+        for row in matched for er in enabled if _rule_matches(er, row)]
+    sample_rows = [
+        {"id": row["id"], "date": row["txn_date"],
+         "description": row["description"], "amount_cents": row["amount_cents"]}
+        for row in matched[:5]]
+    return {
+        "kind": "create_rule",
+        "would_match_now": len(matched),
+        "sample_rows": sample_rows,
+        "conflicts": conflicts,
+        "set_type": fields["set_type"],
+        "future_effect": (
+            "future inflows matching this rule are classified as "
+            f"'{fields['set_type']}'"),
+    }
+
+
+def propose_action(db, actor, created_by, action_type, payload):
+    """PHASE 1 of the agent write tier's two-phase choreography. Does NOT
+    execute anything: it validates + dry-runs the action, then parks a
+    pending_actions row with the FROZEN payload and the computed preview,
+    and returns a single-use confirmation token. No audit row — nothing has
+    been written to the financial tables (audit_log is executed writes only).
+
+    validate — action_type is proposable; for 'create_rule', the payload
+    passes _validate_income_rule (same validator create runs, so a rule that
+    would be rejected at create is rejected here, not at confirm).
+    edit — one transaction inserting the pending_actions row.
+    Returns {confirmation_token, action_type, preview, expires_at}.
+    """
+    if action_type not in PROPOSABLE_ACTIONS:
+        raise ActionError(
+            "action_type must be one of: " + ", ".join(sorted(PROPOSABLE_ACTIONS)))
+    payload = payload or {}
+
+    if action_type == "create_rule":
+        fields = _validate_income_rule(db, payload)
+        also_apply = bool(payload.get("also_apply_to_existing", True))
+        frozen = dict(fields)
+        frozen["also_apply_to_existing"] = also_apply
+        preview = _preview_create_rule(db, fields)
+        preview["also_apply_to_existing"] = also_apply
+    else:  # apply_rules
+        frozen = {}
+        matches = _matching_pass(db)
+        by_rule = {}
+        for match in matches:
+            by_rule[match["rule_id"]] = by_rule.get(match["rule_id"], 0) + 1
+        preview = {
+            "kind": "apply_rules",
+            "rows_affected": len(matches),
+            "by_rule": [{"rule_id": rid, "count": count}
+                        for rid, count in sorted(by_rule.items())],
+        }
+
+    token = secrets.token_urlsafe(24)
+    now_dt = datetime.now(timezone.utc)
+    created = now_dt.isoformat(timespec="seconds")
+    expires = (now_dt + timedelta(seconds=PENDING_ACTION_TTL_SECONDS)
+               ).isoformat(timespec="seconds")
+    with action_transaction(db):
+        db.execute(
+            """INSERT INTO pending_actions
+               (token, action_type, payload_json, preview_json, created_by,
+                created_at, expires_at, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')""",
+            (token, action_type, json.dumps(frozen, sort_keys=True),
+             json.dumps(preview, sort_keys=True), created_by, created, expires))
+    return {"confirmation_token": token, "action_type": action_type,
+            "preview": preview, "expires_at": expires}
+
+
+def confirm_action(db, actor, token):
+    """PHASE 2. Executes exactly the frozen payload the token points to — the
+    parked args, never the caller's. Single-use; refused if already
+    consumed, or past its expiry.
+
+    Ordering (see AGENT-DESIGN's flagged friction): the pending row is
+    claimed — flipped 'pending'→'confirmed' — in its OWN committed
+    transaction FIRST, because the underlying verbs open their own
+    BEGIN IMMEDIATE and refuse a pre-open one. The claim is conditional on
+    status still being 'pending' (rowcount 0 → someone else won the race, or
+    it was already consumed), so a re-confirm can never double-execute. A
+    crash between the claim and the dispatch drops the write rather than
+    repeating it — the safe direction; the human re-proposes.
+
+    For 'create_rule' the frozen payload carries also_apply_to_existing: on
+    True, after creating the rule the verb classifies the CURRENT unclassified
+    inflows that this new rule matches (new-rule-only, via _apply_single_rule),
+    so the effect equals the previewed count. Each underlying verb writes its
+    own audit row — that is the executed-write record.
+    Returns what was executed + the pending action id.
+    """
+    row = db.execute(
+        "SELECT * FROM pending_actions WHERE token = ?", (token,)).fetchone()
+    if row is None:
+        raise NotFound("not found")
+    if row["status"] != "pending":
+        raise ActionError(f"this proposal is already {row['status']}")
+    if _now() > row["expires_at"]:
+        with action_transaction(db):
+            db.execute(
+                "UPDATE pending_actions SET status = 'expired' "
+                "WHERE id = ? AND status = 'pending'", (row["id"],))
+        raise ActionError("this proposal has expired; propose again")
+
+    with action_transaction(db):
+        claimed = db.execute(
+            "UPDATE pending_actions SET status = 'confirmed' "
+            "WHERE id = ? AND status = 'pending'", (row["id"],)).rowcount
+    if not claimed:
+        raise ActionError("this proposal is already confirmed")
+
+    payload = json.loads(row["payload_json"])
+    if row["action_type"] == "create_rule":
+        also_apply = payload.pop("also_apply_to_existing", True)
+        rule = create_income_rule(db, actor, payload)
+        applied = _apply_single_rule(db, actor, rule) if also_apply else []
+        return {"action_type": "create_rule", "rule": dict(rule),
+                "applied": applied, "pending_action_id": row["id"]}
+    if row["action_type"] == "apply_rules":
+        applied = apply_rules(db, actor, dry_run=False)
+        return {"action_type": "apply_rules", "applied": applied,
+                "pending_action_id": row["id"]}
+    raise ActionError(f"unknown action_type: {row['action_type']}")
 
 
 # ─────────────────────────── api tokens (AGENT-DESIGN step 1) ────────────
