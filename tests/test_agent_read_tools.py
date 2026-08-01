@@ -90,10 +90,16 @@ class AgentReadToolsTests(unittest.TestCase):
         import ledger_mcp
         mcp_tools = asyncio.run(ledger_mcp.mcp.list_tools())
         mcp_desc = {t.name: t.description for t in mcp_tools}
-        # Same surface AND the same descriptions — one source, no drift. If
-        # someone re-adds a docstring to ledger_mcp, this fails.
-        self.assertEqual(art.DESCRIPTIONS, mcp_desc,
-                         "the two doors must share one copy of the tool docs")
+        # The READ tools share one description source with the Ask loop — no
+        # drift. If someone re-adds a docstring to ledger_mcp, this fails. The
+        # write tools are MCP-only (the Ask loop is read-only), so they live in
+        # ledger_mcp and are excluded here rather than forced into the shared
+        # read registry.
+        self.assertTrue(set(art.DESCRIPTIONS) <= set(mcp_desc),
+                        "a read tool is missing from ledger_mcp")
+        read_desc = {n: d for n, d in mcp_desc.items() if n in art.DESCRIPTIONS}
+        self.assertEqual(art.DESCRIPTIONS, read_desc,
+                         "the two doors must share one copy of the read-tool docs")
 
     def test_anthropic_tools_schema_and_caching(self):
         tools = art.anthropic_tools()
