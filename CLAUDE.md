@@ -647,10 +647,17 @@ Decisions settled with Alta: **write tiering ratified as designed** (classify +
 set_rule_enabled direct/logged; create_rule + apply_rules two-phase),
 **MCP-only this tier** (Ask-tab write deferred), **`also_apply_to_existing` =
 new-rule-only** (confirm reclassifies just the new rule's matches, so the
-preview count == what changes). Four increments: (A) migration #007
-`pending_actions` + registry rows, enumerated-diff gate; (B) propose/confirm
-engine + endpoints, zero-diff gate; (C) `read,write` token minting (lift the
-`app.py` hardcode); (D) MCP write tools + `api_post`, then deploy `#007 --live`.
+preview count == what changes). Four increments: **(A) done (Aug 1, 2026)** —
+migration #007 `pending_actions` (schema_version 6→7), the table into
+`GOVERNED_TABLES`, `propose_action`/`confirm_action` rows added to CORE-DESIGN's
+registry first (verbs land in B), `REQUIRED_SCHEMA_VERSION` 6→7; enumerated-diff
+gate PASS (notes/007: pending_actions=0 + schema_version bump, nothing else);
+suite 305 python + 39 render, green. Not yet deployed (deploy is inc D, with
+`#007 --live`). **(B) next** — propose/confirm engine (`propose_action`,
+`confirm_action`) + endpoints (`POST /api/income/rules/propose`,
+`POST /api/actions/confirm`), zero-diff gate; (C) `read,write` token minting
+(lift the `app.py` hardcode); (D) MCP write tools + `api_post`, then deploy
+`#007 --live`.
 Flagged build frictions: `confirm_action` can't wrap the dispatched verb (it
 opens its own `BEGIN IMMEDIATE`) → mark-confirmed-first then dispatch;
 compound confirm is create + scoped-classify, two atomic sub-calls. Prereq:
