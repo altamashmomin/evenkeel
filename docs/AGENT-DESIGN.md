@@ -744,9 +744,14 @@ per-person tokens).
      expired / non-`pending` tokens; dispatches on `action_type` to the real
      verb with the frozen payload; marks the row `confirmed`. The audit row
      is the **underlying verb's** (audit_log stays "executed writes only").
-3. **Two Flask endpoints** (thin callers): `POST /api/income/rules/propose`
-   and `POST /api/actions/confirm`. Apply-rules propose reuses the verb's
-   existing `dry_run` pass but must **park** a token via `propose_action`.
+3. **Two Flask endpoints** (thin callers): `POST /api/actions/propose`
+   (generic over `action_type` — one propose path serves both `create_rule`
+   and `apply_rules`; body is `{action_type, ...payload}`) and
+   `POST /api/actions/confirm`. The apply-rules proposal runs the verb's
+   existing `dry_run` pass for its preview but **parks** a token via
+   `propose_action`. *(Built as generic `/api/actions/propose` rather than a
+   rules-specific path — the engine is action-type-agnostic, so one endpoint
+   is the honest surface.)*
 4. **`read,write` token minting** — lift the hardcoded `"scopes": "read"` in
    `app.py`'s `create_token` route (the `create_api_token` verb already
    accepts `read,write`); give the token UI a scope choice.

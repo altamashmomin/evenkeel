@@ -653,11 +653,21 @@ migration #007 `pending_actions` (schema_version 6→7), the table into
 registry first (verbs land in B), `REQUIRED_SCHEMA_VERSION` 6→7; enumerated-diff
 gate PASS (notes/007: pending_actions=0 + schema_version bump, nothing else);
 suite 305 python + 39 render, green. Not yet deployed (deploy is inc D, with
-`#007 --live`). **(B) next** — propose/confirm engine (`propose_action`,
-`confirm_action`) + endpoints (`POST /api/income/rules/propose`,
-`POST /api/actions/confirm`), zero-diff gate; (C) `read,write` token minting
-(lift the `app.py` hardcode); (D) MCP write tools + `api_post`, then deploy
-`#007 --live`.
+`#007 --live`). **(B) done (Aug 1, 2026)** — `propose_action`/`confirm_action`
+in `actions.py` (propose validates + dry-runs + parks a frozen payload;
+confirm claims the pending row `pending→confirmed` FIRST then dispatches, so a
+re-confirm never double-executes; create_rule confirm applies **new-rule-only**
+via `_apply_single_rule` so the effect equals the previewed count) + thin
+routes `POST /api/actions/propose` and `POST /api/actions/confirm`
+(`login_required`, write scope for bearer). `_validate_income_rule` extracted
+so propose+create share one validator; `_write_matches`/`_matching_pass(rules=)`
+factored out of `apply_rules`. No schema/derivation change → **zero-diff gate
+PASS** (v7 source, ca3b9a7→cec35b1); suite 319 python + 39 render. **(C) next**
+— `read,write` token minting (lift the `app.py` `create_token` hardcode +
+token-UI scope choice). Then (D) MCP write tools + `api_post`, then deploy
+`#007 --live`. (Note: the propose endpoint is `/api/actions/propose`, generic
+over `action_type`, not the rules-specific path the scope note first sketched —
+one propose path serves both create_rule and apply_rules.)
 Flagged build frictions: `confirm_action` can't wrap the dispatched verb (it
 opens its own `BEGIN IMMEDIATE`) → mark-confirmed-first then dispatch;
 compound confirm is create + scoped-classify, two atomic sub-calls. Prereq:
