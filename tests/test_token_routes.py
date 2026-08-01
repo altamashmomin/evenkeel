@@ -54,6 +54,34 @@ class TokenRouteTests(unittest.TestCase):
         self.assertEqual(200, got.status_code)
         self.assertEqual(1, got.get_json()["user_id"])
 
+    def test_mint_read_write_token_can_write(self):
+        # A caller-chosen 'read,write' scope mints a token that passes the
+        # write-scope gate on a mutating endpoint (a 'read' token gets 403).
+        resp = self.session_client().post(
+            "/api/tokens", json={"label": "agent", "scopes": "read,write"})
+        self.assertEqual(201, resp.status_code)
+        body = resp.get_json()
+        self.assertEqual("read,write", body["scopes"])
+        wrote = self.app_module.app.test_client().post(
+            "/api/actions/propose", json={"action_type": "apply_rules"},
+            headers={"Authorization": f"Bearer {body['token']}"})
+        self.assertEqual(201, wrote.status_code)
+
+    def test_mint_defaults_to_read_and_that_token_cannot_write(self):
+        body = self.session_client().post(
+            "/api/tokens", json={"label": "reader"}).get_json()
+        self.assertEqual("read", body["scopes"])
+        denied = self.app_module.app.test_client().post(
+            "/api/actions/propose", json={"action_type": "apply_rules"},
+            headers={"Authorization": f"Bearer {body['token']}"})
+        self.assertEqual(403, denied.status_code)
+
+    def test_mint_rejects_an_unknown_scope(self):
+        resp = self.session_client().post(
+            "/api/tokens", json={"label": "x", "scopes": "admin"})
+        self.assertEqual(400, resp.status_code)
+        self.assertIn("scopes", resp.get_json()["error"])
+
     def test_list_never_leaks_token_or_hash(self):
         client = self.session_client()
         client.post("/api/tokens", json={"label": "one"})

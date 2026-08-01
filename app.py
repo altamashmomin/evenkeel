@@ -283,16 +283,17 @@ def me():
 @session_required
 def create_token():
     """Mint a bearer token for the current member. Session-only — a token
-    must never mint tokens. Scope is 'read' for now (the write tier will add
-    the option). The plaintext token is returned ONCE and never stored;
-    only its SHA-256 hash is kept."""
+    must never mint tokens. Scope is caller-chosen — 'read' (default) or
+    'read,write' now that the agent write tier exists; the create_api_token
+    verb validates the value. The plaintext token is returned ONCE and never
+    stored; only its SHA-256 hash is kept."""
     db = get_db()
     data = request.get_json(silent=True) or {}
     try:
         result = actions.create_api_token(db, ui_actor(db), {
             "label": data.get("label"),
             "user_id": g.auth["user_id"],
-            "scopes": "read",
+            "scopes": data.get("scopes", "read"),
         })
     except actions.ActionError as e:
         return bad_request(str(e))

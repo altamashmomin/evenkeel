@@ -662,10 +662,19 @@ routes `POST /api/actions/propose` and `POST /api/actions/confirm`
 (`login_required`, write scope for bearer). `_validate_income_rule` extracted
 so propose+create share one validator; `_write_matches`/`_matching_pass(rules=)`
 factored out of `apply_rules`. No schema/derivation change → **zero-diff gate
-PASS** (v7 source, ca3b9a7→cec35b1); suite 319 python + 39 render. **(C) next**
-— `read,write` token minting (lift the `app.py` `create_token` hardcode +
-token-UI scope choice). Then (D) MCP write tools + `api_post`, then deploy
-`#007 --live`. (Note: the propose endpoint is `/api/actions/propose`, generic
+PASS** (v7 source, ca3b9a7→cec35b1); suite 319 python + 39 render. **(C) done
+(Aug 1, 2026)** — `read,write` token minting: `POST /api/tokens`'s hardcoded
+`"scopes":"read"` lifted to a caller-chosen `data.get("scopes","read")` (the
+`create_api_token` verb already validated the value; default stays `read`).
+No token UI exists — tokens are minted via `curl POST /api/tokens` (per
+`deploy/mcp-read-tier.md`), so this is backend-only; that doc's stale
+"read-only until the write tier" note corrected. Tests: mint `read,write` →
+can POST `/api/actions/propose` (201); default `read` → 403; unknown scope →
+400. No schema/derivation/data change → no gate; suite 322 python + 39 render.
+**(D) next** — MCP write tools in `ledger_mcp.py` (`classify_inflow` +
+`set_rule_enabled` direct; `propose_income_rule` + `apply_rules` +
+`confirm_action` two-phase) + an `api_post` helper, tested via the
+WSGITransport seam like the read tier; then deploy `#007 --live` on the Pi. (Note: the propose endpoint is `/api/actions/propose`, generic
 over `action_type`, not the rules-specific path the scope note first sketched —
 one propose path serves both create_rule and apply_rules.)
 Flagged build frictions: `confirm_action` can't wrap the dispatched verb (it
