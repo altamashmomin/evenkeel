@@ -629,15 +629,24 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   server is back up with 13 tools on the refactored descriptions. Rollback
   backup `finance.db.bak-2026-07-31-201628`. **CONFIRMED LIVE (Jul 31):** the
   in-app Ask tab answered a real question in the app — `ANTHROPIC_API_KEY` is
-  set on the Pi and the whole path works end to end. Charlee's phone access
-  still needs the Tailscale device-share (her own account + Alta shares the Pi
-  node).
+  set on the Pi and the whole path works end to end. **BOTH USERS LIVE (Jul 31):**
+  Charlee's Tailscale device-share is set up (her own account, Alta shared just
+  the Pi node) and she reached the app + Ask tab on her phone. Key note: the
+  `ANTHROPIC_API_KEY` on the Pi expires in ~30 days (set Jul 31) — Alta will
+  mint a fresh one then (same billing/credits carry over).
 
 **CORE-DESIGN step 7 read+chat surface is DONE and live:** `api_tokens`/auth →
 MCP read tier (Alta, Tailscale) → in-app Ask tab (Charlee) — all deployed and
-proven on the Pi. The remaining step-7 work is the **two-phase write tier**
-(classify inflows / propose rules with a confirm step; write-tiering per
-AGENT-DESIGN — classify direct, rules two-phase), a future increment.
+proven on the Pi, both users onboarded. **The clear next increment is the
+two-phase write tier** (the remaining step-7 work): let the assistant tag
+inflows (direct, logged) and propose income rules (two-phase: propose → show a
+preview → human confirm → write). AGENT-DESIGN specs it — `pending_actions`
+table, the propose/confirm choreography, write-tiering (classify direct, rules
+two-phase). Scope-then-build, like the Ask tab was. Lighter alternatives if a
+read feature is preferred instead: analytics Tier B (#13–16: recurring-charge
+detection, cash-flow forecast, anomaly flags, goal pace) or the still-open
+income-visibility policy. Untracked dev tools left in the tree on purpose:
+`ask_smoke.py` (live-checks `POST /api/ask`) and `soak_local.sh` (local MCP soak).
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
