@@ -524,8 +524,9 @@ derivations that make "the agent does no math" true).
   option with public exposure is off the table.
 Recommended build order (MCP-first, to get a working assistant fast that
 de-risks the shared tools before Charlee's UI, and needs no Anthropic key):
-`api_tokens` + bearer auth ✅ → **MCP read tier ✅ (Alta soaks it)** →
-**in-app Ask endpoint + chat UI (Charlee) ← NEXT** → two-phase write tier. Token
+`api_tokens` + bearer auth ✅ → **MCP read tier ✅ (deployed to Pi, Alta
+soaks it over Tailscale)** → **in-app Ask endpoint + chat UI (Charlee) ←
+SCOPED, building** → two-phase write tier. Token
 identity = **per-person** (decided). Still pending: income-visibility
 policy (enforce at the API), and the write-tiering ratification (classify
 direct, rules two-phase — due at the write tier). Prereqs Alta must supply:
@@ -564,7 +565,64 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   FastMCP dispatch over an httpx WSGITransport at the real app. Suite 277→289.
   End-to-end smoke-verified: real streamable-HTTP client lists 13 tools and
   reads live snapshot/search through the running app.
-  **Next: in-app Ask endpoint + chat UI (Charlee).**
+  **Charlee's Ask tab — scoped (Jul 29, 2026)**, decisions settled with
+  Alta (full plan in AGENT-DESIGN "Ask tab — v1 build plan"): read-only
+  Q&A, model Haiku 4.5, send-and-wait UX, one shared read-tool spec that
+  both `ledger_mcp` and the in-app loop consume (no docstring drift),
+  client-side history, full income visibility (current default). Build in a
+  tool-loop-round cap + Anthropic prompt caching. Increments: (1) shared
+  read-tool registry + bounded loop harness, tests via a MOCKED Anthropic
+  client + endpoint-parity (no key/live calls in tests); (2) `POST /api/ask`
+  (session_required, model+key from env, vocabulary system prompt); (3) the
+  "Ask" SPA tab (chat UI, render.js helpers, node-seam tests). Read surface
+  → no schema/migration/gate. Prereqs Alta supplies: `ANTHROPIC_API_KEY` in
+  the Pi `.env` (only for live test + deploy — inc 1 & 3 need no key) and the
+  `anthropic` SDK in requirements.
+- **Ask tab increment 1 — done (Jul 29, 2026).** `agent_read_tools.py`: the
+  ONE read-tool surface both doors consume — all 13 tools' name/description/
+  input_schema in one place (`DESCRIPTIONS` is the single source), plus
+  `call_read_tool(getter, name, args)` routing each tool to its real read
+  endpoint via an injected getter (reshape only, never recompute) and
+  `anthropic_tools()` (Messages-API format, prompt-cache breakpoint).
+  `ask_loop.py`: `run_ask`, the bounded tool-use loop (client + getter
+  injected, round cap, tool errors caught + recoverable, read-only).
+  `ledger_mcp` refactored to import `DESCRIPTIONS` (docstrings dropped; typed
+  params still drive its schemas) so the two doors can't drift — a test
+  asserts its live tool descriptions equal `DESCRIPTIONS`. Loop tested against
+  a MOCKED Anthropic client (no key/live calls); registry tested over a
+  seeded app. `anthropic>=0.40` added (runtime-only). Suite 289→300; read
+  surface, no gate.
+- **Ask tab increment 2 — done (Jul 29, 2026).** `POST /api/ask` in `app.py`:
+  `session_required` (NOT bearer — a read token must never trigger paid API
+  calls), reads message + client-held history, runs the loop, returns
+  `{answer, tools_used, rounds, stopped}`; 503 when no key, 400 on empty. The
+  plumbing lives in `ask_loop.py`: `answer()` (client injectable — tests pass a
+  mock, prod builds it from env), `make_app_getter(app, user_id)` (in-process
+  getter running the app's read endpoints under the caller's session via a test
+  client — no HTTP/token), `system_prompt(period)` (the vocabulary rules the
+  model reads), and a LAZY `_make_client` (app imports fine with no SDK).
+  5 route tests via a mocked client (loop runs+answers, empty→400, no-key→503,
+  no-session→401, bearer→401); suite 300→305. `anthropic` installed. Live
+  smoke-verified end-to-end against the REAL Anthropic API (`ask_smoke.py`,
+  untracked, synthetic data): "is rent paid?" → correct warm answer quoting
+  the display string, real tool call — proving the SDK response shape matches
+  the loop.
+- **Ask tab increment 3 — done (Jul 29, 2026).** The SPA "Ask" tab: a new
+  nav tab, a phone-first send-and-wait chat. `askThreadHTML(messages, pending)`
+  in `render.js` (pure: brass user bubbles, dark bot bubbles, escaped content,
+  animated thinking dots, an empty state with example-question chips); `state.
+  ask` holds client-side history; `renderAsk`/`askSend` in `app.js` POST to
+  `/api/ask` with `{message, history}` and re-render (history = the turns
+  before the question). Wired in `wireMain` (submit, example chips, scroll-to-
+  latest, refocus). 4 node-seam render checks (35→39); full suite 305. Visual
+  pass against `style.css` in a harness across empty/conversation/pending —
+  which caught a real cascade bug (`form > .btn.primary { width:100% }`
+  squashed the input; fixed with a higher-specificity `.ask-bar .btn.primary`).
+  Frontend only, no gate. **Ask tab v1 is now feature-complete (inc 1–3).**
+  Remaining to go live for Charlee: deploy inc 1–3 to the Pi AND add
+  `ANTHROPIC_API_KEY` to the Pi `.env` (billing now attached to Alta's
+  account; the key is the last-mile config). `ask_smoke.py` (untracked) is the
+  local live-check.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`

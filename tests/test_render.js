@@ -282,4 +282,30 @@ check("categoryTrend renders dollar bars + MoM delta, empty -> ''", () => {
     { month: "2026-07", spend: 0, rolling_avg: 0, mom_delta: null }]}), "", "no activity -> omitted");
 });
 
+// ---- Ask tab chat thread ----
+check("askThread empty state offers example questions", () => {
+  const html = R.askThreadHTML([], false);
+  assert.ok(html.includes("Ask about your money"), "starter title");
+  assert.ok(html.includes("data-ask-eg="), "example buttons present");
+  assert.ok(!html.includes("ask-msg"), "no bubbles when empty");
+});
+check("askThread renders user and assistant bubbles", () => {
+  const html = R.askThreadHTML([
+    { role: "user", content: "is rent paid?" },
+    { role: "assistant", content: "Yes, on the 2nd." },
+  ], false);
+  assert.ok(html.includes('ask-msg ask-you') && html.includes("is rent paid?"), "user bubble");
+  assert.ok(html.includes('ask-msg ask-bot') && html.includes("Yes, on the 2nd."), "assistant bubble");
+  assert.ok(!html.includes("ask-thinking"), "no thinking bubble when not pending");
+});
+check("askThread shows a thinking bubble while pending", () => {
+  const html = R.askThreadHTML([{ role: "user", content: "hi" }], true);
+  assert.ok(html.includes("ask-thinking"), "thinking indicator present");
+});
+check("askThread escapes message content (no HTML injection)", () => {
+  const html = R.askThreadHTML([{ role: "assistant", content: "<img src=x onerror=1>" }], false);
+  assert.ok(html.includes("&lt;img"), "content escaped");
+  assert.ok(!html.includes("<img src=x"), "no raw tag");
+});
+
 console.log(`render tests passed (${passed} checks)`);

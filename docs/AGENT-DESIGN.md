@@ -633,3 +633,60 @@ questions will reshape the docstrings before any write path exists.
    direct (logged, reversible, no preview), or should every write be
    two-phase at the cost of making the routine tagging flow twice as
    chatty?
+
+---
+
+## Charlee's Ask tab — v1 build plan (scoped Jul 29, 2026)
+
+The second door (in-app chat for Charlee), scoped to its smallest useful
+first cut. Decisions settled with Alta:
+
+- **Read-only Q&A.** It answers ("how are we doing?", "did my paycheck
+  land?", "is rent paid?") and changes nothing; edits are pointed back to
+  the app. Tagging/write capability is a deliberate later increment (mirrors
+  the MCP staging: read first, soak, then write).
+- **Model: Haiku 4.5** (`claude-haiku-4-5`) — cheapest fit for a bounded
+  tool-use loop over well-documented read tools; bump to Sonnet 5 only if
+  answers disappoint.
+- **Send-and-wait UX** (no streaming in v1) — question → thinking indicator
+  → full answer. Streaming is a later nicety.
+- **Shared tool spec.** The tool name + description + input schema live in
+  ONE registry that both `ledger_mcp` and the Ask loop consume; each keeps
+  its own handler (HTTP for MCP, direct-derivation in-process for Ask). The
+  docstrings are the product — they must not drift between the two doors.
+- Inherited defaults: **client-side conversation history** (stateless
+  endpoint, doesn't survive a reload in v1); **full income visibility**
+  (current app behavior — per-person privacy stays the open policy question,
+  enforced at the read layer if/when chosen).
+- Build in from the start: a **cap on tool-loop rounds** (bounds cost +
+  latency per question) and **Anthropic prompt caching** on the static
+  system prompt + tool definitions (cheap repeat turns on a per-query bill).
+
+**Why in-process reads don't violate invariant 2:** invariant 2 governs
+*writes* (one write path through the verbs). Reads are computed on demand;
+the SPA's own read routes call derivations directly, and so does the Ask
+loop. When the write tier lands, its tools go through the verbs — the whole
+point of the in-app door.
+
+### Increments (small, one per step)
+
+1. **Shared read-tool registry + loop harness.** Factor the 13 read tools'
+   {name, description, input_schema} into one registry; give the Ask loop
+   direct-derivation handlers and refactor `ledger_mcp` to consume the same
+   specs. Add the bounded tool-use loop. Tests: a *mocked* Anthropic client
+   (no live calls/key in tests) drives a scripted tool_use turn; parity
+   tests prove each tool's result matches its read endpoint.
+2. **`POST /api/ask`** — `session_required`; wires the loop; model + key
+   from env; a friendly system prompt carrying the vocabulary rules
+   (`true_income` ≠ `gross_inflows`, never do its own math, read-only,
+   warm/plain tone for a non-technical user).
+3. **The "Ask" tab** — new nav tab + chat UI (message list + input),
+   phone-first; pure render helpers in `render.js`, tested in the node seam.
+4. **Later:** streaming; write tools (tagging via `classify_inflow`, rules
+   two-phase); conversation persistence; per-day cost controls.
+
+**Prereqs Alta supplies:** an `ANTHROPIC_API_KEY` in the Pi's `.env` (needed
+only for the live end-to-end test + deploy — increments 1 and 3 build and
+test without it), and the `anthropic` SDK added to `requirements.txt`. No
+schema change, no migration, no balance gate (a read surface, like the MCP
+tier).
