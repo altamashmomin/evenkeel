@@ -671,10 +671,23 @@ No token UI exists — tokens are minted via `curl POST /api/tokens` (per
 "read-only until the write tier" note corrected. Tests: mint `read,write` →
 can POST `/api/actions/propose` (201); default `read` → 403; unknown scope →
 400. No schema/derivation/data change → no gate; suite 322 python + 39 render.
-**(D) next** — MCP write tools in `ledger_mcp.py` (`classify_inflow` +
-`set_rule_enabled` direct; `propose_income_rule` + `apply_rules` +
-`confirm_action` two-phase) + an `api_post` helper, tested via the
-WSGITransport seam like the read tier; then deploy `#007 --live` on the Pi. (Note: the propose endpoint is `/api/actions/propose`, generic
+**(D) done (Aug 1, 2026)** — five MCP write tools in `ledger_mcp.py` over an
+`api_write(method, path, body)` helper (401→reissue / 403→needs `read,write` /
+4xx→verb's message): DIRECT `ledger_classify_inflow` + `ledger_set_rule_enabled`,
+and TWO-PHASE `ledger_propose_income_rule` / `ledger_apply_rules` →
+`ledger_confirm_action`. Server instructions/docstring updated (writes exist,
+user-confirmed, propose→preview→yes→confirm; settle/edit/delete/money-movement
+still absent). Write-tool descriptions live in `ledger_mcp` (MCP-only — Ask
+loop stays read-only), so the shared-registry drift test is scoped to read
+tools and the read-registration test relaxed to a subset. `tests/test_ledger_mcp_write.py`
+(7 tests, WSGITransport seam, read,write token, each write's effect checked in
+the db + single-use through dispatch + a `read` token proven 403 on a write
+tool); pure HTTP client of gated endpoints → no balance gate; suite 329 python
++ 39 render. Tool surface: 18 total (13 read + 5 write). **The two-phase write
+tier is CODE-COMPLETE (inc A–D); CORE-DESIGN step 7 is fully built.** Remaining
+is the deploy (Alta's step): advance `main`, `deploy/deploy.sh origin/main`
+(gated `#007 --live`), restart `ledger-mcp`, mint a `read,write` token, point
+`LEDGER_MCP_TOKEN` at it, verify the scope gate end to end — `deploy/mcp-write-tier.md`. (Note: the propose endpoint is `/api/actions/propose`, generic
 over `action_type`, not the rules-specific path the scope note first sketched —
 one propose path serves both create_rule and apply_rules.)
 Flagged build frictions: `confirm_action` can't wrap the dispatched verb (it
