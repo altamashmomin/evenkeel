@@ -637,16 +637,29 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
 
 **CORE-DESIGN step 7 read+chat surface is DONE and live:** `api_tokens`/auth →
 MCP read tier (Alta, Tailscale) → in-app Ask tab (Charlee) — all deployed and
-proven on the Pi, both users onboarded. **The clear next increment is the
-two-phase write tier** (the remaining step-7 work): let the assistant tag
-inflows (direct, logged) and propose income rules (two-phase: propose → show a
-preview → human confirm → write). AGENT-DESIGN specs it — `pending_actions`
-table, the propose/confirm choreography, write-tiering (classify direct, rules
-two-phase). Scope-then-build, like the Ask tab was. Lighter alternatives if a
-read feature is preferred instead: analytics Tier B (#13–16: recurring-charge
-detection, cash-flow forecast, anomaly flags, goal pace) or the still-open
-income-visibility policy. Untracked dev tools left in the tree on purpose:
-`ask_smoke.py` (live-checks `POST /api/ask`) and `soak_local.sh` (local MCP soak).
+proven on the Pi, both users onboarded. **The two-phase write tier is now
+SCOPED (Aug 1, 2026)** — the remaining step-7 work, planned in AGENT-DESIGN
+"The write tier — v1 build plan". Key finding: the four write verbs
+(`classify_inflow`, `create_income_rule`, `set_rule_enabled`, `apply_rules`)
+already exist and already run over bearer; this tier is the two-phase
+choreography + write-scope token + MCP tools around them, not new verbs.
+Decisions settled with Alta: **write tiering ratified as designed** (classify +
+set_rule_enabled direct/logged; create_rule + apply_rules two-phase),
+**MCP-only this tier** (Ask-tab write deferred), **`also_apply_to_existing` =
+new-rule-only** (confirm reclassifies just the new rule's matches, so the
+preview count == what changes). Four increments: (A) migration #007
+`pending_actions` + registry rows, enumerated-diff gate; (B) propose/confirm
+engine + endpoints, zero-diff gate; (C) `read,write` token minting (lift the
+`app.py` hardcode); (D) MCP write tools + `api_post`, then deploy `#007 --live`.
+Flagged build frictions: `confirm_action` can't wrap the dispatched verb (it
+opens its own `BEGIN IMMEDIATE`) → mark-confirmed-first then dispatch;
+compound confirm is create + scoped-classify, two atomic sub-calls. Prereq:
+Alta mints a `read,write` token (inc C) and repoints the MCP client.
+Lighter alternatives if a read feature is preferred instead: analytics Tier B
+(#13–16: recurring-charge detection, cash-flow forecast, anomaly flags, goal
+pace) or the still-open income-visibility policy. Untracked dev tools left in
+the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
+`soak_local.sh` (local MCP soak).
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`

@@ -690,3 +690,104 @@ only for the live end-to-end test + deploy — increments 1 and 3 build and
 test without it), and the `anthropic` SDK added to `requirements.txt`. No
 schema change, no migration, no balance gate (a read surface, like the MCP
 tier).
+
+---
+
+## The write tier — v1 build plan (scoped Aug 1, 2026)
+
+CORE-DESIGN sequence step 7's remaining work (AGENT-DESIGN build order step
+4): the agent's write tools. The pleasant discovery going in — **the four
+write verbs already exist and already run over bearer.** `classify_inflow`,
+`create_income_rule`, `set_rule_enabled`, and `apply_rules` (with its
+`dry_run` preview) are in `actions.py`; their Flask routes use
+`login_required`, which already accepts a bearer token and gates scope by
+HTTP method (GET→read, mutating→write). So this tier is **not new verbs** —
+it is the two-phase choreography, the write token scope, and the MCP tools
+around verbs that are done and tested.
+
+### Decisions settled with Alta (Aug 1, 2026)
+
+These close AGENT-DESIGN's three "Decisions needed" for the write tier;
+#1 (exposure) and #2 (identity) were already settled Jul 27 (tailnet-only,
+per-person tokens).
+
+- **Write tiering ratified as designed (#3).** `classify_inflow` and
+  `set_rule_enabled` are **direct** (logged, reversible, single row/flag);
+  `create_income_rule` (via `propose_income_rule`) and `apply_rules` are
+  **two-phase** (propose → preview → human yes → confirm). Routine tagging
+  stays one tap; only the blast-radius-wide writes carry ceremony.
+- **MCP-only this tier.** Only Alta's tailnet MCP door gets write tools now.
+  Charlee's Ask tab stays read-only — its write increment (session-based,
+  not bearer; different plumbing) is deliberately later, mirroring the
+  read-first-then-soak staging the MCP tier itself used.
+- **`also_apply_to_existing` = new-rule-only.** Confirming a proposed rule
+  with the flag set creates the rule and then classifies **only the
+  unclassified inflows that new rule matches** — not a full `apply_rules`
+  pass. The preview's `would_match_now` count therefore equals exactly what
+  confirm changes; blast radius is bounded to what was shown.
+
+### What's genuinely new
+
+1. **`pending_actions` table** — migration #007 (schema_version 6→7), the
+   table spec'd above verbatim. Joins `GOVERNED_TABLES` in
+   `tests/test_architecture.py` (its writes become verbs, per invariant 1).
+2. **The propose→confirm engine** in `actions.py`, two new registry verbs:
+   - `propose_action(db, created_by, action_type, payload)` — validates the
+     underlying action (reusing `create_income_rule`'s validation so a bad
+     rule fails at propose, not confirm), computes the preview via a
+     read-only dry-run (`_rule_matches` over the unclassified queue for a
+     rule; the existing `apply_rules(dry_run=True)` pass for apply), and
+     parks a `pending_actions` row with the **frozen** payload + preview +
+     ~10-min `expires_at`. Returns `{confirmation_token, preview}`. Writes
+     no audit row — nothing executed yet.
+   - `confirm_action(db, actor, token)` — loads the row; rejects unknown /
+     expired / non-`pending` tokens; dispatches on `action_type` to the real
+     verb with the frozen payload; marks the row `confirmed`. The audit row
+     is the **underlying verb's** (audit_log stays "executed writes only").
+3. **Two Flask endpoints** (thin callers): `POST /api/income/rules/propose`
+   and `POST /api/actions/confirm`. Apply-rules propose reuses the verb's
+   existing `dry_run` pass but must **park** a token via `propose_action`.
+4. **`read,write` token minting** — lift the hardcoded `"scopes": "read"` in
+   `app.py`'s `create_token` route (the `create_api_token` verb already
+   accepts `read,write`); give the token UI a scope choice.
+5. **MCP write tools** in `ledger_mcp.py` — `classify_inflow` +
+   `set_rule_enabled` (direct), `propose_income_rule` + `apply_rules` +
+   `confirm_action` (two-phase); an `api_post` helper mirroring the read
+   tier's `api_get`, same error mapping (401→reissue, 403→scope, 409→conflict
+   surfaced with the clashing rule).
+
+### Design frictions to resolve in the build (flagged, not hand-waved)
+
+- **`action_transaction` refuses a pre-open transaction.** `confirm_action`
+  cannot wrap the dispatched verb in an outer txn — the verb opens its own
+  `BEGIN IMMEDIATE`. Sequence: **mark the pending row `confirmed` first**
+  (enforces single-use), then dispatch. A crash between the two drops the
+  write (re-propose recovers) rather than double-executing — the safe
+  failure direction. Re-confirm is self-defending regardless: a re-run hits
+  `create_income_rule`'s duplicate-criteria rejection, and `apply_rules`
+  skips already-classified rows.
+- **Compound confirm (new-rule-only, per the decision above):**
+  `confirm_action` for a `create_rule` action runs `create_income_rule`,
+  then a scoped classify of just that rule's matches — two sub-writes; each
+  is its own atomic verb call, matching `record_transaction`'s per-call
+  atomicity posture.
+
+### Increments (small, one per step; scope-then-build like the Ask tab)
+
+A. **Migration #007 + registry rows.** The `pending_actions` table;
+   `pending_actions` into `GOVERNED_TABLES`; `propose_action`/`confirm_action`
+   rows added to CORE-DESIGN's registry first (growth rule). Schema only —
+   **enumerated-diff gate** (one empty table + schema_version 6→7, like #006).
+B. **The propose/confirm engine + endpoints.** The two verbs, the rule-
+   dry-run preview helper, the two Flask routes. Read/logic against the
+   inflow-free seed → zero-diff gate; exercised by tests (propose freezes
+   payload, confirm executes it, expiry/single-use/unknown-token rejected).
+C. **`read,write` token minting.** Lift the route hardcode + token-UI scope
+   choice. Small; no gate.
+D. **MCP write tools.** The five tools + `api_post`; tests via the
+   WSGITransport seam like the read tier (each tool's effect proven equal to
+   its endpoint). Then deploy `#007 --live` on the Pi.
+
+**Prereqs Alta supplies:** a `read,write` bearer token minted through the app
+(inc C) for the MCP client, repointed over Tailscale. No new external
+dependency (the `mcp`/`httpx` stack is already installed for the read tier).
