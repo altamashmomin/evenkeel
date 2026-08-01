@@ -1,0 +1,7 @@
+{
+  "note": "Migration #007 (pending_actions table -- AGENT-DESIGN step 4, the agent write tier's propose/confirm choreography). One new empty table and its schema_version record -- nothing else. No balance/spend path reads or writes it, so the who-owes-whom balance and every monthly total are identical; they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.pending_actions", "old": null, "new": 0},
+    {"path": "row_counts.schema_version", "old": 6, "new": 7}
+  ]
+}
