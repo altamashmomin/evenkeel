@@ -627,11 +627,17 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   refactor. Verified over the tailnet: `POST /api/ask` now 401 (was 404, live +
   session-gated), served `render.js`/`app.js` carry the Ask tab, and the MCP
   server is back up with 13 tools on the refactored descriptions. Rollback
-  backup `finance.db.bak-2026-07-31-201628`. **Final step to actually use it:
-  confirm `ANTHROPIC_API_KEY` is in the Pi `.env` — the real test is opening
-  the app → Ask tab → a question (a 503 means the key isn't set yet; add it and
-  `sudo systemctl restart pifinance`).** Charlee's phone access still needs the
-  Tailscale device-share (her own account + Alta shares the Pi node).
+  backup `finance.db.bak-2026-07-31-201628`. **CONFIRMED LIVE (Jul 31):** the
+  in-app Ask tab answered a real question in the app — `ANTHROPIC_API_KEY` is
+  set on the Pi and the whole path works end to end. Charlee's phone access
+  still needs the Tailscale device-share (her own account + Alta shares the Pi
+  node).
+
+**CORE-DESIGN step 7 read+chat surface is DONE and live:** `api_tokens`/auth →
+MCP read tier (Alta, Tailscale) → in-app Ask tab (Charlee) — all deployed and
+proven on the Pi. The remaining step-7 work is the **two-phase write tier**
+(classify inflows / propose rules with a confirm step; write-tiering per
+AGENT-DESIGN — classify direct, rules two-phase), a future increment.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
