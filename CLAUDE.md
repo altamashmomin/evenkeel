@@ -618,11 +618,20 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   pass against `style.css` in a harness across empty/conversation/pending —
   which caught a real cascade bug (`form > .btn.primary { width:100% }`
   squashed the input; fixed with a higher-specificity `.ask-bar .btn.primary`).
-  Frontend only, no gate. **Ask tab v1 is now feature-complete (inc 1–3).**
-  Remaining to go live for Charlee: deploy inc 1–3 to the Pi AND add
-  `ANTHROPIC_API_KEY` to the Pi `.env` (billing now attached to Alta's
-  account; the key is the last-mile config). `ask_smoke.py` (untracked) is the
-  local live-check.
+  Frontend only, no gate. **Ask tab v1 is feature-complete (inc 1–3).**
+  `ask_smoke.py` (untracked) is the local live-check.
+- **Ask tab DEPLOYED to the Pi (Jul 31, 2026).** Advanced `main` to rework's
+  tree via `--no-ff` merge `1c5a27e` (fast-forward push); `deploy/deploy.sh
+  origin/main` on the Pi → zero-diff `GATE PASS` (no migration; `pip install`
+  pulled the `anthropic` SDK); `ledger-mcp` restarted for the shared-desc
+  refactor. Verified over the tailnet: `POST /api/ask` now 401 (was 404, live +
+  session-gated), served `render.js`/`app.js` carry the Ask tab, and the MCP
+  server is back up with 13 tools on the refactored descriptions. Rollback
+  backup `finance.db.bak-2026-07-31-201628`. **Final step to actually use it:
+  confirm `ANTHROPIC_API_KEY` is in the Pi `.env` — the real test is opening
+  the app → Ask tab → a question (a 503 means the key isn't set yet; add it and
+  `sudo systemctl restart pifinance`).** Charlee's phone access still needs the
+  Tailscale device-share (her own account + Alta shares the Pi node).
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
