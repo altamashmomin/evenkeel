@@ -8,7 +8,8 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 // they can be unit-tested in plain node; app.js pulls them off the global.
 const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, incomeCardHTML,
         incomeTrendChartHTML, spendingCompositionHTML, memberBreakdownHTML,
-        billVarianceHTML, savingsRateTrendHTML, categoryTrendHTML } = window.Render;
+        billVarianceHTML, savingsRateTrendHTML, categoryTrendHTML,
+        askThreadHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -22,6 +23,8 @@ const state = {
   payingBill: null,
   contribGoal: null,
   openLogs: new Set(),
+
+  ask: { messages: [], pending: false },   // Ask tab: client-held chat history
 };
 
 const todayISO = () => {
@@ -136,6 +139,7 @@ const TABS = [
   ["bills", "Bills"],
   ["goals", "Goals"],
   ["analytics", "Analytics"],
+  ["ask", "Ask"],
 ];
 
 function buildNav() {
@@ -166,6 +170,7 @@ async function render() {
     if (state.tab === "bills") main.innerHTML = await renderBills();
     if (state.tab === "goals") main.innerHTML = await renderGoals();
     if (state.tab === "analytics") main.innerHTML = await renderAnalytics();
+    if (state.tab === "ask") main.innerHTML = renderAsk();
     wireMain();
   } catch (e) {
     if (e.message !== "authentication required")
@@ -462,6 +467,41 @@ async function renderAnalytics() {
     ${billVarianceHTML(bills)}`;
 }
 
+/* ================= ask ================= */
+
+// Renders from client state only (no fetch), so re-rendering mid-chat is cheap.
+function renderAsk() {
+  const a = state.ask;
+  return `
+    <div class="ask-wrap">
+      <div class="ask-thread" id="ask-thread">${askThreadHTML(a.messages, a.pending)}</div>
+      <form class="ask-bar" id="ask-form">
+        <input id="ask-input" type="text" autocomplete="off" enterkeyhint="send"
+               placeholder="Ask about your money…" ${a.pending ? "disabled" : ""}>
+        <button class="btn primary" type="submit" ${a.pending ? "disabled" : ""}>Ask</button>
+      </form>
+      <p class="ask-note">Read-only — it can explain, but changes happen in the app.</p>`;
+}
+
+async function askSend(text) {
+  text = (text || "").trim();
+  if (!text || state.ask.pending) return;
+  // History is the turns BEFORE this question (client-held, send-and-wait).
+  const history = state.ask.messages.map((m) => ({ role: m.role, content: m.content }));
+  state.ask.messages.push({ role: "user", content: text });
+  state.ask.pending = true;
+  render();
+  try {
+    const res = await api("/api/ask", { method: "POST", body: { message: text, history } });
+    state.ask.messages.push({ role: "assistant", content: res.answer });
+  } catch (e) {
+    state.ask.messages.push({ role: "assistant", content: "Sorry — " + e.message });
+  } finally {
+    state.ask.pending = false;
+    render();
+  }
+}
+
 /* ================= wiring ================= */
 
 // Resolve a tapped row id against whichever list rendered it — the
@@ -519,6 +559,21 @@ function wireMain() {
       await api(`/api/goals/${el.dataset.goalDel}`, { method: "DELETE" });
       render();
     }));
+
+  // Ask tab: submit the question, or send an example; then keep the thread
+  // scrolled to the latest and the input focused for the next question.
+  $("#ask-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const inp = $("#ask-input");
+    const text = inp.value;
+    inp.value = "";
+    askSend(text);
+  });
+  $$("[data-ask-eg]").forEach((el) =>
+    el.addEventListener("click", () => askSend(el.dataset.askEg)));
+  const thread = $("#ask-thread");
+  if (thread) thread.scrollTop = thread.scrollHeight;
+  if (state.tab === "ask" && !state.ask.pending) $("#ask-input")?.focus();
 }
 
 function shiftMonth(delta) {

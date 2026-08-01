@@ -351,8 +351,38 @@
     </div>`;
   }
 
+  // The Ask tab's chat thread. Pure function of the client-held messages
+  // ([{role:'user'|'assistant', content}]) plus a pending flag. Content is
+  // escaped and rendered as plain text (newlines preserved by CSS white-space);
+  // an empty thread shows a friendly starter with example questions.
+  const ASK_EXAMPLES = ["How are we doing this month?", "Did my paycheck land?",
+                        "What still needs tagging?", "Who owes who right now?"];
+
+  function askThreadHTML(messages, pending) {
+    if (!messages.length && !pending) {
+      return `
+      <div class="ask-empty">
+        <p class="ask-empty-title">Ask about your money</p>
+        <p class="ask-empty-sub">Plain questions, plain answers — it reads the
+          same numbers the app shows, and never changes anything.</p>
+        <div class="ask-examples">
+          ${ASK_EXAMPLES.map((q) =>
+            `<button type="button" class="ask-eg" data-ask-eg="${esc(q)}">${esc(q)}</button>`
+          ).join("")}
+        </div>
+      </div>`;
+    }
+    const bubbles = messages.map((m) =>
+      `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}</div>`
+    ).join("");
+    const thinking = pending
+      ? `<div class="ask-msg ask-bot ask-thinking"><span></span><span></span><span></span></div>`
+      : "";
+    return bubbles + thinking;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText,
            incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
-           savingsRateTrendHTML, categoryTrendHTML };
+           savingsRateTrendHTML, categoryTrendHTML, askThreadHTML };
 });

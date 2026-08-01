@@ -606,8 +606,23 @@ an Anthropic API key (for in-app) and their MCP client over Tailscale.
   smoke-verified end-to-end against the REAL Anthropic API (`ask_smoke.py`,
   untracked, synthetic data): "is rent paid?" → correct warm answer quoting
   the display string, real tool call — proving the SDK response shape matches
-  the loop. **Next: increment 3 — the SPA "Ask" tab (chat UI, render.js
-  helpers, node-seam tests; no key needed to build/test).**
+  the loop.
+- **Ask tab increment 3 — done (Jul 29, 2026).** The SPA "Ask" tab: a new
+  nav tab, a phone-first send-and-wait chat. `askThreadHTML(messages, pending)`
+  in `render.js` (pure: brass user bubbles, dark bot bubbles, escaped content,
+  animated thinking dots, an empty state with example-question chips); `state.
+  ask` holds client-side history; `renderAsk`/`askSend` in `app.js` POST to
+  `/api/ask` with `{message, history}` and re-render (history = the turns
+  before the question). Wired in `wireMain` (submit, example chips, scroll-to-
+  latest, refocus). 4 node-seam render checks (35→39); full suite 305. Visual
+  pass against `style.css` in a harness across empty/conversation/pending —
+  which caught a real cascade bug (`form > .btn.primary { width:100% }`
+  squashed the input; fixed with a higher-specificity `.ask-bar .btn.primary`).
+  Frontend only, no gate. **Ask tab v1 is now feature-complete (inc 1–3).**
+  Remaining to go live for Charlee: deploy inc 1–3 to the Pi AND add
+  `ANTHROPIC_API_KEY` to the Pi `.env` (billing now attached to Alta's
+  account; the key is the last-mile config). `ask_smoke.py` (untracked) is the
+  local live-check.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
