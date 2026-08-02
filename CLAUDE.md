@@ -714,6 +714,26 @@ Lighter alternatives if a read feature is preferred instead: analytics Tier B
 pace) or the still-open income-visibility policy. Untracked dev tools left in
 the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
 `soak_local.sh` (local MCP soak).
+
+- **Mobile bottom-nav fix — DEPLOYED (Aug 1, 2026).** The SPA tab bar's six
+  tabs (Home/Activity/Bills/Goals/Analytics/Ask) overflowed on a phone: the
+  mobile `.tabbar` was `display:flex; justify-content:space-around` with
+  non-shrinking padded buttons, so under `nowrap` the last tab (Ask) was
+  pushed off the right edge and couldn't be tapped. Fixed in `static/style.css`
+  — `.tabbar button` → `flex:1 1 0; min-width:0` (equal-width, shrink-to-fit,
+  so the row always divides the bar evenly and no tab can overflow), then the
+  labels sized to 10px/no-tracking (iOS's own tab-label size) so the longest,
+  "Analytics", shows in full; the ellipsis stays only as a guard for
+  extreme/ancient (≤320px) screens. Desktop `topnav` untouched. Frontend-only
+  → no gate; render seam still 39 checks. Shipped in two deploys (the fix,
+  then the label sizing): `main` `74e637f`→`d751c35`→`3984f35` (each a
+  `--no-ff` merge, first parent = prior main, tree identical to rework;
+  `deploy/deploy.sh origin/main` each → **GATE PASS zero-diff**, no
+  migration). Verified live on Alta's phone after a hard-refresh: Ask
+  reachable, Analytics full. Note: the in-app Browser tool was wedged this
+  whole session (repeated 300s navigate timeouts), so the visual checks fell
+  back to code analysis + a throwaway CSS harness + on-device confirmation
+  rather than a screenshot.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
