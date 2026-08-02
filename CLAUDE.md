@@ -684,10 +684,25 @@ tools and the read-registration test relaxed to a subset. `tests/test_ledger_mcp
 the db + single-use through dispatch + a `read` token proven 403 on a write
 tool); pure HTTP client of gated endpoints → no balance gate; suite 329 python
 + 39 render. Tool surface: 18 total (13 read + 5 write). **The two-phase write
-tier is CODE-COMPLETE (inc A–D); CORE-DESIGN step 7 is fully built.** Remaining
-is the deploy (Alta's step): advance `main`, `deploy/deploy.sh origin/main`
-(gated `#007 --live`), restart `ledger-mcp`, mint a `read,write` token, point
-`LEDGER_MCP_TOKEN` at it, verify the scope gate end to end — `deploy/mcp-write-tier.md`. (Note: the propose endpoint is `/api/actions/propose`, generic
+tier is CODE-COMPLETE (inc A–D); CORE-DESIGN step 7 is fully built.**
+- **DEPLOYED TO THE PI + verified live (Aug 1, 2026).** Advanced `main` to
+  rework's tree via `--no-ff` merge `74e637f` (first parent = prior main
+  `1c5a27e`, fast-forward push); `deploy/deploy.sh origin/main` on the Pi →
+  **GATE PASS** (no money moved; enumerated structural diff only —
+  `pending_actions` None→0 + `schema_version` 6→7), migration `#007` applied
+  `--live`, `pifinance` restarted clean. Rollback backup
+  `finance.db.bak-2026-08-01-184437`. Minted a `read,write` token (per-person,
+  via curl login→`POST /api/tokens` with `scopes:"read,write"`), set it as the
+  Pi's `LEDGER_MCP_TOKEN`, restarted `ledger-mcp`. Verified over the tailnet:
+  Flask write endpoints now 401 (were 404); the MCP server exposes all **18
+  tools** (5 write); and a live phase-1 `ledger_apply_rules` propose succeeded
+  under the deployed token (**not** 403 → the token is genuinely `read,write`),
+  parking an auto-expiring no-op pending action (rows_affected 0) — the full
+  read→write→two-phase path is proven end to end on real data.
+  **CORE-DESIGN step 7 (the assistant) is now COMPLETE and live: read tier,
+  in-app Ask tab, and the two-phase agent write tier all deployed.** (Note: a
+  connected MCP client must reconnect to re-list the 5 new write tools; the
+  server serves them regardless.) (Note: the propose endpoint is `/api/actions/propose`, generic
 over `action_type`, not the rules-specific path the scope note first sketched —
 one propose path serves both create_rule and apply_rules.)
 Flagged build frictions: `confirm_action` can't wrap the dispatched verb (it
