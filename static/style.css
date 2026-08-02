@@ -187,12 +187,14 @@ main {
 }
 /* All six tabs must fit and stay tappable on a phone. Equal-width, allowed
    to shrink (flex-basis 0 + min-width 0), so the row divides the full bar
-   evenly and the last tab (Ask) can never be pushed off the edge. Labels
-   ellipsize on the very narrowest screens rather than overflowing. */
+   evenly and the last tab (Ask) can never be pushed off the edge. The font
+   is sized (10px, no tracking — iOS's own tab-label size) so the longest
+   label, "Analytics", shows in full on normal phones; the ellipsis is only a
+   last-resort guard for extreme/ancient narrow screens. */
 .tabbar button {
   flex: 1 1 0; min-width: 0;
-  padding: 10px 2px;
-  font-size: 11px; letter-spacing: 0.02em;
+  padding: 10px 1px;
+  font-size: 10px; letter-spacing: 0;
   text-align: center; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
