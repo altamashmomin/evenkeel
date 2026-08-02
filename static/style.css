@@ -179,13 +179,23 @@ main {
 
 .tabbar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 5;
-  display: flex; justify-content: space-around;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  display: flex;
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter: blur(8px);
   border-top: 1px solid var(--line);
 }
-.tabbar button { padding: 10px 14px; }
+/* All six tabs must fit and stay tappable on a phone. Equal-width, allowed
+   to shrink (flex-basis 0 + min-width 0), so the row divides the full bar
+   evenly and the last tab (Ask) can never be pushed off the edge. Labels
+   ellipsize on the very narrowest screens rather than overflowing. */
+.tabbar button {
+  flex: 1 1 0; min-width: 0;
+  padding: 10px 2px;
+  font-size: 11px; letter-spacing: 0.02em;
+  text-align: center; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
 
 .fab {
   position: fixed; right: 18px; bottom: calc(64px + env(safe-area-inset-bottom));
