@@ -911,9 +911,31 @@ shortcut pill, 5-slot nav unchanged) → chat input → later inference/predicti
   bearer). `test_item_verbs` + `test_inventory_routes` (incl. bearer write-scope
   gating). **Zero-diff balance gate PASS** (v8 source, 8242bd8→HEAD — inventory
   inert for the finance snapshot); suite 334→346 python + 43 render. Still not
-  deployed. **Inc 3 next** — the Garden Inventory SPA view (Home shortcut pill,
-  tap-to-cycle chips, shopping-list section, add), then inc 4 chat input; deploy
-  rides inc 3/4 with `#008 --live`.
+  deployed.
+- **Inc 3 done (Aug 3, 2026).** The Garden Inventory SPA view. Reached from a
+  new **🧺 Pantry** Home shortcut pill (beside Bills/Analytics) + a desktop
+  topnav tab (`TABS` grew to 7; the 5-slot mobile nav is deliberately
+  unchanged — dedicated slot is a later IA call). Two cards: a derived "Need to
+  buy" list (each row a "Got it" check-off = mark stocked; a one-off
+  self-archives off the list when bought) and the Staples tracker with a
+  tap-to-cycle **stocked→low→out** status chip (green/honey/clay, the badge
+  palette), each card closing in a quick-add field; a faint ✕ stops tracking a
+  staple. Pure `inventoryHTML(data)` in `render.js` (the analytics-helper
+  pattern, node-seam tested); `itemIcon` gives pantry rows a 🧺 fallback + a few
+  household keyword icons instead of the money-card glyph. `app.js` wiring is
+  thin — cycle/got-it → `set_item_status`, adds → `add_item`, remove →
+  `archive_item`, all the inc-2 endpoints (no backend change). Gotcha fixed: an
+  input named `name` is shadowed by `form.name`, so the add handlers read the
+  input directly. **Frontend only — no schema/derivation/route touched, so no
+  balance gate** (like every prior frontend increment); suite 346 python + 43→48
+  render. The in-app Browser tool worked this session: verified live end-to-end
+  (status cycle drops Milk off the list + lowers the "running low" badge, both
+  add fields, one-off archive-on-buy, mobile 5-slot nav + desktop 7-tab
+  topnav). Still not deployed. **Inc 4 next** — chat input: extend the Ask
+  write-tool surface (`agent_write_tools.py`) with `add_item`/`set_item_status`
+  so Charlee can say "we're out of X" / "add Y" / "what do we need?"; deploy
+  rides inc 4 with `#008 --live` (or ship inc 3 now if a UI-only deploy is
+  wanted first).
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
