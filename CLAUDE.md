@@ -714,6 +714,81 @@ Lighter alternatives if a read feature is preferred instead: analytics Tier B
 pace) or the still-open income-visibility policy. Untracked dev tools left in
 the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
 `soak_local.sh` (local MCP soak).
+
+- **Mobile bottom-nav fix — DEPLOYED (Aug 1, 2026).** The SPA tab bar's six
+  tabs (Home/Activity/Bills/Goals/Analytics/Ask) overflowed on a phone: the
+  mobile `.tabbar` was `display:flex; justify-content:space-around` with
+  non-shrinking padded buttons, so under `nowrap` the last tab (Ask) was
+  pushed off the right edge and couldn't be tapped. Fixed in `static/style.css`
+  — `.tabbar button` → `flex:1 1 0; min-width:0` (equal-width, shrink-to-fit,
+  so the row always divides the bar evenly and no tab can overflow), then the
+  labels sized to 10px/no-tracking (iOS's own tab-label size) so the longest,
+  "Analytics", shows in full; the ellipsis stays only as a guard for
+  extreme/ancient (≤320px) screens. Desktop `topnav` untouched. Frontend-only
+  → no gate; render seam still 39 checks. Shipped in two deploys (the fix,
+  then the label sizing): `main` `74e637f`→`d751c35`→`3984f35` (each a
+  `--no-ff` merge, first parent = prior main, tree identical to rework;
+  `deploy/deploy.sh origin/main` each → **GATE PASS zero-diff**, no
+  migration). Verified live on Alta's phone after a hard-refresh: Ask
+  reachable, Analytics full. Note: the in-app Browser tool was wedged this
+  whole session (repeated 300s navigate timeouts), so the visual checks fell
+  back to code analysis + a throwaway CSS harness + on-device confirmation
+  rather than a screenshot.
+
+- **Ask-tab write (tagging) for Charlee — SCOPED (Aug 2, 2026).** The chosen
+  next increment now that step 7 is complete: extend Charlee's in-app Ask loop
+  from read-only to letting her TAG inflows by chatting (her door; the MCP
+  write tier is Alta's). Plan in AGENT-DESIGN "Charlee's Ask tab — write
+  (tagging) build plan". Decisions settled with Alta: **tagging only**
+  (`classify_inflow`; rules two-phase deferred), **conversational confirm** (no
+  card — reversible + logged), **model stays Haiku 4.5**. Key facts: the loop
+  (`ask_loop.py`) and the write verbs/routes already exist, and the Ask
+  session already carries write scope — so the write goes through the same
+  `PUT …/classify` route the SPA uses (invariant 2), attributed to
+  `ui:<charlee>`; dangerous verbs stay omitted; the request/response boundary
+  is a natural human-confirm gate. Three increments: (1) `make_app_caller`
+  in-process POST/PUT + a one-entry write-tool surface (kept out of the
+  read-only shared registry) + loop routing, mocked-client tests assert the
+  db row flips; (2) `POST /api/ask` write-enabled + updated system prompt; (3)
+  Ask-tab "tagged ✓" UI feedback. No schema/migration/gate (existing verb).
+  Prereq: `ANTHROPIC_API_KEY` already on the Pi (⚠ expires ~Aug 30, 2026).
+  - **Inc 1 done (Aug 2, 2026).** `agent_write_tools.py` — one-tool surface
+    (`ledger_classify_inflow`), kept out of the read-only shared registry,
+    executing via an injected caller against the same `PUT …/classify` route
+    the SPA uses. `ask_loop.py`: `make_app_caller` (in-process POST/PUT under
+    the caller's session, 4xx→recoverable tool error) + `run_ask` gains a
+    `caller` param — when given, the write tools are appended (one prompt-cache
+    breakpoint on the combined block) and their `tool_use` routes to the caller;
+    `caller=None` stays byte-unchanged read-only. **The live route is still
+    read-only — enabling it is inc 2.** `tests/test_ask_write.py` (4, mocked
+    client, no key): the tool actually flips `income_type` through the route +
+    logs as `ui:avery`; write tools appear only with a caller (14 vs 13); a bad
+    id and an outflow are both caught (the verb's inflow-only criterion holds).
+    Suite 329→333 python + 39 render; no gate.
+  - **Inc 2 done (Aug 2, 2026).** `answer()` now passes `make_app_caller` into
+    `run_ask`, so `POST /api/ask` is write-enabled; the system prompt's "you can
+    look but not change anything" became the tag-after-they-tell-you rule (only
+    `classify_inflow`, never guess, confirm after; still no money-movement /
+    settle / rules / edit / delete). Module + route docstrings updated.
+    `test_ask_route`: a classify `tool_use` through the route really flips
+    `income_type` + logs as `ui:avery`, write tool offered (14), prompt grants
+    tagging. Suite 333→334 python + 39 render; no gate. **The feature is
+    functionally complete once deployed** — the chat's text reply ("Tagged it
+    as your paycheck ✓") IS the confirmation.
+  - **Inc 3 done (Aug 2, 2026).** UI honesty + a write signal: `askThreadHTML`
+    shows a subtle "✓ tagged" chip on an assistant reply that actually tagged
+    an inflow (message carries `tagged`, set in `askSend` from `tools_used`;
+    stripped from the history sent back to the model). Fixed the stale copy —
+    the empty-state sub and the ask-note both claimed the assistant "never
+    changes anything" / is "read-only"; now they say it can tag a deposit (other
+    changes still in the app). `.ask-tagged` chip in style.css. Frontend only;
+    render seam 39→41; no gate. **Ask-tab write (tagging) is feature-complete
+    (inc 1–3).** Remaining: **deploy** (frontend + route, no migration/gate —
+    advance `main`, `deploy.sh origin/main`) + a live smoke of a real tag
+    through the Ask tab (needs the Pi's `ANTHROPIC_API_KEY`, ⚠ expires ~Aug 30).
+    Visual check of the chip fell to the render seam + code (in-app Browser tool
+    still wedged). Deferred later: rules two-phase in chat, streaming,
+    conversation persistence.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
