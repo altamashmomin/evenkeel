@@ -45,10 +45,21 @@
 
 <!-- ============ app ============ -->
 <section id="view-app" class="hidden">
+  <div class="ambient" aria-hidden="true">
+    <span class="blob a"></span><span class="blob b"></span><span class="blob c"></span>
+  </div>
   <header class="topbar">
-    <span class="wordmark small">LEDGER</span>
+    <div class="greeting">
+      <p class="greet-kicker" id="greet-kicker">Hello</p>
+      <h1 class="greet-title">Home, together</h1>
+    </div>
     <nav class="topnav" id="topnav"></nav>
-    <button class="btn ghost" id="btn-logout" type="button">Sign out</button>
+    <div class="topbar-right">
+      <span class="avatars" id="avatars"></span>
+      <button class="icon-btn" id="theme-toggle" type="button"
+              aria-label="Switch between light and dark">☾</button>
+      <button class="btn ghost" id="btn-logout" type="button">Sign out</button>
+    </div>
   </header>
 
   <main id="main"></main>

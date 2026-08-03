@@ -74,11 +74,50 @@ async function showApp() {
   $("#view-auth").classList.add("hidden");
   $("#view-app").classList.remove("hidden");
   buildNav();
+  renderHeader();
   await loadCategories();
   setTab(state.tab);
 }
 
+// The Garden greeting: a time-of-day hello + the household's avatars.
+function renderHeader() {
+  const h = new Date().getHours();
+  const part = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  $("#greet-kicker").textContent = `${part} 🌿`;
+  $("#avatars").innerHTML = state.users.map((u, i) => {
+    const color = i === 0 ? "var(--p1)" : "var(--p2)";
+    const initial = (u.display_name || "?").trim().charAt(0).toUpperCase();
+    return `<span class="av" style="background:${color}">${esc(initial)}</span>`;
+  }).join("");
+}
+
+// Light/dark: follow the phone by default, or a saved manual choice. The
+// data-theme attribute overrides the prefers-color-scheme media query (both
+// wired in style.css); the toggle flips relative to whatever's showing now.
+function systemDark() { return matchMedia("(prefers-color-scheme: dark)").matches; }
+
+function applyTheme(t) {
+  const root = document.documentElement;
+  if (t === "light" || t === "dark") root.setAttribute("data-theme", t);
+  else root.removeAttribute("data-theme");
+  const showingDark = t === "dark" || (t !== "light" && systemDark());
+  const btn = $("#theme-toggle");
+  if (btn) btn.textContent = showingDark ? "☀︎" : "☾";  // the mode you'd switch TO
+}
+
+function initTheme() {
+  applyTheme(localStorage.getItem("ledger-theme"));
+  $("#theme-toggle")?.addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme");
+    const showingDark = cur === "dark" || (cur !== "light" && systemDark());
+    const next = showingDark ? "light" : "dark";
+    localStorage.setItem("ledger-theme", next);
+    applyTheme(next);
+  });
+}
+
 async function boot() {
+  initTheme();  // apply the saved (or system) theme + wire the toggle
   try {
     const s = await api("/api/status");
     if (s.setup_required) return showAuth(true);

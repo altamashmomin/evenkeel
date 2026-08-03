@@ -191,7 +191,48 @@ form > .btn.primary { width: 100%; margin-top: 18px; }
   padding: 8px 12px; cursor: pointer; border-radius: 8px;
 }
 .topnav button.on, .tabbar button.on { color: var(--brass); }
-.topbar .btn.ghost { margin-left: auto; font-size: 12px; padding: 7px 10px; }
+.topbar .btn.ghost { font-size: 12px; padding: 7px 10px; }
+
+/* greeting header (Garden) */
+.greeting { display: flex; flex-direction: column; justify-content: center; }
+.greet-kicker {
+  font-family: var(--mono); font-weight: 600; font-size: 12.5px;
+  color: var(--muted); margin: 0 0 1px;
+}
+.greet-title {
+  font-family: var(--mono); font-weight: 700; font-size: 20px;
+  letter-spacing: -0.02em; margin: 0;
+}
+.topbar-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.avatars { display: flex; }
+.avatars .av {
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--mono); font-weight: 700; color: #fff; font-size: 13px;
+  border: 2.5px solid var(--surface);
+}
+.avatars .av + .av { margin-left: -10px; }
+.icon-btn {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--surface);
+  border: 1px solid var(--line); color: var(--text); font-size: 15px;
+  display: grid; place-items: center; cursor: pointer; flex: none;
+}
+.icon-btn:active { transform: translateY(1px); }
+
+/* ambient organic light */
+.ambient { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.blob {
+  position: absolute; border-radius: 50%; filter: blur(60px);
+  opacity: 0.45; animation: drift 20s ease-in-out infinite;
+}
+.blob.a { width: 320px; height: 320px; top: -90px; right: -70px;
+  background: radial-gradient(circle, #B6D8BE, transparent 70%); }
+.blob.b { width: 280px; height: 280px; top: 42%; left: -110px;
+  background: radial-gradient(circle, #F3DCB0, transparent 70%); animation-delay: -7s; }
+.blob.c { width: 240px; height: 240px; bottom: 40px; right: -60px;
+  background: radial-gradient(circle, #CFE3E6, transparent 70%); animation-delay: -13s; }
+@keyframes drift { 0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(14px, -18px) scale(1.06); } }
+@media (prefers-reduced-motion: reduce) { .blob { animation: none; } }
 
 main {
   max-width: 680px;
