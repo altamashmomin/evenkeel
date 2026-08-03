@@ -825,14 +825,20 @@ Charlee): two-directions compare w/ live light-dark toggle
   external dep), `--radius` 12→20, FAB shadow softened, `theme-color` metas per
   scheme. Suite 334 + 41 render green; no gate (CSS/HTML only). NOT deployed yet
   — holding the deploy until the signature components land so Charlee's first
-  sight is the coherent Garden, not a half-reskin. **(2) signature components**
-  (hero balance card, income savings ring, goal growth vessels, category bars,
-  the floating rounded bottom-nav w/ avatars + elevated +) — these need markup
-  changes in render.js/app.js/index.html, done against the render seam; **(3)**
-  sweep the other tabs (Activity/Goals/Bills/Analytics/Ask) for per-screen
-  polish; **(4)** motion + organic touches (ambient blobs, transitions, growth
-  animations). Since the in-app Browser tool is wedged, visual sign-off is via
-  a published preview artifact before each deploy.
+  sight is the coherent Garden, not a half-reskin. **(2) signature components —
+  DONE for the dashboard (Aug 2):** income savings ring (`incomeCardHTML` →
+  conic ring, seam-tested, commit a7b66b5); balance hero (`beamHTML` → green
+  `.balance-hero` card, which also dropped its state-coupling); goal growth
+  vessels; floating rounded Garden nav pill + rounded-square FAB (f5c6ee3).
+  render seam 41 + suite 334 green; frontend-only, no gate. The Garden
+  dashboard is now coherent. **IA note deferred:** the mock's 5-tabs-+-center-+
+  nav is an information-architecture change (real app has 6 tabs) — kept 6 tabs
+  + separate FAB for now; consolidating is a UX call for Alta/Charlee later.
+  **(3)** sweep the other tabs (Activity/Goals/Bills/Analytics/Ask) for
+  per-screen polish; **(4)** motion + organic touches (ambient blobs,
+  transitions, growth animations). Since the in-app Browser tool is wedged,
+  visual sign-off is on the real device after deploy (a synthetic preview is
+  both heavy and less faithful than the real app given the token-driven CSS).
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
