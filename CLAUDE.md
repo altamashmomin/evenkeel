@@ -752,6 +752,21 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
   db row flips; (2) `POST /api/ask` write-enabled + updated system prompt; (3)
   Ask-tab "tagged ✓" UI feedback. No schema/migration/gate (existing verb).
   Prereq: `ANTHROPIC_API_KEY` already on the Pi (⚠ expires ~Aug 30, 2026).
+  - **Inc 1 done (Aug 2, 2026).** `agent_write_tools.py` — one-tool surface
+    (`ledger_classify_inflow`), kept out of the read-only shared registry,
+    executing via an injected caller against the same `PUT …/classify` route
+    the SPA uses. `ask_loop.py`: `make_app_caller` (in-process POST/PUT under
+    the caller's session, 4xx→recoverable tool error) + `run_ask` gains a
+    `caller` param — when given, the write tools are appended (one prompt-cache
+    breakpoint on the combined block) and their `tool_use` routes to the caller;
+    `caller=None` stays byte-unchanged read-only. **The live route is still
+    read-only — enabling it is inc 2.** `tests/test_ask_write.py` (4, mocked
+    client, no key): the tool actually flips `income_type` through the route +
+    logs as `ui:avery`; write tools appear only with a caller (14 vs 13); a bad
+    id and an outflow are both caught (the verb's inflow-only criterion holds).
+    Suite 329→333 python + 39 render; no gate. **Inc 2 next** —
+    `answer()`/`POST /api/ask` pass the caller in, and the system prompt's "you
+    can look but not change anything" becomes the tag-after-they-tell-you rule.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
