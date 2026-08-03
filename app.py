@@ -950,10 +950,12 @@ def search_transactions_view():
 @app.post("/api/ask")
 @session_required
 def ask():
-    """Charlee's in-app assistant. Runs a bounded Anthropic tool-use loop over
-    the read tools IN-PROCESS under the caller's own session (no MCP, no bearer
-    token) and returns the answer. session_required — not bearer: a read token
-    must never trigger paid API calls. Read-only; the loop can only read.
+    """Charlee's in-app assistant. Runs a bounded Anthropic tool-use loop
+    IN-PROCESS under the caller's own session (no MCP, no bearer token) and
+    returns the answer. session_required — not bearer: a read token must never
+    trigger paid API calls. The loop reads freely and can TAG an inflow
+    (classify_inflow) through the same route the SPA uses, under the caller's
+    identity; it cannot move money, settle up, make rules, or edit/delete.
     History is client-held and passed back each turn."""
     data = request.get_json(silent=True) or {}
     message = (data.get("message") or "").strip()

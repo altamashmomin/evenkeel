@@ -100,6 +100,40 @@ class AskRouteTests(unittest.TestCase):
         # the model saw the vocabulary system prompt
         self.assertIn("true_income", mock.calls[0]["system"])
 
+    def test_tag_via_ask_writes_the_row(self):
+        # The live route is now write-enabled: a classify tool_use through
+        # POST /api/ask actually tags the row, under the session's identity.
+        import sqlite3
+        conn = sqlite3.connect(self.db_path); conn.row_factory = sqlite3.Row
+        txn_id = conn.execute(
+            "SELECT id FROM transactions WHERE direction = 'in' "
+            "AND income_type = 'unclassified' ORDER BY id LIMIT 1").fetchone()["id"]
+        conn.close()
+        mock = MockAnthropic([
+            resp([tool_block("ledger_classify_inflow",
+                             {"transaction_id": txn_id, "income_type": "paycheck"})],
+                 "tool_use"),
+            resp([text_block("Tagged it as your paycheck ✓")], "end_turn"),
+        ])
+        self.use_mock(mock)
+        r = self.client().post("/api/ask", json={"message": "that was my paycheck"})
+        self.assertEqual(200, r.status_code)
+        self.assertEqual(["ledger_classify_inflow"], r.get_json()["tools_used"])
+        # the write tool was offered (14), and the prompt now grants tagging
+        self.assertEqual(14, len(mock.calls[0]["tools"]))
+        self.assertIn("ledger_classify_inflow", mock.calls[0]["system"])
+        # the row really flipped, logged as the session's person
+        conn = sqlite3.connect(self.db_path); conn.row_factory = sqlite3.Row
+        try:
+            self.assertEqual("paycheck", conn.execute(
+                "SELECT income_type FROM transactions WHERE id = ?",
+                (txn_id,)).fetchone()["income_type"])
+            self.assertEqual("ui:avery", conn.execute(
+                "SELECT actor FROM audit_log WHERE action = 'classify_inflow' "
+                "AND target = ?", (f"transaction:{txn_id}",)).fetchone()["actor"])
+        finally:
+            conn.close()
+
     def test_empty_message_is_400(self):
         self.use_mock(MockAnthropic([]))
         self.assertEqual(400, self.client().post("/api/ask", json={"message": "  "}).status_code)

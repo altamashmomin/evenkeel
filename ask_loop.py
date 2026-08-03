@@ -1,13 +1,15 @@
 """ask_loop — the bounded Anthropic tool-use loop behind Charlee's Ask tab.
 
-Read-only: it wires the shared read tools (agent_read_tools) to the Anthropic
-Messages API and runs the propose→tool→answer loop until the model has an
-answer or the round cap is hit. The Anthropic client and the read `getter` are
-both injected, so this runs headless in tests against a mocked client with no
-API key and no live calls.
+It wires the shared read tools (agent_read_tools) plus, when a write `caller`
+is supplied, the one write tool (agent_write_tools: tag an inflow) to the
+Anthropic Messages API, and runs the tool→answer loop until the model has an
+answer or the round cap is hit. The Anthropic client, the read `getter`, and
+the write `caller` are all injected, so this runs headless in tests against a
+mocked client with no API key and no live calls.
 
-Everything money-related comes back through the read tools (which bottom out
-in the app's own derivations); the loop itself does no math and never writes.
+Everything money-related comes back through the tools (which bottom out in the
+app's own derivations and verbs); the loop itself does no math, and the only
+write it can make is tagging an inflow — through the same route the SPA uses.
 """
 import json
 import os
@@ -112,9 +114,13 @@ def system_prompt(period):
         "counts refunds and transfers and is NOT income — never call it income. "
         "If there are unclassified inflows, say the income numbers are "
         "provisional and suggest tagging them in the app.\n"
-        "- You can look but not change anything. To tag a deposit, record a "
-        "payment between them, edit a transaction, or make a rule, tell them to "
-        "do it in the app — it's quick.\n"
+        "- You CAN tag a deposit (money that came in) with what kind it is — "
+        "but ONLY with ledger_classify_inflow, and ONLY after they've told you "
+        "in their own words what it was. Never guess the type; if you're unsure, "
+        "ask which deposit and what kind. After tagging, say plainly what you "
+        "did (it's reversible). You still cannot move money, record a settle-up "
+        "between them, make a rule, or edit or delete anything — for those, tell "
+        "them to do it in the app.\n"
         "- If a tool errors or you're unsure, say so plainly rather than guessing."
     )
 
@@ -183,4 +189,5 @@ def answer(app, user_id, message, *, period, history=None, client=None):
     return run_ask(
         client, make_app_getter(app, user_id), message,
         model=os.environ.get("ASK_MODEL", DEFAULT_MODEL),
-        system=system_prompt(period), history=history)
+        system=system_prompt(period), history=history,
+        caller=make_app_caller(app, user_id))
