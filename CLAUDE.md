@@ -783,12 +783,23 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
     changes anything" / is "read-only"; now they say it can tag a deposit (other
     changes still in the app). `.ask-tagged` chip in style.css. Frontend only;
     render seam 39→41; no gate. **Ask-tab write (tagging) is feature-complete
-    (inc 1–3).** Remaining: **deploy** (frontend + route, no migration/gate —
-    advance `main`, `deploy.sh origin/main`) + a live smoke of a real tag
-    through the Ask tab (needs the Pi's `ANTHROPIC_API_KEY`, ⚠ expires ~Aug 30).
-    Visual check of the chip fell to the render seam + code (in-app Browser tool
-    still wedged). Deferred later: rules two-phase in chat, streaming,
-    conversation persistence.
+    (inc 1–3).** Visual check of the chip fell to the render seam + code (in-app
+    Browser tool still wedged). Deferred later: rules two-phase in chat,
+    streaming, conversation persistence.
+  - **DEPLOYED TO THE PI (Aug 2, 2026).** Advanced `main` to rework's tree via
+    `--no-ff` merge `6d0414f` (first parent = prior main `3984f35`, fast-forward
+    push); `deploy/deploy.sh origin/main` → **GATE PASS, zero diff, no
+    structural changes** (frontend + route only, no migration; `pip install` a
+    no-op — `anthropic` already present), `pifinance` restarted clean (no
+    `ledger-mcp` restart — this doesn't touch the MCP server). Rollback backup
+    `finance.db.bak-2026-08-02-224128`. Verified over the tailnet: served
+    `/render.js` carries the `ask-tagged` chip + "tag a deposit" copy (stale
+    "never changes" gone), `/app.js` reads `tools_used`→`tagged` (stale
+    "Read-only" gone), `/style.css` has `.ask-tagged`; app healthy. **Charlee
+    can now tag inflows by chatting in the Ask tab** — write path is
+    session-based and live wherever `ANTHROPIC_API_KEY` is set (⚠ expires
+    ~Aug 30). Remaining is the human live smoke: tag a real deposit through the
+    tab.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
