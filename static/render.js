@@ -73,11 +73,21 @@
     [/shop|amazon|cloth|store|retail/, "🛍️"],
     [/insur/, "🛡️"],
     [/subscrib|membership/, "🔁"],
+    // household staples — so pantry rows get a real icon, not the card fallback
+    [/paper|towel|napkin|tissue|toilet/, "🧻"],
+    [/soap|detergent|cleaner|cleaning|dish/, "🧴"],
+    [/trash|garbage|\bbag\b/, "🗑️"],
+    [/toothpaste|shampoo|toiletr|razor|deodorant/, "🧼"],
   ];
   function catEmoji(s) {
     const t = (s || "").toLowerCase();
     for (const [re, e] of CAT_EMOJI) if (re.test(t)) return e;
     return "💳";
+  }
+  // Inventory rows want a homey fallback (a basket), not the money card glyph.
+  function itemIcon(it) {
+    const e = catEmoji(it.category || it.name);
+    return e === "💳" ? "🧺" : e;
   }
 
   // The "vs last month" pill for the Spent card, from an income-trend series
@@ -426,7 +436,78 @@
     return bubbles + thinking;
   }
 
-  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
+  /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 =====
+     Pure function of the /api/inventory JSON:
+       { items: [staples, urgent-first], shopping: [staples low/out + oneoffs],
+         low_count }
+     Two cards: a derived "Need to buy" list (check items off as bought) and the
+     staples tracker (a tap-to-cycle stocked→low→out chip per row). Each card
+     ends in a quick-add field. Interaction wiring lives in app.js; this only
+     builds the markup + its data-* hooks. A staple that's low/out shows in both
+     cards on purpose — the shopping list is a view over the same items. */
+  function inventoryHTML(data) {
+    const items = data.items || [];
+    const shopping = data.shopping || [];
+
+    const shopRows = shopping.length
+      ? `<ul class="list">${shopping.map((it) => {
+          const tag = it.kind === "oneoff"
+            ? `<span class="badge due">need</span>`
+            : `<span class="badge ${it.status === "out" ? "overdue" : "due"}">${esc(it.status)}</span>`;
+          const sub = it.note ? esc(it.note) : (it.kind === "oneoff" ? "one-off" : "staple");
+          return `<li>
+            <span class="ic">${itemIcon(it)}</span>
+            <div class="grow">
+              <div class="title">${esc(it.name)}</div>
+              <div class="sub">${sub}</div>
+            </div>
+            ${tag}
+            <button class="btn small" data-item-got="${it.id}">Got it</button>
+          </li>`;
+        }).join("")}</ul>`
+      : `<p class="empty">Nothing to buy — you're all stocked 🌿</p>`;
+
+    const stapleRows = items.length
+      ? `<ul class="list">${items.map((it) => `
+          <li>
+            <span class="ic">${itemIcon(it)}</span>
+            <div class="grow">
+              <div class="title">${esc(it.name)}</div>
+              ${it.note ? `<div class="sub">${esc(it.note)}</div>` : ""}
+            </div>
+            <button class="status-chip ${it.status}" data-item-cycle="${it.id}"
+                    data-status="${it.status}"
+                    aria-label="${esc(it.name)} is ${it.status}; tap to change">${esc(it.status)}</button>
+            <button class="item-x" data-item-remove="${it.id}"
+                    aria-label="Stop tracking ${esc(it.name)}">✕</button>
+          </li>`).join("")}</ul>`
+      : `<p class="empty">No staples tracked yet. Add the things you'd hate to run out of.</p>`;
+
+    return `
+      <div class="section-head">
+        <p class="eyebrow" style="margin:0">The pantry</p>
+        ${data.low_count > 0 ? `<span class="badge due">${data.low_count} running low</span>` : ""}
+      </div>
+      <div class="card">
+        <p class="eyebrow">Need to buy</p>
+        ${shopRows}
+        <form class="inv-add" id="inv-add-oneoff" autocomplete="off">
+          <input name="name" maxlength="100" placeholder="Add something to buy…">
+          <button class="btn small primary" type="submit">Add</button>
+        </form>
+      </div>
+      <div class="card">
+        <p class="eyebrow">Staples</p>
+        ${stapleRows}
+        <form class="inv-add" id="inv-add-staple" autocomplete="off">
+          <input name="name" maxlength="100" placeholder="Track a staple…">
+          <button class="btn small primary" type="submit">Add</button>
+        </form>
+      </div>`;
+  }
+
+  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
+           inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML, askThreadHTML };

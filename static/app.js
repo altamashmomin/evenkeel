@@ -9,7 +9,7 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         vsLastMonth, incomeCardHTML, incomeTrendChartHTML, spendingCompositionHTML,
         memberBreakdownHTML, billVarianceHTML, savingsRateTrendHTML,
-        categoryTrendHTML, askThreadHTML } = window.Render;
+        categoryTrendHTML, askThreadHTML, inventoryHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -180,6 +180,7 @@ const TABS = [
   ["bills", "Bills"],
   ["goals", "Goals"],
   ["analytics", "Analytics"],
+  ["inventory", "Pantry"],
   ["ask", "Ask"],
 ];
 
@@ -239,6 +240,7 @@ async function render() {
     if (state.tab === "bills") main.innerHTML = await renderBills();
     if (state.tab === "goals") main.innerHTML = await renderGoals();
     if (state.tab === "analytics") main.innerHTML = await renderAnalytics();
+    if (state.tab === "inventory") main.innerHTML = await renderInventory();
     if (state.tab === "ask") main.innerHTML = renderAsk();
     wireMain();
   } catch (e) {
@@ -347,6 +349,7 @@ async function renderDashboard() {
     <div class="home-links">
       <button class="home-link" data-goto="bills" type="button">📅 Bills</button>
       <button class="home-link" data-goto="analytics" type="button">📊 Analytics</button>
+      <button class="home-link" data-goto="inventory" type="button">🧺 Pantry</button>
     </div>`;
 }
 
@@ -542,6 +545,29 @@ async function renderAnalytics() {
     ${billVarianceHTML(bills)}`;
 }
 
+/* ================= inventory ("the pantry") ================= */
+
+// The status a tap cycles to: stocked → low → out → stocked. One tap walks the
+// staple down as it's used, and back up once restocked.
+const NEXT_STATUS = { stocked: "low", low: "out", out: "stocked" };
+
+async function renderInventory() {
+  const data = await api("/api/inventory");
+  return inventoryHTML(data);
+}
+
+async function setItemStatus(id, status) {
+  await api(`/api/inventory/${id}`, { method: "PUT", body: { status } });
+  render();
+}
+
+async function addItem(name, kind) {
+  name = (name || "").trim();
+  if (!name) return;
+  await api("/api/inventory", { method: "POST", body: { name, kind } });
+  render();
+}
+
 /* ================= ask ================= */
 
 // Renders from client state only (no fetch), so re-rendering mid-chat is cheap.
@@ -636,6 +662,29 @@ function wireMain() {
       await api(`/api/goals/${el.dataset.goalDel}`, { method: "DELETE" });
       render();
     }));
+
+  // Inventory: tap a status chip to cycle it; check items off the shopping
+  // list ("Got it" = bought = stocked); remove a staple; quick-add either kind.
+  $$("[data-item-cycle]").forEach((el) =>
+    el.addEventListener("click", () =>
+      setItemStatus(+el.dataset.itemCycle, NEXT_STATUS[el.dataset.status] || "stocked")));
+  $$("[data-item-got]").forEach((el) =>
+    el.addEventListener("click", () => setItemStatus(+el.dataset.itemGot, "stocked")));
+  $$("[data-item-remove]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      if (!confirm("Stop tracking this item? Its history stays in the log.")) return;
+      await api(`/api/inventory/${el.dataset.itemRemove}`, { method: "DELETE" });
+      render();
+    }));
+  // (An input named "name" is shadowed by form.name, so read it directly.)
+  $("#inv-add-staple")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    addItem($("input", e.target).value, "staple");
+  });
+  $("#inv-add-oneoff")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    addItem($("input", e.target).value, "oneoff");
+  });
 
   // Ask tab: submit the question, or send an example; then keep the thread
   // scrolled to the latest and the input focused for the next question.

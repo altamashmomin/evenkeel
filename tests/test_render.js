@@ -348,4 +348,55 @@ check("askThread escapes message content (no HTML injection)", () => {
   assert.ok(!html.includes("<img src=x"), "no raw tag");
 });
 
+// ---- itemIcon: pantry rows fall back to a basket, not the money card ----
+check("itemIcon maps known keywords and falls back to a basket", () => {
+  assert.strictEqual(R.itemIcon({ name: "Paper towels" }), "🧻");
+  assert.strictEqual(R.itemIcon({ name: "Dish soap" }), "🧴");
+  assert.strictEqual(R.itemIcon({ name: "Coffee beans" }), "☕");
+  assert.strictEqual(R.itemIcon({ name: "Batteries" }), "🧺");   // unmapped -> basket
+  assert.strictEqual(R.itemIcon({ category: "Groceries", name: "x" }), "🛒");
+});
+
+// ---- inventoryHTML ----
+check("inventoryHTML renders staples with a tap-to-cycle status chip", () => {
+  const html = R.inventoryHTML({
+    items: [{ id: 1, name: "Coffee", category: null, kind: "staple", status: "low", note: "the dark roast" }],
+    shopping: [], low_count: 1,
+  });
+  assert.ok(html.includes('data-item-cycle="1"'), "chip carries the id");
+  assert.ok(html.includes('data-status="low"'), "chip carries current status");
+  assert.ok(html.includes('status-chip low'), "chip coloured by status");
+  assert.ok(html.includes("the dark roast"), "note shown as sub");
+  assert.ok(html.includes('data-item-remove="1"'), "remove control present");
+  assert.ok(html.includes("1 running low"), "low_count badge");
+});
+check("inventoryHTML shopping list shows staple status and one-off need", () => {
+  const html = R.inventoryHTML({
+    items: [],
+    shopping: [
+      { id: 2, name: "Milk", kind: "staple", status: "out", note: null },
+      { id: 3, name: "Party candles", kind: "oneoff", status: "out", note: null },
+    ],
+    low_count: 1,
+  });
+  assert.ok(html.includes('data-item-got="2"') && html.includes('data-item-got="3"'), "each row checkable");
+  assert.ok(html.includes('badge overdue">out'), "out staple badged as urgent");
+  assert.ok(html.includes('badge due">need'), "one-off shows 'need'");
+});
+check("inventoryHTML empty states for both cards", () => {
+  const html = R.inventoryHTML({ items: [], shopping: [], low_count: 0 });
+  assert.ok(html.includes("Nothing to buy"), "empty shopping list");
+  assert.ok(html.includes("No staples tracked yet"), "empty staples");
+  assert.ok(!html.includes("running low"), "no low badge at zero");
+  assert.ok(html.includes('id="inv-add-staple"') && html.includes('id="inv-add-oneoff"'), "both add fields");
+});
+check("inventoryHTML escapes item names (no injection)", () => {
+  const html = R.inventoryHTML({
+    items: [{ id: 4, name: "<b>x</b>", kind: "staple", status: "stocked", note: null }],
+    shopping: [], low_count: 0,
+  });
+  assert.ok(html.includes("&lt;b&gt;x&lt;/b&gt;"), "name escaped");
+  assert.ok(!html.includes("<b>x</b>"), "no raw tag");
+});
+
 console.log(`render tests passed (${passed} checks)`);
