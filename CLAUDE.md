@@ -931,11 +931,34 @@ shortcut pill, 5-slot nav unchanged) → chat input → later inference/predicti
   render. The in-app Browser tool worked this session: verified live end-to-end
   (status cycle drops Milk off the list + lowers the "running low" badge, both
   add fields, one-off archive-on-buy, mobile 5-slot nav + desktop 7-tab
-  topnav). Still not deployed. **Inc 4 next** — chat input: extend the Ask
-  write-tool surface (`agent_write_tools.py`) with `add_item`/`set_item_status`
-  so Charlee can say "we're out of X" / "add Y" / "what do we need?"; deploy
-  rides inc 4 with `#008 --live` (or ship inc 3 now if a UI-only deploy is
-  wanted first).
+  topnav). Still not deployed.
+- **Inc 4 done (Aug 3, 2026).** Pantry chat input — Charlee keeps the pantry by
+  talking ("we're out of coffee", "add paper towels", "what do we need?"). No
+  new verbs/routes: the tools bottom out in the inc-2 endpoints the SPA uses
+  (one write path). **Read surface (shared, both doors):** `ledger_inventory`
+  joins the 13 read tools in `agent_read_tools.py` + a `ledger_mcp` wrapper
+  (drift test stays green; Alta's MCP gains pantry *visibility* too) — it's the
+  "what do we need?" read and how the model finds an item's `id` before
+  changing it. **Write surface (Ask-only, Charlee's door):** `ledger_add_item`
+  + `ledger_set_item_status` in `agent_write_tools.py` — direct writes like
+  `classify_inflow` (logged, reversible, `ui:<name>`), executed via the session
+  caller against POST/PUT `/api/inventory`; pantry never touches money, so no
+  two-phase. Item removal is deliberately absent (ACL by omission — that's the
+  app). System prompt gained the pantry capability; Ask-tab copy updated for
+  honesty + a "what do we need?" example chip. **MCP-write tier (Alta's door)
+  for the pantry is a later increment, if wanted.** Tests: pantry writes really
+  create/flip the item row through the route + log as the person, bad id
+  recoverable, write tools appear only with a caller (14 read + 3 write),
+  `ledger_inventory` byte-equal to `/api/inventory` through MCP dispatch; four
+  loop/route count bumps. Pure clients of gated endpoints → no balance gate;
+  suite 346→350 python + 48 render. `ask_smoke.py` migrates to v8, so a live
+  pantry question ("add coffee, we're low") is runnable with an
+  `ANTHROPIC_API_KEY` (⚠ Pi key expires ~Aug 30). **The pantry MVP (INVENTORY-
+  DESIGN steps 1–4) is now CODE-COMPLETE** — tap OR talk. **NOT yet deployed:
+  inc 1–4 all await the first pantry deploy, which applies migration `#008
+  --live`** (deploy `deploy/deploy.sh origin/main` — Alta runs it). Next after
+  deploy: INVENTORY-DESIGN step 5 (purchase-feed auto-population + restock
+  prediction), each its own increment.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
