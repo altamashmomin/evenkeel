@@ -798,8 +798,9 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
     "Read-only" gone), `/style.css` has `.ask-tagged`; app healthy. **Charlee
     can now tag inflows by chatting in the Ask tab** — write path is
     session-based and live wherever `ANTHROPIC_API_KEY` is set (⚠ expires
-    ~Aug 30). Remaining is the human live smoke: tag a real deposit through the
-    tab.
+    ~Aug 30). **CONFIRMED LIVE (Aug 2, 2026): Charlee tagged a real deposit
+    through the Ask tab on her phone** — the full chat→tag path works end to end
+    for the priority user. Ask-tab tagging is DONE and in use.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
