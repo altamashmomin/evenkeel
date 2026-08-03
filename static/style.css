@@ -324,6 +324,12 @@ main {
 .list .title { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list .sub { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
 .list .amt { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 15px; }
+/* rounded emoji tile leading each list row (Garden) */
+.list .ic {
+  width: 36px; height: 36px; border-radius: 11px; flex: none;
+  display: grid; place-items: center; font-size: 17px; background: var(--surface-2);
+}
+.list .ic.in { background: color-mix(in srgb, var(--ok) 16%, transparent); }
 .tap { cursor: pointer; }
 .tap:active { background: var(--surface-2); }
 .badge {

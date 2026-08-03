@@ -120,6 +120,16 @@ check("empty state when no inflows", () => {
   assert.ok(!html.includes("income-grid"), "no stat grid in empty state");
 });
 
+// ---- catEmoji ----
+check("catEmoji maps categories and falls back to a card", () => {
+  assert.strictEqual(R.catEmoji("Groceries"), "🛒");
+  assert.strictEqual(R.catEmoji("Coffee shop"), "☕");
+  assert.strictEqual(R.catEmoji("Electric bill"), "⚡");
+  assert.strictEqual(R.catEmoji("Rent"), "🏠");
+  assert.strictEqual(R.catEmoji("Something unmapped"), "💳");
+  assert.strictEqual(R.catEmoji(""), "💳");
+});
+
 // ---- shortMonth ----
 check("shortMonth abbreviates", () => {
   assert.strictEqual(R.shortMonth("2026-07"), "Jul");
