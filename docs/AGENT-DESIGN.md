@@ -799,3 +799,77 @@ D. **MCP write tools.** The five tools + `api_post`; tests via the
 **Prereqs Alta supplies:** a `read,write` bearer token minted through the app
 (inc C) for the MCP client, repointed over Tailscale. No new external
 dependency (the `mcp`/`httpx` stack is already installed for the read tier).
+
+---
+
+## Charlee's Ask tab — write (tagging) build plan (scoped Aug 2, 2026)
+
+Fleshes out increment 4's "write tools" from the Ask-tab v1 plan into its own
+increment: extends the in-app assistant from read-only to letting Charlee TAG
+inflows by chatting — the routine action, in the door she actually uses. The
+MCP write tier (above) is Alta's door; this is the same capability through
+Charlee's in-app, session-based door.
+
+### Decisions settled with Alta (Aug 2, 2026)
+
+- **Tagging only (v1).** Only `classify_inflow` is exposed — she says "that
+  deposit was my paycheck" and the row is tagged. Rules (`create_income_rule`/
+  `apply_rules`, two-phase) are a deliberate follow-on, mirroring the
+  read-first-then-write staging used throughout.
+- **Conversational confirm.** The `income_type` comes from her own words; the
+  model tags and the reply confirms ("Tagged that $1,041 deposit as your
+  paycheck ✓"). No confirm card — tagging is reversible + logged, so a UI gate
+  is overkill (it would matter for irreversible writes, which stay unexposed).
+- **Model stays Haiku 4.5.** Writes are validated verbs (worst case a
+  reversible mislabel); bump to Sonnet only if mislabels appear.
+
+### Why this stays safe
+
+- **Dangerous tools don't exist** — only `classify_inflow` is in the loop's
+  tool list; settle-up, edit, delete, and money-movement verbs are omitted
+  (ACL-by-omission, invariant 3).
+- The write goes through the **same Flask route the SPA uses**
+  (`PUT …/classify` → the `classify_inflow` verb), so invariant 2's one-write-
+  path holds; it is attributed to `ui:<charlee>` in `audit_log` and is
+  reversible (re-tag).
+- Income never touches the balance (verb + tests), regardless of the door.
+- **The turn boundary is a natural confirm gate:** the loop returns to the
+  human after each message, so it can't chain propose→confirm without her
+  reply — which is what makes the deferred two-phase rules safe and natural
+  when they land.
+
+### What's new (small — the loop and verbs already exist)
+
+- `make_app_caller(app, user_id)` — in-process POST/PUT to the Flask write
+  routes under the caller's session (sibling of `make_app_getter`), returning
+  the route's JSON and surfacing its 4xx as a recoverable tool error.
+- A one-entry **write-tool surface** (`classify_inflow`) the loop consumes,
+  kept OUT of the read-only shared registry (`agent_read_tools` stays
+  read-only). Its description is chat-flavored — it may differ from the MCP
+  door's wording, which is fine: reads are shared one-source, writes needn't be.
+- `run_ask` routes write `tool_use` blocks to the caller (reads still to the
+  getter); write errors caught + recoverable, same as reads; round cap
+  unchanged.
+- `system_prompt`: the "you can look but not change anything" clause becomes
+  "you can tag a deposit once they tell you what kind it is; you still can't
+  move money, settle up, or edit/delete — point those to the app; tagging is
+  logged and reversible."
+
+### Increments
+
+1. **Write caller + write-tool + loop wiring.** Mocked-Anthropic-client tests
+   drive a scripted `classify_inflow` `tool_use` and assert the row's
+   `income_type` actually flips in the db (through the real route — reshape,
+   not recompute). No key, no schema/migration, no balance gate (existing verb;
+   the `seed_income` fixture has inflows to tag).
+2. **`POST /api/ask` write-enabled + system prompt.** The route passes the
+   caller into the loop; tests via a mocked client. Live smoke separately
+   (needs the key).
+3. **Ask-tab UI feedback** — a clear "tagged ✓" in the thread; optionally a
+   light refresh so an open data screen reflects the change. Frontend only;
+   node-seam tests if a render helper changes.
+4. **Later:** rules (two-phase across turns), streaming, conversation
+   persistence, per-day cost controls.
+
+**Prereqs:** `ANTHROPIC_API_KEY` already on the Pi (⚠ expires ~Aug 30, 2026 —
+rotate then; increments 1 and the tests need no key). No new dependency.

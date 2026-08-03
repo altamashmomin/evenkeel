@@ -734,6 +734,24 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
   whole session (repeated 300s navigate timeouts), so the visual checks fell
   back to code analysis + a throwaway CSS harness + on-device confirmation
   rather than a screenshot.
+
+- **Ask-tab write (tagging) for Charlee — SCOPED (Aug 2, 2026).** The chosen
+  next increment now that step 7 is complete: extend Charlee's in-app Ask loop
+  from read-only to letting her TAG inflows by chatting (her door; the MCP
+  write tier is Alta's). Plan in AGENT-DESIGN "Charlee's Ask tab — write
+  (tagging) build plan". Decisions settled with Alta: **tagging only**
+  (`classify_inflow`; rules two-phase deferred), **conversational confirm** (no
+  card — reversible + logged), **model stays Haiku 4.5**. Key facts: the loop
+  (`ask_loop.py`) and the write verbs/routes already exist, and the Ask
+  session already carries write scope — so the write goes through the same
+  `PUT …/classify` route the SPA uses (invariant 2), attributed to
+  `ui:<charlee>`; dangerous verbs stay omitted; the request/response boundary
+  is a natural human-confirm gate. Three increments: (1) `make_app_caller`
+  in-process POST/PUT + a one-entry write-tool surface (kept out of the
+  read-only shared registry) + loop routing, mocked-client tests assert the
+  db row flips; (2) `POST /api/ask` write-enabled + updated system prompt; (3)
+  Ask-tab "tagged ✓" UI feedback. No schema/migration/gate (existing verb).
+  Prereq: `ANTHROPIC_API_KEY` already on the Pi (⚠ expires ~Aug 30, 2026).
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
