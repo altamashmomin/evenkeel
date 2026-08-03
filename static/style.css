@@ -333,31 +333,34 @@ main {
 .tap { cursor: pointer; }
 .tap:active { background: var(--surface-2); }
 .badge {
-  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em;
-  text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--muted);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+  font-weight: 700; text-transform: uppercase; padding: 3px 9px; border-radius: 999px;
+  border: none; color: var(--muted); background: var(--surface-2);
 }
-.badge.due { border-color: var(--brass-dim); color: var(--brass); }
-.badge.overdue { border-color: var(--danger); color: var(--danger); }
-.badge.paid { border-color: var(--ok); color: var(--ok); }
-.badge.income { border-color: var(--ok); color: var(--ok); }
-.badge.untagged { border-color: var(--brass-dim); color: var(--brass); }
+.badge.due { color: var(--brass); background: color-mix(in srgb, var(--brass) 15%, transparent); }
+.badge.overdue { color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); }
+.badge.paid { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.badge.income { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.badge.untagged { color: var(--brass); background: color-mix(in srgb, var(--brass) 15%, transparent); }
 
 /* ---------- activity: income rows + filter ---------- */
 .income-in { color: var(--ok); }
 .filterbar { display: flex; gap: 8px; margin: 0 0 14px; }
 .filterbar button {
-  flex: 1; padding: 8px 0; border-radius: 8px; cursor: pointer;
+  flex: 1; padding: 9px 0; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--line); background: var(--surface); color: var(--muted);
-  font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+  font-family: var(--mono); font-weight: 700; font-size: 12px; letter-spacing: 0.02em;
 }
-.filterbar button.on { color: var(--text); border-color: var(--brass-dim); background: var(--surface-2); }
+.filterbar button.on {
+  color: var(--ok); border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
 .filterbar button:active { transform: translateY(1px); }
 .tagbanner {
-  display: block; width: 100%; margin: 0 0 14px; padding: 10px 14px;
-  border-radius: 10px; cursor: pointer; text-align: left;
-  border: 1px solid var(--brass-dim); background: transparent;
-  color: var(--brass); font-size: 13px;
+  display: block; width: 100%; margin: 0 0 14px; padding: 11px 14px;
+  border-radius: 14px; cursor: pointer; text-align: left;
+  border: 1px solid transparent; color: var(--brass); font-size: 13px;
+  background: color-mix(in srgb, var(--brass) 12%, transparent);
 }
 .tagbanner:active { transform: translateY(1px); }
 
@@ -489,7 +492,8 @@ main {
 .monthbar b { font-family: var(--mono); font-weight: 500; font-size: 14px; letter-spacing: 0.06em; }
 .monthbar button {
   background: var(--surface); border: 1px solid var(--line); color: var(--text);
-  width: 34px; height: 34px; border-radius: 8px; cursor: pointer; font-size: 16px;
+  width: 36px; height: 36px; border-radius: 12px; cursor: pointer; font-size: 16px;
+  box-shadow: 0 4px 12px -8px rgba(40, 60, 45, 0.4);
 }
 
 /* ---------- dialogs ---------- */
