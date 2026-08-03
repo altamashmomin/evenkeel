@@ -859,8 +859,16 @@ Charlee): two-directions compare w/ live light-dark toggle
   txnRow); the All/Spending/Income filter → rounded pills w/ green active, month
   switcher rounder, tag banner honey-pill; badges → soft-filled chips (cascades
   to income/tag chips + bill badges). Analytics/Ask were already token-themed.
-  render seam 42 + suite 334. **(4)** more motion/organic polish remains
-  (growth animations, transitions) as an optional finishing pass.
+  render seam 42 + suite 334. **(4) done (Aug 3):** growth motion — category
+  bars / goal vessels grow up (scaleX) on render, the savings/income ring's
+  conic fill animates 0→rate via a registered `@property --p`, balance hero +
+  cards get a soft fade-rise; all replay on render, all off under
+  prefers-reduced-motion (guard now kills animations too). **The Garden redesign
+  (phases 1–4) is complete and deployed** — whole app, light+dark w/ crossfade,
+  dashboard matches the mock, other tabs polished, growth motion. Framework
+  migration still deferred (CORE-DESIGN's no-framework line stands); optional
+  future: the "vs last month" pill (needs a prior-month API figure), and a
+  framework migration if/when richer interactions demand it.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
