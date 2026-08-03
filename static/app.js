@@ -6,10 +6,10 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
 // Pure presentation helpers live in render.js (loaded before this file) so
 // they can be unit-tested in plain node; app.js pulls them off the global.
-const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, incomeCardHTML,
-        incomeTrendChartHTML, spendingCompositionHTML, memberBreakdownHTML,
-        billVarianceHTML, savingsRateTrendHTML, categoryTrendHTML,
-        askThreadHTML } = window.Render;
+const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
+        incomeCardHTML, incomeTrendChartHTML, spendingCompositionHTML,
+        memberBreakdownHTML, billVarianceHTML, savingsRateTrendHTML,
+        categoryTrendHTML, askThreadHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -288,6 +288,7 @@ async function renderDashboard() {
   const bills = d.unpaid_bills.length
     ? `<ul class="list">${d.unpaid_bills.map((b) => `
         <li>
+          <span class="ic">${catEmoji(b.category || b.name)}</span>
           <div class="grow">
             <div class="title">${esc(b.name)}</div>
             <div class="sub">due the ${ord(b.due_day)}</div>
@@ -354,6 +355,7 @@ function txnRow(t) {
       : `<span class="badge income">${esc(t.income_type)}</span>`;
     return `
       <li class="tap" data-txn="${t.id}">
+        <span class="ic in">💵</span>
         <div class="grow">
           <div class="title">${esc(t.description)}</div>
           <div class="sub">
@@ -374,6 +376,7 @@ function txnRow(t) {
     ` · <span class="badge">${esc(t.source)}</span>`;
   return `
     <li class="tap" data-txn="${t.id}">
+      <span class="ic">${catEmoji(t.category)}</span>
       <div class="grow">
         <div class="title">${esc(t.description)}</div>
         <div class="sub">

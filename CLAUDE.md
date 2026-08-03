@@ -839,6 +839,24 @@ Charlee): two-directions compare w/ live light-dark toggle
   transitions, growth animations). Since the in-app Browser tool is wedged,
   visual sign-off is on the real device after deploy (a synthetic preview is
   both heavy and less faithful than the real app given the token-driven CSS).
+  **Decision (Aug 3): Alta wants the app modeled EXACTLY on the Garden mock**
+  (artifact `7558c5b2…`). Built + deployed the exact match in pieces, each a
+  clean frontend deploy (GATE PASS zero-diff): **inc 2b** greeting header +
+  member avatars + ambient drifting blobs + a manual ☀︎/☾ theme toggle
+  (data-theme + localStorage, overrides prefers-color-scheme); **inc 2c**
+  theme CROSSFADE (View Transitions), the mock's 5-slot mobile nav
+  (Home·Activity·[+]·Goals·Ask, elevated honey center + = add txn; Bills +
+  Analytics moved to two Home "shortcut" pills via data-goto; desktop keeps the
+  6-tab topnav; FAB desktop-only), green active tab, "Coming up"/"Growing
+  toward" copy, goal 🌱 + caption, green category bars; **inc 2d** rounded emoji
+  icon-tiles on the bills/recent lists via a shared seam-tested `catEmoji()`
+  (💵 for money-in). **The Garden dashboard now matches the mock**; the only
+  unbuilt mock element is the "▲ vs last month" pill (needs a prior-month
+  figure `/api/dashboard` doesn't return — deferred, minor). render seam 42 +
+  suite 334 throughout. Light/dark is a manual toggle OR follows the phone.
+  **(3)** the OTHER tabs (Activity/Goals/Bills/Analytics/Ask) still show the
+  token-themed old structure (not per-screen mock-tuned) — next; **(4)** more
+  motion/organic polish.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`

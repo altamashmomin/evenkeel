@@ -55,6 +55,31 @@
     return `You've tagged two as ${label}. Auto-tag future income that matches?`;
   }
 
+  // A small emoji for a spending category or bill/merchant name — the icon in
+  // each list row's tile. Keyword-matched on the lowercased text; 💳 as the
+  // catch-all. (Income rows use 💵, set at the call site.)
+  const CAT_EMOJI = [
+    [/grocer|market|whole foods|trader/, "🛒"],
+    [/restaur|dining|dinner|lunch|takeout|food|pizza|burger/, "🍽️"],
+    [/coffee|cafe|starbucks|espresso|tea/, "☕"],
+    [/gas|fuel|uber|lyft|transit|transport|parking|\bcar\b|auto/, "🚗"],
+    [/rent|mortgage|\bhome\b|housing|hoa/, "🏠"],
+    [/electric|power|utilit|energy/, "⚡"],
+    [/internet|wifi|\bphone\b|mobile|cable/, "🌐"],
+    [/water/, "💧"],
+    [/health|pharmac|doctor|medical|dental|gym|fitness/, "💊"],
+    [/entertain|movie|stream|netflix|spotify|music|game/, "🎬"],
+    [/travel|flight|hotel|airbnb|\btrip\b/, "✈️"],
+    [/shop|amazon|cloth|store|retail/, "🛍️"],
+    [/insur/, "🛡️"],
+    [/subscrib|membership/, "🔁"],
+  ];
+  function catEmoji(s) {
+    const t = (s || "").toLowerCase();
+    for (const [re, e] of CAT_EMOJI) if (re.test(t)) return e;
+    return "💳";
+  }
+
   function incomeCardHTML(inc, month) {
     // No inflows yet (the state until sync imports income, or an empty
     // month): a muted empty state, not a wall of zeros — same grammar as the
@@ -386,7 +411,7 @@
     return bubbles + thinking;
   }
 
-  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText,
+  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
            incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML, askThreadHTML };
