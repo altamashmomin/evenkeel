@@ -181,36 +181,20 @@ async function render() {
 /* ================= dashboard ================= */
 
 function beamHTML(bal) {
-  const [u1, u2] = state.users;
-  let fill = "";
-  if (!bal.settled) {
-    const owedIdx = state.users.findIndex((u) => u.id === bal.owed.id);
-    const color = owedIdx === 0 ? "var(--p1)" : "var(--p2)";
-    // tilt: cap visual width at 50% of the beam, scaled by amount (full at $200+)
-    const w = Math.min(50, 10 + (bal.amount / 200) * 40);
-    const side = owedIdx === 0 ? "right: 50%;" : "left: 50%;";
-    fill = `<div class="beam-fill" style="${side} width:${w}%; background:${color}"></div>`;
-  }
+  // The Garden hero: the who-owes-who number as the emotional centerpiece.
   const msg = bal.settled
-    ? `<p class="beam-msg">All settled up</p>
-       <p class="beam-sub">No one owes anything on shared expenses</p>`
-    : `<p class="beam-msg">${esc(bal.owes.name)} owes ${esc(bal.owed.name)}
-         <span class="amount">${fmt(bal.amount)}</span></p>
-       <p class="beam-sub">across all shared expenses</p>`;
+    ? `<p class="bh-who">All settled up</p>
+       <p class="bh-sub">No one owes anything on shared expenses</p>`
+    : `<p class="bh-who">${esc(bal.owes.name)} owes ${esc(bal.owed.name)}
+         <b>${fmt(bal.amount)}</b></p>
+       <p class="bh-sub">across all shared expenses</p>`;
   const settleBtn = bal.settled
     ? ""
-    : `<button class="btn small" id="btn-settle" type="button">Settle up</button>`;
+    : `<button class="bh-settle" id="btn-settle" type="button">Settle up</button>`;
   return `
-    <div class="card beam-card">
-      <p class="eyebrow">Between you two</p>
+    <div class="balance-hero">
+      <p class="bh-eyebrow">Between you two</p>
       ${msg}
-      <div class="beam"><div class="beam-center"></div>${fill}</div>
-      <div class="beam-names">
-        <span class="${u1.id === state.meId ? "me" : ""}">
-          <span class="dot" style="--pcolor: var(--p1)"></span>${esc(u1.display_name)}</span>
-        <span class="${u2.id === state.meId ? "me" : ""}">
-          <span class="dot" style="--pcolor: var(--p2)"></span>${esc(u2.display_name)}</span>
-      </div>
       ${settleBtn}
     </div>`;
 }
