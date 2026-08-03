@@ -872,6 +872,27 @@ Charlee): two-directions compare w/ live light-dark toggle
   now matches the mock with nothing outstanding. Framework migration still
   deferred (CORE-DESIGN's no-framework line stands) — the one remaining
   optional future, if/when richer interactions demand it.
+
+**NEW DIRECTION — Household Inventory ("the pantry"), SCOPED (Aug 3, 2026).**
+Alta wants to go beyond finance: track the ~20–30 household staples they don't
+want to run out of + a shared shopping list, so they don't buy twice or run
+low. Design doc written: `docs/INVENTORY-DESIGN.md` (governs, checked against
+CORE-DESIGN). Thesis: Ledger is uniquely placed because it already has the two
+things standalone inventory apps lack — the **bank feed** (purchases = what
+enters the home, for eventual self-population) and the **Ask assistant with
+write access** (upkeep by conversation). Discipline: curated staples, NOT
+exhaustive (exhaustive is the upkeep trap). Recommended MVP + settled defaults
+(open to redirect): household-scoped (like bills/goals), ONE `items` table with
+a 3-state `status` (stocked/low/out, NO quantities), the shopping list is a
+DERIVATION not a stored table, one-offs archive themselves when bought, chat is
+a first-class input from day one (add_item/set_item_status as direct writes
+like classify_inflow). Deferred: purchase auto-population, restock prediction,
+barcode, quantities, money tie-in. First non-finance domain → widens Ledger's
+identity to "the shared household" (money invariants untouched — inventory
+never touches money). Build order: **#008 items migration → verbs + derivations
+(shopping_list/low_stock) + endpoints → Garden Inventory SPA view (Home
+shortcut pill, 5-slot nav unchanged) → chat input → later inference/prediction.**
+Awaiting Alta's review of the doc before inc 1.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
