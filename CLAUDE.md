@@ -892,7 +892,16 @@ identity to "the shared household" (money invariants untouched — inventory
 never touches money). Build order: **#008 items migration → verbs + derivations
 (shopping_list/low_stock) + endpoints → Garden Inventory SPA view (Home
 shortcut pill, 5-slot nav unchanged) → chat input → later inference/prediction.**
-Awaiting Alta's review of the doc before inc 1.
+- **Inc 1 done (Aug 3, 2026).** Migration #008 creates the empty `items` table
+  (schema_version 7→8): household staples + one-off needs, 3-state `status`
+  (stocked/low/out), no quantities, soft-delete, `CHECK`-constrained `kind`/
+  `status`. `items` into `GOVERNED_TABLES`; add_item/set_item_status/rename_item/
+  set_item_note/archive_item rows added to CORE-DESIGN's registry first (verbs
+  in inc 2); `REQUIRED_SCHEMA_VERSION` 7→8. **Enumerated-diff gate PASS**
+  (notes/008: items=0 + schema_version bump, nothing else — inventory never
+  touches money); suite 334 + 43 render. NOT deployed (deploy comes with a later
+  inc, `#008 --live`). **Inc 2 next** — the verbs + `shopping_list`/`low_stock`
+  derivations + read/write endpoints.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
