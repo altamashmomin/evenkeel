@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 GOVERNED_TABLES = {
     "transactions", "splits", "links", "goals", "goal_contributions",
     "bills", "bill_payments", "audit_log", "income_rules", "members",
-    "api_tokens", "pending_actions",
+    "api_tokens", "pending_actions", "items",
 }
 
 WRITE_RE = re.compile(
