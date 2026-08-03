@@ -69,8 +69,13 @@
     const net = inc.net_cash_flow;
     const netCls = net >= 0 ? "pos" : "neg";
     const netStr = (net >= 0 ? "+" : "−") + fmt(Math.abs(net));
-    // savings_rate is a ratio or null (no paycheck income to divide by).
-    const rate = inc.savings_rate == null ? "—" : Math.round(inc.savings_rate * 100) + "%";
+    // savings_rate is a ratio or null (no paycheck income to divide by). The
+    // ring fills 0..100% of the rate; a negative rate shows red, empty ring.
+    const hasRate = inc.savings_rate != null;
+    const ratePct = hasRate ? Math.round(inc.savings_rate * 100) : 0;
+    const rate = hasRate ? ratePct + "%" : "—";
+    const ringFill = Math.max(0, Math.min(100, ratePct));
+    const ringCls = hasRate && ratePct < 0 ? "neg" : "";
     // Total-in row only when gross differs from true income (i.e. there's
     // non-paycheck money in — refunds, gifts — worth distinguishing).
     const grossRow = inc.gross_inflows !== inc.true_income
@@ -84,17 +89,12 @@
     return `
     <div class="card">
       <p class="eyebrow">Income in ${monthName(month)}</p>
-      <p class="stat-big income-amt">${fmt(inc.true_income)}</p>
-      <p class="income-label">earned — paychecks only</p>
-      <div class="income-grid">
-        <div class="income-cell">
-          <span class="income-cell-label">Net cash flow</span>
-          <span class="income-cell-val ${netCls}">${netStr}</span>
+      <div class="income">
+        <div class="figs">
+          <p class="income-amt">${fmt(inc.true_income)}</p>
+          <p class="income-label">earned · net <b class="${netCls}">${netStr}</b></p>
         </div>
-        <div class="income-cell">
-          <span class="income-cell-label">Savings rate</span>
-          <span class="income-cell-val">${rate}</span>
-        </div>
+        <div class="ring ${ringCls}" style="--p:${ringFill}"><span><b>${rate}</b>saved</span></div>
       </div>
       ${grossRow}
       ${nudge}

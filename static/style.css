@@ -346,29 +346,38 @@ main {
 .cat-bar i { display: block; height: 100%; background: var(--brass); border-radius: 999px; }
 .cat-row .amt { width: 88px; text-align: right; font-size: 13px; }
 
-/* ---------- income card ---------- */
-.income-amt { color: var(--ok); }
-.income-label { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
-.income-grid { display: flex; gap: 10px; margin-top: 14px; }
-.income-cell {
-  flex: 1; background: var(--bg); border: 1px solid var(--line);
-  border-radius: 10px; padding: 10px 12px;
+/* ---------- income card (savings ring) ---------- */
+.income { display: flex; align-items: center; gap: 16px; }
+.income .figs { flex: 1; min-width: 0; }
+.income-amt {
+  font-family: var(--mono); font-weight: 700; font-size: 27px; color: var(--ok);
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 0;
 }
-.income-cell-label {
-  display: block; font-family: var(--mono); font-size: 10.5px;
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+.income-label { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+.income-label b { font-family: var(--mono); font-weight: 700; }
+.income-label b.pos { color: var(--ok); }
+.income-label b.neg { color: var(--danger); }
+.ring {
+  --p: 0; width: 84px; height: 84px; border-radius: 50%; flex: none;
+  background: conic-gradient(var(--ok) calc(var(--p) * 1%), var(--surface-2) 0);
+  display: grid; place-items: center;
 }
-.income-cell-val {
-  display: block; font-family: var(--mono); font-variant-numeric: tabular-nums;
-  font-size: 18px; margin-top: 4px;
+.ring::before {
+  content: ""; grid-area: 1 / 1; width: 62px; height: 62px;
+  border-radius: 50%; background: var(--surface);
 }
-.income-cell-val.pos { color: var(--ok); }
-.income-cell-val.neg { color: var(--danger); }
+.ring span {
+  grid-area: 1 / 1; text-align: center; font-family: var(--mono);
+  font-weight: 700; color: var(--ok); font-size: 10.5px;
+}
+.ring span b { display: block; font-size: 19px; letter-spacing: -0.02em; }
+.ring.neg { background: var(--surface-2); }
+.ring.neg span, .ring.neg span b { color: var(--danger); }
 .income-sub {
   display: flex; justify-content: space-between;
-  font-size: 13px; color: var(--muted); margin-top: 12px;
+  font-size: 13px; color: var(--muted); margin-top: 14px;
 }
-.income-nudge { font-size: 12.5px; color: var(--brass); margin: 12px 0 0; }
+.income-nudge { font-size: 12.5px; color: var(--brass); margin: 14px 0 0; }
 
 /* ---------- goals ---------- */
 .goal-bar {
