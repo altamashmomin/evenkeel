@@ -190,7 +190,7 @@ form > .btn.primary { width: 100%; margin-top: 18px; }
   background: none; border: none; color: var(--muted);
   padding: 8px 12px; cursor: pointer; border-radius: 8px;
 }
-.topnav button.on, .tabbar button.on { color: var(--brass); }
+.topnav button.on, .tabbar button.on { color: var(--ok); }
 .topbar .btn.ghost { font-size: 12px; padding: 7px 10px; }
 
 /* greeting header (Garden) */
@@ -234,6 +234,15 @@ form > .btn.primary { width: 100%; margin-top: 18px; }
   50% { transform: translate(14px, -18px) scale(1.06); } }
 @media (prefers-reduced-motion: reduce) { .blob { animation: none; } }
 
+/* Soft crossfade when flipping light/dark (View Transitions; instant if
+   unsupported). The whole page dissolves between the two themes. */
+::view-transition-old(root), ::view-transition-new(root) {
+  animation-duration: 0.5s; animation-timing-function: ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+}
+
 main {
   max-width: 680px;
   margin: 0 auto;
@@ -250,23 +259,32 @@ main {
   border: 1px solid var(--line); border-radius: 24px;
   box-shadow: 0 12px 30px -12px rgba(40, 60, 45, 0.35);
 }
-/* All six tabs must fit and stay tappable on a phone. Equal-width, allowed
-   to shrink (flex-basis 0 + min-width 0), so the row divides the full bar
-   evenly and the last tab (Ask) can never be pushed off the edge. The font
-   is sized (10px, no tracking — iOS's own tab-label size) so the longest
-   label, "Analytics", shows in full on normal phones; the ellipsis is only a
-   last-resort guard for extreme/ancient narrow screens. */
+/* Mobile bottom bar = the Garden mock's 5 glyph slots + an elevated center +.
+   Equal-width tab buttons stack a glyph over a small label; the active tab is
+   green; the center + is a raised honey add-button. */
 .tabbar button {
   flex: 1 1 0; min-width: 0;
-  padding: 10px 1px;
-  font-size: 10px; letter-spacing: 0;
-  text-align: center; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
+  display: grid; place-items: center; gap: 2px; padding: 6px 2px; border-radius: 12px;
+  color: var(--muted); font-family: var(--mono);
+}
+.tabbar button .g { font-size: 19px; line-height: 1; filter: grayscale(0.3) opacity(0.7); }
+.tabbar button .l { font-size: 10px; font-weight: 700; letter-spacing: 0; }
+.tabbar button.on { color: var(--ok); }
+.tabbar button.on .g { filter: none; }
+.tabbar .nav-add {
+  flex: none; width: 50px; height: 50px; margin-top: -22px;
+  border-radius: 16px; border: 3px solid var(--surface);
+  background: linear-gradient(150deg, var(--brass), var(--brass-dim));
+  color: #26200f; font-size: 26px; font-weight: 700;
+  display: grid; place-items: center;
+  box-shadow: 0 8px 18px -5px rgba(40, 60, 45, 0.45); cursor: pointer;
 }
 
+/* The FAB is the add button on DESKTOP only; on mobile the nav's center +
+   handles it (so there's never a doubled + button). */
 .fab {
-  position: fixed; right: 20px; bottom: calc(86px + env(safe-area-inset-bottom));
-  z-index: 6;
+  display: none;
+  position: fixed; right: 20px; bottom: 28px; z-index: 6;
   width: 54px; height: 54px; border-radius: 18px;
   font-size: 28px; line-height: 1;
   background: linear-gradient(150deg, var(--brass), var(--brass-dim));
@@ -278,7 +296,7 @@ main {
 @media (min-width: 720px) {
   .topnav { display: flex; }
   .tabbar { display: none; }
-  .fab { bottom: 28px; }
+  .fab { display: grid; place-items: center; }
 }
 
 /* ---------- cards & lists ---------- */
@@ -391,7 +409,8 @@ main {
 .cat-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13.5px; }
 .cat-row .cat-name { width: 110px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cat-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--bg); overflow: hidden; }
-.cat-bar i { display: block; height: 100%; background: var(--brass); border-radius: 999px; }
+.cat-bar i { display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, #5AA983, var(--ok)); }
 .cat-row .amt { width: 88px; text-align: right; font-size: 13px; }
 
 /* ---------- income card (savings ring) ---------- */
@@ -440,7 +459,21 @@ main {
 }
 .goal-meta { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-top: 8px; }
 .goal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.goal { margin-bottom: 16px; }
+.goal:last-child { margin-bottom: 0; }
+.goal-pct { font-family: var(--mono); font-weight: 700; font-size: 11px;
+  color: var(--muted); margin: 6px 0 0; }
 .contrib-log { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
+
+/* Home shortcuts to Bills + Analytics (they're off the 5-slot mobile nav). */
+.home-links { display: flex; gap: 10px; margin: 2px 0 8px; }
+.home-link {
+  flex: 1; padding: 13px 10px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line); color: var(--text);
+  font-family: var(--mono); font-weight: 700; font-size: 13px; cursor: pointer;
+  box-shadow: 0 6px 16px -10px rgba(40, 60, 45, 0.4);
+}
+.home-link:active { transform: translateY(1px); }
 
 /* ---------- month switcher ---------- */
 .monthbar {

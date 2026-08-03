@@ -112,7 +112,9 @@ function initTheme() {
     const showingDark = cur === "dark" || (cur !== "light" && systemDark());
     const next = showingDark ? "light" : "dark";
     localStorage.setItem("ledger-theme", next);
-    applyTheme(next);
+    // Crossfade the whole page between themes where supported.
+    if (document.startViewTransition) document.startViewTransition(() => applyTheme(next));
+    else applyTheme(next);
   });
 }
 
@@ -181,16 +183,44 @@ const TABS = [
   ["ask", "Ask"],
 ];
 
+// The mobile bottom bar is the Garden mock's 5 slots: Home · Activity · [+] ·
+// Goals · Ask, glyphs and all. Bills + Analytics live on Home (data-goto links
+// in renderDashboard). The center + adds a transaction (same as the desktop
+// FAB). Desktop keeps the full 6-tab text nav in the topbar.
+const NAV_MOBILE = [
+  ["dashboard", "Home", "🏡"],
+  ["activity", "Activity", "📋"],
+  ["__add__", "Add", "+"],
+  ["goals", "Goals", "🌱"],
+  ["ask", "Ask", "💬"],
+];
+
 function buildNav() {
-  for (const holder of [$("#topnav"), $("#tabbar")]) {
-    holder.innerHTML = "";
-    for (const [key, label] of TABS) {
-      const b = document.createElement("button");
-      b.textContent = label;
+  const topnav = $("#topnav");
+  topnav.innerHTML = "";
+  for (const [key, label] of TABS) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.dataset.tab = key;
+    b.addEventListener("click", () => setTab(key));
+    topnav.appendChild(b);
+  }
+  const tabbar = $("#tabbar");
+  tabbar.innerHTML = "";
+  for (const [key, label, glyph] of NAV_MOBILE) {
+    const b = document.createElement("button");
+    b.type = "button";
+    if (key === "__add__") {
+      b.className = "nav-add";
+      b.textContent = glyph;
+      b.setAttribute("aria-label", "Add expense");
+      b.addEventListener("click", () => openTxnDialog(null));
+    } else {
       b.dataset.tab = key;
+      b.innerHTML = `<span class="g">${glyph}</span><span class="l">${label}</span>`;
       b.addEventListener("click", () => setTab(key));
-      holder.appendChild(b);
     }
+    tabbar.appendChild(b);
   }
 }
 
@@ -269,12 +299,17 @@ async function renderDashboard() {
     : `<p class="empty">All bills paid this month 🎉</p>`;
 
   const goals = d.goals.length
-    ? d.goals.map((g) => `
-        <div style="margin-bottom:12px">
-          <div class="goal-head"><h3>${esc(g.name)}</h3>
+    ? d.goals.map((g) => {
+        const pct = Math.round(g.progress * 100);
+        const note = pct >= 60 && pct < 100 ? " — almost there" : "";
+        return `
+        <div class="goal">
+          <div class="goal-head"><h3>🌱 ${esc(g.name)}</h3>
             <span class="amt amount">${fmt(g.saved)} / ${fmt(g.target)}</span></div>
           <div class="goal-bar"><i style="width:${g.progress * 100}%"></i></div>
-        </div>`).join("")
+          <p class="goal-pct">${pct}%${note}</p>
+        </div>`;
+      }).join("")
     : `<p class="empty">No goals yet — add one in the Goals tab.</p>`;
 
   // Render the recent list from /api/activity so inflows show income-aware
@@ -296,9 +331,13 @@ async function renderDashboard() {
       <div style="margin-top:12px">${cats}</div>
     </div>
     ${incomeCardHTML(inc, d.month)}
-    <div class="card"><p class="eyebrow">Unpaid bills</p>${bills}</div>
-    <div class="card"><p class="eyebrow">Goals</p>${goals}</div>
-    <div class="card"><p class="eyebrow">Recent</p>${recent}</div>`;
+    <div class="card"><p class="eyebrow">Coming up</p>${bills}</div>
+    <div class="card"><p class="eyebrow">Growing toward</p>${goals}</div>
+    <div class="card"><p class="eyebrow">Recent</p>${recent}</div>
+    <div class="home-links">
+      <button class="home-link" data-goto="bills" type="button">📅 Bills</button>
+      <button class="home-link" data-goto="analytics" type="button">📊 Analytics</button>
+    </div>`;
 }
 
 /* ================= activity ================= */
@@ -596,6 +635,9 @@ function wireMain() {
   });
   $$("[data-ask-eg]").forEach((el) =>
     el.addEventListener("click", () => askSend(el.dataset.askEg)));
+  // Home shortcuts to the tabs that aren't in the 5-slot mobile nav.
+  $$("[data-goto]").forEach((el) =>
+    el.addEventListener("click", () => setTab(el.dataset.goto)));
   const thread = $("#ask-thread");
   if (thread) thread.scrollTop = thread.scrollHeight;
   if (state.tab === "ask" && !state.ask.pending) $("#ask-input")?.focus();
