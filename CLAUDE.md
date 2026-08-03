@@ -774,11 +774,21 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
     `income_type` + logs as `ui:avery`, write tool offered (14), prompt grants
     tagging. Suite 333→334 python + 39 render; no gate. **The feature is
     functionally complete once deployed** — the chat's text reply ("Tagged it
-    as your paycheck ✓") IS the confirmation. **Inc 3 (optional polish) next** —
-    a lighter "tagged ✓" affordance / refresh of an open data view so a tag
-    shows elsewhere immediately; then deploy (frontend/route, no gate) + live
-    smoke against the Pi's key. Also deferred: rules two-phase in chat,
-    streaming, conversation persistence.
+    as your paycheck ✓") IS the confirmation.
+  - **Inc 3 done (Aug 2, 2026).** UI honesty + a write signal: `askThreadHTML`
+    shows a subtle "✓ tagged" chip on an assistant reply that actually tagged
+    an inflow (message carries `tagged`, set in `askSend` from `tools_used`;
+    stripped from the history sent back to the model). Fixed the stale copy —
+    the empty-state sub and the ask-note both claimed the assistant "never
+    changes anything" / is "read-only"; now they say it can tag a deposit (other
+    changes still in the app). `.ask-tagged` chip in style.css. Frontend only;
+    render seam 39→41; no gate. **Ask-tab write (tagging) is feature-complete
+    (inc 1–3).** Remaining: **deploy** (frontend + route, no migration/gate —
+    advance `main`, `deploy.sh origin/main`) + a live smoke of a real tag
+    through the Ask tab (needs the Pi's `ANTHROPIC_API_KEY`, ⚠ expires ~Aug 30).
+    Visual check of the chip fell to the render seam + code (in-app Browser tool
+    still wedged). Deferred later: rules two-phase in chat, streaming,
+    conversation persistence.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
