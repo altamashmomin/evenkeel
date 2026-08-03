@@ -428,6 +428,7 @@ async function renderBills() {
   const rows = bills.length
     ? `<ul class="list">${bills.map((b) => `
         <li>
+          <span class="ic">${catEmoji(b.category || b.name)}</span>
           <div class="grow tap" data-bill-edit="${b.id}">
             <div class="title">${esc(b.name)}</div>
             <div class="sub">${esc(b.category)} · due the ${ord(b.due_day)}</div>
@@ -471,7 +472,7 @@ async function renderGoals() {
     return `
       <div class="card" data-goal-card="${g.id}">
         <div class="goal-head">
-          <h3>${esc(g.name)}</h3>
+          <h3>🌱 ${esc(g.name)}</h3>
           <button class="btn small" data-goal-add="${g.id}">Add</button>
         </div>
         <div class="goal-bar"><i style="width:${g.progress * 100}%"></i></div>
