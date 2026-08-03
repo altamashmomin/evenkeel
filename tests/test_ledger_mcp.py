@@ -38,7 +38,7 @@ READ_TOOLS = {
     "ledger_savings_rate_trend", "ledger_member_breakdown",
     "ledger_bill_variance", "ledger_list_income_rules",
     "ledger_unclassified_inflows", "ledger_search_transactions",
-    "ledger_list_goals_and_bills",
+    "ledger_list_goals_and_bills", "ledger_inventory",
 }
 
 
@@ -151,6 +151,11 @@ class LedgerMcpReadTierTests(unittest.TestCase):
         self.assertEqual({"goals", "bills"}, set(body))
         self.assertEqual(self.direct("/api/goals"), body["goals"])
         self.assertEqual(self.direct("/api/bills"), body["bills"])
+
+    def test_inventory_matches_direct_api(self):
+        body = self.call("ledger_inventory")
+        self.assertEqual(self.direct("/api/inventory"), body)
+        self.assertEqual({"items", "shopping", "low_count"}, set(body))
 
     # -- money shape ----------------------------------------------------------
     def test_money_fields_are_cents_and_display(self):

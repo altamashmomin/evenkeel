@@ -131,13 +131,16 @@ class AskWriteTests(unittest.TestCase):
     def test_write_tools_present_only_when_caller_given(self):
         read_only = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(read_only)  # no caller
-        self.assertEqual(13, len(read_only.calls[0]["tools"]))
+        self.assertEqual(14, len(read_only.calls[0]["tools"]))
 
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(14, len(tools))
-        self.assertIn("ledger_classify_inflow", [t["name"] for t in tools])
+        self.assertEqual(17, len(tools))  # 14 read + 3 write
+        names = [t["name"] for t in tools]
+        self.assertIn("ledger_classify_inflow", names)
+        self.assertIn("ledger_add_item", names)
+        self.assertIn("ledger_set_item_status", names)
         # exactly one prompt-cache breakpoint, on the last (write) tool
         cached = [t for t in tools if "cache_control" in t]
         self.assertEqual([tools[-1]], cached)
@@ -184,6 +187,67 @@ class AskWriteTests(unittest.TestCase):
                 (txn_id,)).fetchone()["direction"]
         finally:
             conn.close()
+
+    # -- pantry: add_item really creates a row, logged as the person ----------
+    def test_add_item_tool_creates_a_row_and_logs_as_the_person(self):
+        mock = MockAnthropic([
+            resp([tool_block("ledger_add_item",
+                             {"name": "Coffee", "kind": "staple", "status": "low"})],
+                 "tool_use"),
+            resp([text_block("Added coffee to your staples (marked low) ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="add coffee, we're low", caller=self.caller)
+        self.assertEqual(["ledger_add_item"], out["tools_used"])
+        conn = self.db()
+        try:
+            row = conn.execute(
+                "SELECT * FROM items WHERE name = 'Coffee'").fetchone()
+            audit = conn.execute(
+                "SELECT actor FROM audit_log WHERE action = 'add_item' "
+                "ORDER BY id DESC LIMIT 1").fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(row, "the item was really created")
+        self.assertEqual("staple", row["kind"])
+        self.assertEqual("low", row["status"])
+        self.assertEqual("ui:avery", audit["actor"])
+
+    # -- pantry: set_item_status flips an existing item -----------------------
+    def test_set_item_status_tool_flips_an_item(self):
+        # seed one item through the verb (same path the app uses)
+        import actions
+        conn = self.db()
+        try:
+            item = actions.add_item(conn, "ui:avery", {"name": "Milk", "kind": "staple"})
+            conn.commit()
+            item_id = item["id"]
+        finally:
+            conn.close()
+        mock = MockAnthropic([
+            resp([tool_block("ledger_set_item_status",
+                             {"item_id": item_id, "status": "out"})], "tool_use"),
+            resp([text_block("Marked milk as out ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="we're out of milk", caller=self.caller)
+        self.assertEqual(["ledger_set_item_status"], out["tools_used"])
+        conn = self.db()
+        try:
+            status = conn.execute(
+                "SELECT status FROM items WHERE id = ?", (item_id,)).fetchone()["status"]
+        finally:
+            conn.close()
+        self.assertEqual("out", status)
+
+    # -- pantry: a bad item id is recoverable, not a crash --------------------
+    def test_set_item_status_bad_id_is_caught(self):
+        mock = MockAnthropic([
+            resp([tool_block("ledger_set_item_status",
+                             {"item_id": 999999, "status": "out"})], "tool_use"),
+            resp([text_block("I don't see that item — what's it called?")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="mark it out", caller=self.caller)  # must not raise
+        tr = mock.calls[1]["messages"][-1]["content"][0]
+        self.assertTrue(tr["is_error"])  # 404 from the verb → recoverable
 
 
 if __name__ == "__main__":

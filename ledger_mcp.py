@@ -51,8 +51,10 @@ mcp = FastMCP(
         "with ledger_household_snapshot for open-ended questions. Money fields "
         "arrive as {cents, display}; quote the `display` string verbatim and "
         "never convert units yourself. 'income' means true_income (paychecks), "
-        "never gross_inflows (which includes refunds and transfers). You can "
-        "tag inflows and manage income rules, but only after the user confirms "
+        "never gross_inflows (which includes refunds and transfers). "
+        "ledger_inventory reads the household pantry (staples + shopping list) — "
+        "groceries and supplies, not money; changing it happens in the app. "
+        "You can tag inflows and manage income rules, but only after the user confirms "
         "in their own words — and creating a rule or sweeping the backlog is "
         "two-phase: propose, show the user the preview, get an explicit yes, "
         "then confirm. Recording settlements, editing or deleting transactions, "
@@ -334,6 +336,12 @@ def ledger_list_goals_and_bills(
         "goals": api_get("/api/goals"),
         "bills": api_get("/api/bills", {"period": period}),
     })
+
+
+@mcp.tool(name="ledger_inventory", title="Household pantry",
+          description=DESCRIPTIONS["ledger_inventory"], annotations=_READ)
+def ledger_inventory() -> str:
+    return _json(api_get("/api/inventory"))
 
 
 # ═══════════════════════════ DIRECT WRITE TIER ══════════════════════════════

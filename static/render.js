@@ -406,7 +406,7 @@
   // escaped and rendered as plain text (newlines preserved by CSS white-space);
   // an empty thread shows a friendly starter with example questions.
   const ASK_EXAMPLES = ["How are we doing this month?", "Did my paycheck land?",
-                        "What still needs tagging?", "Who owes who right now?"];
+                        "What do we need from the store?", "Who owes who right now?"];
 
   function askThreadHTML(messages, pending) {
     if (!messages.length && !pending) {
@@ -414,8 +414,8 @@
       <div class="ask-empty">
         <p class="ask-empty-title">Ask about your money</p>
         <p class="ask-empty-sub">Plain questions, plain answers. It reads the
-          same numbers the app shows — and can tag a deposit for you when you
-          tell it what it was.</p>
+          same numbers the app shows — and can tag a deposit or keep your
+          pantry list when you tell it.</p>
         <div class="ask-examples">
           ${ASK_EXAMPLES.map((q) =>
             `<button type="button" class="ask-eg" data-ask-eg="${esc(q)}">${esc(q)}</button>`

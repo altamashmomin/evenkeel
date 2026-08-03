@@ -581,7 +581,7 @@ function renderAsk() {
                placeholder="Ask about your money…" ${a.pending ? "disabled" : ""}>
         <button class="btn primary" type="submit" ${a.pending ? "disabled" : ""}>Ask</button>
       </form>
-      <p class="ask-note">It can answer questions and tag your deposits — other changes still happen in the app.</p>`;
+      <p class="ask-note">It can answer questions, tag deposits, and keep your pantry list — other changes still happen in the app.</p>`;
 }
 
 async function askSend(text) {

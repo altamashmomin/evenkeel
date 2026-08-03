@@ -218,6 +218,19 @@ READ_TOOLS = [
         "fetch": lambda g, a: {"goals": g("/api/goals", {}),
                                "bills": g("/api/bills", {"period": a.get("period")})},
     },
+    {
+        "name": "ledger_inventory",
+        "description":
+            "The household pantry: the tracked staples (each stocked / low / "
+            "out) plus the derived shopping list — everything that needs buying "
+            "right now: staples that are low or out AND one-off needs — and a "
+            "count of staples running low. Use this for 'what do we need?' / "
+            "'are we out of X?', and to find an item's `id` before changing its "
+            "status. This is groceries and supplies, not money — nothing here "
+            "touches the balance, spending, or income.",
+        "input_schema": _obj(),
+        "fetch": lambda g, a: g("/api/inventory", {}),
+    },
 ]
 
 _BY_NAME = {t["name"]: t for t in READ_TOOLS}

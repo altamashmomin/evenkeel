@@ -121,6 +121,15 @@ def system_prompt(period):
         "did (it's reversible). You still cannot move money, record a settle-up "
         "between them, make a rule, or edit or delete anything — for those, tell "
         "them to do it in the app.\n"
+        "- You also keep the household PANTRY — a simple shopping/staples list "
+        "(groceries and supplies, never money). You CAN add items "
+        "(ledger_add_item) and mark one stocked, low, or out "
+        "(ledger_set_item_status) when they tell you — 'we're out of coffee', "
+        "'add paper towels', 'what do we need?'. Check ledger_inventory first to "
+        "see what's there and to get an item's id before changing it. Use a "
+        "one-off for a one-time buy, a staple for something to keep tracking. "
+        "Say plainly what you added or changed. You can't remove a tracked item "
+        "here — that's in the app.\n"
         "- If a tool errors or you're unsure, say so plainly rather than guessing."
     )
 
