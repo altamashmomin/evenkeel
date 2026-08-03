@@ -298,6 +298,20 @@ check("askThread renders user and assistant bubbles", () => {
   assert.ok(html.includes('ask-msg ask-bot') && html.includes("Yes, on the 2nd."), "assistant bubble");
   assert.ok(!html.includes("ask-thinking"), "no thinking bubble when not pending");
 });
+check("askThread shows a ✓ tagged chip only on a write reply", () => {
+  const html = R.askThreadHTML([
+    { role: "assistant", content: "Tagged it as your paycheck", tagged: true },
+    { role: "assistant", content: "You spent $40 on coffee." },
+  ], false);
+  const chips = html.match(/ask-tagged/g) || [];
+  assert.equal(chips.length, 1, "exactly one chip — only the tagged reply");
+  assert.ok(html.includes("✓ tagged"), "chip label present");
+});
+check("askThread empty state no longer claims it can't change anything", () => {
+  const html = R.askThreadHTML([], false);
+  assert.ok(!/never changes|read-only/i.test(html), "stale read-only copy gone");
+  assert.ok(/tag a deposit/i.test(html), "mentions it can tag");
+});
 check("askThread shows a thinking bubble while pending", () => {
   const html = R.askThreadHTML([{ role: "user", content: "hi" }], true);
   assert.ok(html.includes("ask-thinking"), "thinking indicator present");

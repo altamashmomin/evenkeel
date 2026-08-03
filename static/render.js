@@ -363,8 +363,9 @@
       return `
       <div class="ask-empty">
         <p class="ask-empty-title">Ask about your money</p>
-        <p class="ask-empty-sub">Plain questions, plain answers — it reads the
-          same numbers the app shows, and never changes anything.</p>
+        <p class="ask-empty-sub">Plain questions, plain answers. It reads the
+          same numbers the app shows — and can tag a deposit for you when you
+          tell it what it was.</p>
         <div class="ask-examples">
           ${ASK_EXAMPLES.map((q) =>
             `<button type="button" class="ask-eg" data-ask-eg="${esc(q)}">${esc(q)}</button>`
@@ -372,9 +373,13 @@
         </div>
       </div>`;
     }
-    const bubbles = messages.map((m) =>
-      `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}</div>`
-    ).join("");
+    const bubbles = messages.map((m) => {
+      // A subtle chip when the assistant actually changed something (tagged an
+      // inflow), so a write reads differently from a plain answer.
+      const chip = (m.role === "assistant" && m.tagged)
+        ? `<span class="ask-tagged">✓ tagged</span>` : "";
+      return `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}${chip}</div>`;
+    }).join("");
     const thinking = pending
       ? `<div class="ask-msg ask-bot ask-thinking"><span></span><span></span><span></span></div>`
       : "";

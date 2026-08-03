@@ -480,7 +480,7 @@ function renderAsk() {
                placeholder="Ask about your money…" ${a.pending ? "disabled" : ""}>
         <button class="btn primary" type="submit" ${a.pending ? "disabled" : ""}>Ask</button>
       </form>
-      <p class="ask-note">Read-only — it can explain, but changes happen in the app.</p>`;
+      <p class="ask-note">It can answer questions and tag your deposits — other changes still happen in the app.</p>`;
 }
 
 async function askSend(text) {
@@ -493,7 +493,9 @@ async function askSend(text) {
   render();
   try {
     const res = await api("/api/ask", { method: "POST", body: { message: text, history } });
-    state.ask.messages.push({ role: "assistant", content: res.answer });
+    // The assistant can tag an inflow; flag the reply so the thread shows it.
+    const tagged = (res.tools_used || []).includes("ledger_classify_inflow");
+    state.ask.messages.push({ role: "assistant", content: res.answer, tagged });
   } catch (e) {
     state.ask.messages.push({ role: "assistant", content: "Sorry — " + e.message });
   } finally {
