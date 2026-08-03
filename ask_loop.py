@@ -13,6 +13,8 @@ import json
 import os
 
 from agent_read_tools import anthropic_tools, call_read_tool
+from agent_write_tools import (
+    anthropic_write_tools, call_write_tool, WRITE_TOOL_NAMES)
 
 DEFAULT_MODEL = "claude-haiku-4-5"
 
@@ -28,7 +30,7 @@ def _text(content):
 
 
 def run_ask(client, getter, user_message, *, model, system,
-            history=None, max_rounds=6, max_tokens=1024):
+            history=None, max_rounds=6, max_tokens=1024, caller=None):
     """Run one Ask turn.
 
     client   — an Anthropic client (or a mock) exposing messages.create(...).
@@ -38,10 +40,19 @@ def run_ask(client, getter, user_message, *, model, system,
     history  — prior [{role, content}] messages for multi-turn (client-held);
                not mutated.
     max_rounds — hard cap on model↔tool round-trips, bounding cost/latency.
+    caller   — caller(method, path, body) -> JSON of a Flask write route, under
+               the same identity. When given, the write tools are offered and
+               their tool_use blocks route here; when None the loop is
+               read-only (unchanged behaviour).
 
     Returns {answer, tools_used, rounds, stopped} where `stopped` is 'end'
     (the model finished) or 'max_rounds' (hit the cap)."""
-    tools = anthropic_tools()
+    tools = anthropic_tools(cache=(caller is None))
+    if caller is not None:
+        # Read tools + the write tools, with a single prompt-cache breakpoint on
+        # the last tool of the whole (static) block.
+        tools = tools + anthropic_write_tools()
+        tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
     messages = list(history or []) + [{"role": "user", "content": user_message}]
     used = []
 
@@ -62,9 +73,12 @@ def run_ask(client, getter, user_message, *, model, system,
                 continue
             used.append(block.name)
             try:
-                data = call_read_tool(getter, block.name, block.input)
+                if caller is not None and block.name in WRITE_TOOL_NAMES:
+                    data = call_write_tool(caller, block.name, block.input)
+                else:
+                    data = call_read_tool(getter, block.name, block.input)
                 content, is_error = json.dumps(data), False
-            except Exception as e:  # unknown tool, or a read that errored
+            except Exception as e:  # unknown tool, or a read/write that errored
                 content, is_error = f"tool error: {e}", True
             results.append({"type": "tool_result", "tool_use_id": block.id,
                             "content": content, "is_error": is_error})
@@ -122,6 +136,34 @@ def make_app_getter(app, user_id):
         return resp.get_json()
 
     return getter
+
+
+def make_app_caller(app, user_id):
+    """An in-process write caller: POST/PUT to the app's own write ROUTES under
+    `user_id`'s session via a test client — no HTTP, no bearer token, the same
+    identity (and write scope) the browser carries. So the write goes through
+    the exact verb the SPA uses (one write path), lands in the audit log as
+    `ui:<name>`, and is reversible. A 4xx (e.g. a bad id, or a validation
+    failure) is raised as a RuntimeError the loop hands back to the model to
+    recover from — it never crashes the request."""
+    sub = app.test_client()
+    with sub.session_transaction() as s:
+        s["user_id"] = user_id
+
+    def caller(method, path, body):
+        resp = sub.open(path, method=method, json=body or {})
+        if resp.status_code >= 400:
+            detail = ""
+            try:
+                detail = (resp.get_json() or {}).get("error", "")
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"write {path} failed ({resp.status_code})"
+                + (f": {detail}" if detail else ""))
+        return resp.get_json()
+
+    return caller
 
 
 def _make_client(api_key):
