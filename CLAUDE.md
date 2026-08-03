@@ -783,12 +783,62 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
     changes anything" / is "read-only"; now they say it can tag a deposit (other
     changes still in the app). `.ask-tagged` chip in style.css. Frontend only;
     render seam 39→41; no gate. **Ask-tab write (tagging) is feature-complete
-    (inc 1–3).** Remaining: **deploy** (frontend + route, no migration/gate —
-    advance `main`, `deploy.sh origin/main`) + a live smoke of a real tag
-    through the Ask tab (needs the Pi's `ANTHROPIC_API_KEY`, ⚠ expires ~Aug 30).
-    Visual check of the chip fell to the render seam + code (in-app Browser tool
-    still wedged). Deferred later: rules two-phase in chat, streaming,
-    conversation persistence.
+    (inc 1–3).** Visual check of the chip fell to the render seam + code (in-app
+    Browser tool still wedged). Deferred later: rules two-phase in chat,
+    streaming, conversation persistence.
+  - **DEPLOYED TO THE PI (Aug 2, 2026).** Advanced `main` to rework's tree via
+    `--no-ff` merge `6d0414f` (first parent = prior main `3984f35`, fast-forward
+    push); `deploy/deploy.sh origin/main` → **GATE PASS, zero diff, no
+    structural changes** (frontend + route only, no migration; `pip install` a
+    no-op — `anthropic` already present), `pifinance` restarted clean (no
+    `ledger-mcp` restart — this doesn't touch the MCP server). Rollback backup
+    `finance.db.bak-2026-08-02-224128`. Verified over the tailnet: served
+    `/render.js` carries the `ask-tagged` chip + "tag a deposit" copy (stale
+    "never changes" gone), `/app.js` reads `tools_used`→`tagged` (stale
+    "Read-only" gone), `/style.css` has `.ask-tagged`; app healthy. **Charlee
+    can now tag inflows by chatting in the Ask tab** — write path is
+    session-based and live wherever `ANTHROPIC_API_KEY` is set (⚠ expires
+    ~Aug 30). **CONFIRMED LIVE (Aug 2, 2026): Charlee tagged a real deposit
+    through the Ask tab on her phone** — the full chat→tag path works end to end
+    for the priority user. Ask-tab tagging is DONE and in use.
+
+**UI REDESIGN — "Garden" (started Aug 2, 2026).** Charlee wants a full visual
+redesign: modern, app-like, organic. Direction chosen = **the Garden** — warm,
+growth-themed, rounded, shipping with **both light and dark** (daylight garden /
+night garden are one design's two themes, not two designs). Alternate "Refined"
+direction set aside. Concept artifacts (plain-HTML mockups, shareable with
+Charlee): two-directions compare w/ live light-dark toggle
+`claude.ai/code/artifact/7558c5b2-5be2-480a-9b7b-85e6a0d39cb2`; single dashboard
+`…/8e42a827-315c-4b30-9815-92697cf12af9`.
+- **Build path decided (Alta): restyle the EXISTING vanilla app in-place first;
+  framework migration DEFERRED to a later phase** (do it once the look is
+  validated + when richer interactions actually demand it — not both at once,
+  which would be the big-bang rewrite the project refuses). So CORE-DESIGN's
+  "no framework migration" line STANDS for now; amend it only at the framework
+  phase. Backend/verbs/gate/balance: untouched — this is frontend-only, ships
+  through the zero-gate frontend deploy, fully reversible.
+- Phased plan: **(1) design-token foundation + light/dark** — DONE (Aug 2):
+  the whole app is token-driven (~15 CSS vars), so redefining `:root` +
+  `@media (prefers-color-scheme)` + `data-theme` overrides shifts every screen
+  to the Garden palette + rounded type + softer radii at once; `--mono` swapped
+  to system rounded (dropped the IBM Plex Mono Google-Fonts link — one fewer
+  external dep), `--radius` 12→20, FAB shadow softened, `theme-color` metas per
+  scheme. Suite 334 + 41 render green; no gate (CSS/HTML only). NOT deployed yet
+  — holding the deploy until the signature components land so Charlee's first
+  sight is the coherent Garden, not a half-reskin. **(2) signature components —
+  DONE for the dashboard (Aug 2):** income savings ring (`incomeCardHTML` →
+  conic ring, seam-tested, commit a7b66b5); balance hero (`beamHTML` → green
+  `.balance-hero` card, which also dropped its state-coupling); goal growth
+  vessels; floating rounded Garden nav pill + rounded-square FAB (f5c6ee3).
+  render seam 41 + suite 334 green; frontend-only, no gate. The Garden
+  dashboard is now coherent. **IA note deferred:** the mock's 5-tabs-+-center-+
+  nav is an information-architecture change (real app has 6 tabs) — kept 6 tabs
+  + separate FAB for now; consolidating is a UX call for Alta/Charlee later.
+  **(3)** sweep the other tabs (Activity/Goals/Bills/Analytics/Ask) for
+  per-screen polish; **(4)** motion + organic touches (ambient blobs,
+  transitions, growth animations). Since the in-app Browser tool is wedged,
+  visual sign-off is on the real device after deploy (a synthetic preview is
+  both heavy and less faithful than the real app given the token-driven CSS).
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`

@@ -73,17 +73,21 @@ check("card headline is true_income in green", () => {
   assert.ok(html.includes("$3,200.00"), "true income headline");
 });
 
-check("positive net is signed + and pos class", () => {
+check("positive net signed +, marked pos, ring fills to the rate", () => {
   const html = R.incomeCardHTML(base, "2026-07");
   assert.ok(html.includes("+$1,393.50"), "positive net with +");
-  assert.ok(html.includes("income-cell-val pos"), "pos class");
+  assert.ok(html.includes('net <b class="pos">'), "net marked positive");
+  assert.ok(html.includes('class="ring'), "savings ring present");
+  assert.ok(html.includes("--p:44"), "ring fills to 44%");
 });
 
-check("negative net is signed − and neg class", () => {
+check("negative net marks net + ring red, ring fill clamps to 0", () => {
   const html = R.incomeCardHTML(
     { ...base, net_cash_flow: -902, savings_rate: -0.28 }, "2026-07");
   assert.ok(html.includes("−$902.00"), "negative net with minus sign");
-  assert.ok(html.includes("income-cell-val neg"), "neg class");
+  assert.ok(html.includes('net <b class="neg">'), "net marked negative");
+  assert.ok(html.includes("ring neg"), "ring marked negative");
+  assert.ok(html.includes("--p:0"), "negative rate clamps ring fill to 0");
 });
 
 check("savings rate is a percent, or — when null", () => {

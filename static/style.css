@@ -1,23 +1,45 @@
-/* Ledger — graphite night theme.
-   Two voices: IBM Plex Mono for everything money (amounts, labels, figures),
-   the system sans for everything human (names, descriptions, notes). */
+/* Ledger — "Garden" theme: warm, organic, app-like; light + dark.
+   Two voices: a soft rounded face for everything money (amounts, labels,
+   figures — still named --mono for its many call sites), the system sans for
+   everything human. The whole app is token-driven, so the palette and the
+   light/dark switch live entirely here. */
 
 :root {
-  --bg: #15171c;
-  --surface: #1e222a;
-  --surface-2: #262b35;
-  --line: #2e3440;
-  --text: #ece9e2;
-  --muted: #9b978d;
-  --brass: #d9a04c;
-  --brass-dim: #8a6a38;
-  --p1: #63b8a6;   /* partner one — juniper */
-  --p2: #b195e8;   /* partner two — wisteria */
-  --danger: #e0766a;
-  --ok: #7dbd8a;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --radius: 12px;
+  --bg: #ECE6D9;         /* warm oat — page ground */
+  --surface: #FBF8F1;    /* warm paper — cards */
+  --surface-2: #F1EBDD;  /* pressed / inset */
+  --line: #E3DCCB;       /* soft warm hairline */
+  --text: #24302A;       /* deep pine ink */
+  --muted: #77836F;      /* sage grey */
+  --brass: #E0A24C;      /* honey — highlights, CTAs */
+  --brass-dim: #C6892F;
+  --p1: #3C8A66;         /* one person — leaf green */
+  --p2: #9C6C8D;         /* the other — plum */
+  --danger: #C6795A;     /* soft clay */
+  --ok: #3C8A66;         /* leaf green — income, positive, paid */
+  --mono: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif;
+  --sans: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  --radius: 20px;
+}
+
+/* Dark = the "night garden": the same design, glowing after dark. Follows the
+   phone automatically; a manual toggle (later) sets data-theme to override. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #10160F; --surface: #1A231C; --surface-2: #222D24; --line: #27332A;
+    --text: #E8EEE4; --muted: #8FA091; --brass: #F0B860; --brass-dim: #D2903A;
+    --p1: #67D69C; --p2: #C08FB0; --danger: #E58C6B; --ok: #67D69C;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10160F; --surface: #1A231C; --surface-2: #222D24; --line: #27332A;
+  --text: #E8EEE4; --muted: #8FA091; --brass: #F0B860; --brass-dim: #D2903A;
+  --p1: #67D69C; --p2: #C08FB0; --danger: #E58C6B; --ok: #67D69C;
+}
+:root[data-theme="light"] {
+  --bg: #ECE6D9; --surface: #FBF8F1; --surface-2: #F1EBDD; --line: #E3DCCB;
+  --text: #24302A; --muted: #77836F; --brass: #E0A24C; --brass-dim: #C6892F;
+  --p1: #3C8A66; --p2: #9C6C8D; --danger: #C6795A; --ok: #3C8A66;
 }
 
 * { box-sizing: border-box; }
@@ -178,12 +200,14 @@ main {
 }
 
 .tabbar {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 5;
-  display: flex;
-  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  backdrop-filter: blur(8px);
-  border-top: 1px solid var(--line);
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 5;
+  width: min(400px, calc(100% - 24px));
+  display: flex; padding: 8px 6px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid var(--line); border-radius: 24px;
+  box-shadow: 0 12px 30px -12px rgba(40, 60, 45, 0.35);
 }
 /* All six tabs must fit and stay tappable on a phone. Equal-width, allowed
    to shrink (flex-basis 0 + min-width 0), so the row divides the full bar
@@ -200,12 +224,13 @@ main {
 }
 
 .fab {
-  position: fixed; right: 18px; bottom: calc(64px + env(safe-area-inset-bottom));
+  position: fixed; right: 20px; bottom: calc(86px + env(safe-area-inset-bottom));
   z-index: 6;
-  width: 54px; height: 54px; border-radius: 50%;
+  width: 54px; height: 54px; border-radius: 18px;
   font-size: 28px; line-height: 1;
-  background: var(--brass); color: #1a1408; border: none;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  background: linear-gradient(150deg, var(--brass), var(--brass-dim));
+  color: #26200f; border: none;
+  box-shadow: 0 10px 22px -6px rgba(40, 60, 45, 0.4);
   cursor: pointer;
 }
 
@@ -288,30 +313,34 @@ main {
 
 .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 22px 8px; }
 
-/* ---------- balance beam (signature) ---------- */
-.beam-card { text-align: center; padding: 22px 16px 18px; }
-.beam-msg { font-size: 17px; margin: 0 0 4px; }
-.beam-msg .amount { color: var(--brass); font-weight: 600; font-size: 22px; }
-.beam-sub { color: var(--muted); font-size: 12.5px; margin: 0 0 16px; }
-.beam {
-  position: relative; height: 10px; border-radius: 999px;
-  background: var(--bg); border: 1px solid var(--line);
-  overflow: hidden; margin: 0 8px;
+/* ---------- balance hero (signature) ---------- */
+.balance-hero {
+  position: relative; overflow: hidden;
+  background: linear-gradient(158deg, #2E4A3B 0%, #29553F 55%, #2E6247 100%);
+  color: #F3F1E7; border-radius: var(--radius); padding: 22px 20px 20px;
+  margin-bottom: 14px; box-shadow: 0 16px 34px -16px rgba(30, 60, 42, 0.5);
 }
-.beam-fill {
-  position: absolute; top: 0; bottom: 0;
-  transition: width 0.5s ease, background 0.5s;
+.balance-hero::after {
+  content: ""; position: absolute; right: -40px; top: -50px;
+  width: 180px; height: 180px;
+  background: radial-gradient(circle, rgba(224, 162, 76, 0.30), transparent 70%);
 }
-.beam-center {
-  position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px;
-  background: var(--muted); transform: translateX(-1px);
+.bh-eyebrow {
+  font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; color: #B8D4C1; margin: 0 0 8px;
 }
-.beam-names {
-  display: flex; justify-content: space-between;
-  margin: 8px 10px 0; font-size: 13px; color: var(--muted);
+.bh-who {
+  font-family: var(--mono); font-weight: 700; font-size: 24px;
+  letter-spacing: -0.02em; line-height: 1.16; margin: 0;
 }
-.beam-names .me { color: var(--text); }
-.beam-card .btn { margin-top: 16px; }
+.bh-who b { color: var(--brass); }
+.bh-sub { color: #C6DBCC; font-size: 13px; margin: 8px 0 0; }
+.bh-settle {
+  margin-top: 15px; font-family: var(--mono); font-weight: 700; font-size: 13px;
+  color: #29402F; background: var(--brass); border: none; border-radius: 999px;
+  padding: 9px 16px; cursor: pointer;
+}
+.bh-settle:active { transform: translateY(1px); }
 
 /* ---------- dashboard stats ---------- */
 .stat-big {
@@ -324,40 +353,49 @@ main {
 .cat-bar i { display: block; height: 100%; background: var(--brass); border-radius: 999px; }
 .cat-row .amt { width: 88px; text-align: right; font-size: 13px; }
 
-/* ---------- income card ---------- */
-.income-amt { color: var(--ok); }
-.income-label { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
-.income-grid { display: flex; gap: 10px; margin-top: 14px; }
-.income-cell {
-  flex: 1; background: var(--bg); border: 1px solid var(--line);
-  border-radius: 10px; padding: 10px 12px;
+/* ---------- income card (savings ring) ---------- */
+.income { display: flex; align-items: center; gap: 16px; }
+.income .figs { flex: 1; min-width: 0; }
+.income-amt {
+  font-family: var(--mono); font-weight: 700; font-size: 27px; color: var(--ok);
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 0;
 }
-.income-cell-label {
-  display: block; font-family: var(--mono); font-size: 10.5px;
-  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+.income-label { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+.income-label b { font-family: var(--mono); font-weight: 700; }
+.income-label b.pos { color: var(--ok); }
+.income-label b.neg { color: var(--danger); }
+.ring {
+  --p: 0; width: 84px; height: 84px; border-radius: 50%; flex: none;
+  background: conic-gradient(var(--ok) calc(var(--p) * 1%), var(--surface-2) 0);
+  display: grid; place-items: center;
 }
-.income-cell-val {
-  display: block; font-family: var(--mono); font-variant-numeric: tabular-nums;
-  font-size: 18px; margin-top: 4px;
+.ring::before {
+  content: ""; grid-area: 1 / 1; width: 62px; height: 62px;
+  border-radius: 50%; background: var(--surface);
 }
-.income-cell-val.pos { color: var(--ok); }
-.income-cell-val.neg { color: var(--danger); }
+.ring span {
+  grid-area: 1 / 1; text-align: center; font-family: var(--mono);
+  font-weight: 700; color: var(--ok); font-size: 10.5px;
+}
+.ring span b { display: block; font-size: 19px; letter-spacing: -0.02em; }
+.ring.neg { background: var(--surface-2); }
+.ring.neg span, .ring.neg span b { color: var(--danger); }
 .income-sub {
   display: flex; justify-content: space-between;
-  font-size: 13px; color: var(--muted); margin-top: 12px;
+  font-size: 13px; color: var(--muted); margin-top: 14px;
 }
-.income-nudge { font-size: 12.5px; color: var(--brass); margin: 12px 0 0; }
+.income-nudge { font-size: 12.5px; color: var(--brass); margin: 14px 0 0; }
 
 /* ---------- goals ---------- */
 .goal-bar {
-  height: 10px; border-radius: 999px; background: var(--bg);
-  border: 1px solid var(--line); overflow: hidden; margin-top: 10px;
+  height: 13px; border-radius: 999px; background: var(--surface-2);
+  overflow: hidden; margin-top: 10px;
 }
 .goal-bar i {
   display: block; height: 100%;
   background: linear-gradient(90deg, var(--brass-dim), var(--brass));
   border-radius: 999px;
-  transition: width 0.5s ease;
+  transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .goal-meta { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-top: 8px; }
 .goal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
