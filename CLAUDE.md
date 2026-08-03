@@ -764,9 +764,21 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
     client, no key): the tool actually flips `income_type` through the route +
     logs as `ui:avery`; write tools appear only with a caller (14 vs 13); a bad
     id and an outflow are both caught (the verb's inflow-only criterion holds).
-    Suite 329→333 python + 39 render; no gate. **Inc 2 next** —
-    `answer()`/`POST /api/ask` pass the caller in, and the system prompt's "you
-    can look but not change anything" becomes the tag-after-they-tell-you rule.
+    Suite 329→333 python + 39 render; no gate.
+  - **Inc 2 done (Aug 2, 2026).** `answer()` now passes `make_app_caller` into
+    `run_ask`, so `POST /api/ask` is write-enabled; the system prompt's "you can
+    look but not change anything" became the tag-after-they-tell-you rule (only
+    `classify_inflow`, never guess, confirm after; still no money-movement /
+    settle / rules / edit / delete). Module + route docstrings updated.
+    `test_ask_route`: a classify `tool_use` through the route really flips
+    `income_type` + logs as `ui:avery`, write tool offered (14), prompt grants
+    tagging. Suite 333→334 python + 39 render; no gate. **The feature is
+    functionally complete once deployed** — the chat's text reply ("Tagged it
+    as your paycheck ✓") IS the confirmation. **Inc 3 (optional polish) next** —
+    a lighter "tagged ✓" affordance / refresh of an open data view so a tag
+    shows elsewhere immediately; then deploy (frontend/route, no gate) + live
+    smoke against the Pi's key. Also deferred: rules two-phase in chat,
+    streaming, conversation persistence.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
