@@ -1289,3 +1289,91 @@ def find_active_api_token(db, token):
     db.execute("UPDATE api_tokens SET last_used_at = ? WHERE id = ?", (_now(), row["id"]))
     db.commit()
     return row
+
+
+# ─────────────────────── inventory (INVENTORY-DESIGN, the pantry) ─────────
+
+ITEM_KINDS = frozenset({"staple", "oneoff"})
+ITEM_STATUSES = frozenset({"stocked", "low", "out"})
+
+
+def add_item(db, actor, data):
+    """Add a household item — a tracked staple or a one-off shopping need.
+
+    validate — name non-empty; kind ∈ {staple, oneoff}; status ∈ the 3-state
+    vocab; category/note optional. A one-off defaults to 'out' (it IS a need);
+    a staple defaults to 'stocked'.
+    edit — one transaction: the row + an audit row carrying the created shape.
+    Never touches money. Returns the row.
+    """
+    with action_transaction(db):
+        name = (data.get("name") or "").strip()[:100]
+        if not name:
+            raise ActionError("name is required")
+        kind = data.get("kind") or "staple"
+        if kind not in ITEM_KINDS:
+            raise ActionError("kind must be 'staple' or 'oneoff'")
+        status = data.get("status") or ("out" if kind == "oneoff" else "stocked")
+        if status not in ITEM_STATUSES:
+            raise ActionError(
+                "status must be one of: " + ", ".join(sorted(ITEM_STATUSES)))
+        category = (data.get("category") or "").strip()[:60] or None
+        note = (data.get("note") or "").strip()[:200] or None
+        now = _now()
+        cur = db.execute(
+            "INSERT INTO items (name, category, kind, status, note, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, category, kind, status, note, now, now))
+        row = db.execute("SELECT * FROM items WHERE id = ?", (cur.lastrowid,)).fetchone()
+        _write_audit(db, actor, "add_item", f"item:{row['id']}", {"item": dict(row)})
+    return row
+
+
+def set_item_status(db, actor, item_id, status):
+    """Set an item's status — the routine interaction (mark low/out/stocked).
+    A direct write in the agent tiers (logged, reversible), like classify_inflow.
+
+    validate — the item exists and is active (NotFound otherwise); status is in
+    the vocab.
+    edit — one transaction: the status + updated_at. A ONE-OFF set to 'stocked'
+    (i.e. bought) archives itself (active=0) so it leaves the shopping list.
+    side effects — none. Returns the updated row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if existing is None or not existing["active"]:
+            raise NotFound("not found")
+        if status not in ITEM_STATUSES:
+            raise ActionError(
+                "status must be one of: " + ", ".join(sorted(ITEM_STATUSES)))
+        archived = existing["kind"] == "oneoff" and status == "stocked"
+        db.execute(
+            "UPDATE items SET status = ?, updated_at = ?, active = ? WHERE id = ?",
+            (status, _now(), 0 if archived else 1, item_id))
+        row = db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        _write_audit(db, actor, "set_item_status", f"item:{item_id}",
+                     {"before": existing["status"], "after": status,
+                      "archived": bool(archived)})
+    return row
+
+
+def archive_item(db, actor, item_id):
+    """Remove an item from the pantry — soft delete (active=0), matching
+    delete_goal/delete_bill's bounded posture; history stays attributable.
+
+    validate — the item exists (NotFound otherwise).
+    edit — one transaction: active=0 + an audit row. Idempotent.
+    Returns the updated row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        db.execute(
+            "UPDATE items SET active = 0, updated_at = ? WHERE id = ?",
+            (_now(), item_id))
+        _write_audit(db, actor, "archive_item", f"item:{item_id}",
+                     {"name": existing["name"], "was_active": bool(existing["active"])})
+    return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()

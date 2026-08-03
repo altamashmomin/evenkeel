@@ -17,8 +17,9 @@ import ask_loop
 from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (bill_variance, category_trend,
                          compute_balance as derive_balance, income_summary,
-                         income_trend, member_breakdown, savings_rate_trend,
-                         spending_summary, top_merchants)
+                         income_trend, low_stock, member_breakdown,
+                         savings_rate_trend, shopping_list, spending_summary,
+                         top_merchants)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -580,6 +581,74 @@ def confirm_action_view():
     except ValueError as e:
         return bad_request(str(e))
     return jsonify(result)
+
+
+# ------------------------------------------- inventory (INVENTORY-DESIGN)
+
+def item_to_json(r):
+    return {"id": r["id"], "name": r["name"], "category": r["category"],
+            "kind": r["kind"], "status": r["status"], "note": r["note"],
+            "updated_at": r["updated_at"]}
+
+
+@app.get("/api/inventory")
+@login_required
+def inventory_view():
+    """The pantry: the tracked staples plus the computed shopping list and a
+    low-stock count. Staples ordered most-urgent (out, then low) first."""
+    db = get_db()
+    staples = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
+        "ORDER BY CASE status WHEN 'out' THEN 0 WHEN 'low' THEN 1 ELSE 2 END, "
+        "name COLLATE NOCASE").fetchall()
+    return jsonify({
+        "items": [item_to_json(r) for r in staples],
+        "shopping": [item_to_json(r) for r in shopping_list(db)],
+        "low_count": len(low_stock(db)),
+    })
+
+
+@app.post("/api/inventory")
+@login_required
+def add_inventory_item():
+    """Thin caller: the add_item verb owns validation and the edit."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.add_item(db, ui_actor(db), data)
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(item_to_json(row)), 201
+
+
+@app.put("/api/inventory/<int:item_id>")
+@login_required
+def update_inventory_item(item_id):
+    """Thin caller over set_item_status — the only edit the MVP backs
+    (mark stocked/low/out). Name/note edits arrive with their own verbs."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    if "status" not in data:
+        return bad_request("only 'status' can be changed")
+    try:
+        row = actions.set_item_status(db, ui_actor(db), item_id, data.get("status"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(item_to_json(row))
+
+
+@app.delete("/api/inventory/<int:item_id>")
+@login_required
+def delete_inventory_item(item_id):
+    """Thin caller: archive_item soft-deletes (active=0)."""
+    db = get_db()
+    try:
+        actions.archive_item(db, ui_actor(db), item_id)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    return jsonify({"ok": True})
 
 
 @app.get("/api/income/summary")

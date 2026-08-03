@@ -383,3 +383,32 @@ def savings_rate_trend(db, months_back=6, anchor=None):
                                      else round(netflow_sum / income_sum, 4)),
         })
     return out
+
+
+# ─────────────────────── inventory (INVENTORY-DESIGN, the pantry) ─────────
+# Read-time views over the items table. They never read transactions, so they
+# are trivially inflow-invariant (the derivation tripwire covers them for free)
+# and never touch money.
+
+_ITEM_STATUS_ORDER = "CASE status WHEN 'out' THEN 0 WHEN 'low' THEN 1 ELSE 2 END"
+
+
+def shopping_list(db):
+    """Everything that needs buying: active staples at 'low'/'out', plus every
+    active one-off need. The "what do we need?" read the SPA and the assistant
+    both call. Ordered most-urgent (out) first, then by name."""
+    rows = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND ("
+        "  (kind = 'staple' AND status IN ('low', 'out')) OR kind = 'oneoff'"
+        f") ORDER BY {_ITEM_STATUS_ORDER}, name COLLATE NOCASE").fetchall()
+    return [dict(r) for r in rows]
+
+
+def low_stock(db):
+    """Active staples running low or out — the nudge / badge source (distinct
+    from shopping_list, which also includes one-off needs)."""
+    rows = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
+        f"AND status IN ('low', 'out') ORDER BY {_ITEM_STATUS_ORDER}, name COLLATE NOCASE"
+    ).fetchall()
+    return [dict(r) for r in rows]
