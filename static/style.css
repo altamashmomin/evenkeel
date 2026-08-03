@@ -1,23 +1,45 @@
-/* Ledger — graphite night theme.
-   Two voices: IBM Plex Mono for everything money (amounts, labels, figures),
-   the system sans for everything human (names, descriptions, notes). */
+/* Ledger — "Garden" theme: warm, organic, app-like; light + dark.
+   Two voices: a soft rounded face for everything money (amounts, labels,
+   figures — still named --mono for its many call sites), the system sans for
+   everything human. The whole app is token-driven, so the palette and the
+   light/dark switch live entirely here. */
 
 :root {
-  --bg: #15171c;
-  --surface: #1e222a;
-  --surface-2: #262b35;
-  --line: #2e3440;
-  --text: #ece9e2;
-  --muted: #9b978d;
-  --brass: #d9a04c;
-  --brass-dim: #8a6a38;
-  --p1: #63b8a6;   /* partner one — juniper */
-  --p2: #b195e8;   /* partner two — wisteria */
-  --danger: #e0766a;
-  --ok: #7dbd8a;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --radius: 12px;
+  --bg: #ECE6D9;         /* warm oat — page ground */
+  --surface: #FBF8F1;    /* warm paper — cards */
+  --surface-2: #F1EBDD;  /* pressed / inset */
+  --line: #E3DCCB;       /* soft warm hairline */
+  --text: #24302A;       /* deep pine ink */
+  --muted: #77836F;      /* sage grey */
+  --brass: #E0A24C;      /* honey — highlights, CTAs */
+  --brass-dim: #C6892F;
+  --p1: #3C8A66;         /* one person — leaf green */
+  --p2: #9C6C8D;         /* the other — plum */
+  --danger: #C6795A;     /* soft clay */
+  --ok: #3C8A66;         /* leaf green — income, positive, paid */
+  --mono: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif;
+  --sans: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  --radius: 20px;
+}
+
+/* Dark = the "night garden": the same design, glowing after dark. Follows the
+   phone automatically; a manual toggle (later) sets data-theme to override. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #10160F; --surface: #1A231C; --surface-2: #222D24; --line: #27332A;
+    --text: #E8EEE4; --muted: #8FA091; --brass: #F0B860; --brass-dim: #D2903A;
+    --p1: #67D69C; --p2: #C08FB0; --danger: #E58C6B; --ok: #67D69C;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10160F; --surface: #1A231C; --surface-2: #222D24; --line: #27332A;
+  --text: #E8EEE4; --muted: #8FA091; --brass: #F0B860; --brass-dim: #D2903A;
+  --p1: #67D69C; --p2: #C08FB0; --danger: #E58C6B; --ok: #67D69C;
+}
+:root[data-theme="light"] {
+  --bg: #ECE6D9; --surface: #FBF8F1; --surface-2: #F1EBDD; --line: #E3DCCB;
+  --text: #24302A; --muted: #77836F; --brass: #E0A24C; --brass-dim: #C6892F;
+  --p1: #3C8A66; --p2: #9C6C8D; --danger: #C6795A; --ok: #3C8A66;
 }
 
 * { box-sizing: border-box; }
@@ -204,8 +226,8 @@ main {
   z-index: 6;
   width: 54px; height: 54px; border-radius: 50%;
   font-size: 28px; line-height: 1;
-  background: var(--brass); color: #1a1408; border: none;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  background: var(--brass); color: #26200f; border: none;
+  box-shadow: 0 8px 20px -6px rgba(40, 60, 45, 0.35);
   cursor: pointer;
 }
 

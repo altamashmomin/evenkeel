@@ -801,6 +801,38 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
     ~Aug 30). **CONFIRMED LIVE (Aug 2, 2026): Charlee tagged a real deposit
     through the Ask tab on her phone** — the full chat→tag path works end to end
     for the priority user. Ask-tab tagging is DONE and in use.
+
+**UI REDESIGN — "Garden" (started Aug 2, 2026).** Charlee wants a full visual
+redesign: modern, app-like, organic. Direction chosen = **the Garden** — warm,
+growth-themed, rounded, shipping with **both light and dark** (daylight garden /
+night garden are one design's two themes, not two designs). Alternate "Refined"
+direction set aside. Concept artifacts (plain-HTML mockups, shareable with
+Charlee): two-directions compare w/ live light-dark toggle
+`claude.ai/code/artifact/7558c5b2-5be2-480a-9b7b-85e6a0d39cb2`; single dashboard
+`…/8e42a827-315c-4b30-9815-92697cf12af9`.
+- **Build path decided (Alta): restyle the EXISTING vanilla app in-place first;
+  framework migration DEFERRED to a later phase** (do it once the look is
+  validated + when richer interactions actually demand it — not both at once,
+  which would be the big-bang rewrite the project refuses). So CORE-DESIGN's
+  "no framework migration" line STANDS for now; amend it only at the framework
+  phase. Backend/verbs/gate/balance: untouched — this is frontend-only, ships
+  through the zero-gate frontend deploy, fully reversible.
+- Phased plan: **(1) design-token foundation + light/dark** — DONE (Aug 2):
+  the whole app is token-driven (~15 CSS vars), so redefining `:root` +
+  `@media (prefers-color-scheme)` + `data-theme` overrides shifts every screen
+  to the Garden palette + rounded type + softer radii at once; `--mono` swapped
+  to system rounded (dropped the IBM Plex Mono Google-Fonts link — one fewer
+  external dep), `--radius` 12→20, FAB shadow softened, `theme-color` metas per
+  scheme. Suite 334 + 41 render green; no gate (CSS/HTML only). NOT deployed yet
+  — holding the deploy until the signature components land so Charlee's first
+  sight is the coherent Garden, not a half-reskin. **(2) signature components**
+  (hero balance card, income savings ring, goal growth vessels, category bars,
+  the floating rounded bottom-nav w/ avatars + elevated +) — these need markup
+  changes in render.js/app.js/index.html, done against the render seam; **(3)**
+  sweep the other tabs (Activity/Goals/Bills/Analytics/Ask) for per-screen
+  polish; **(4)** motion + organic touches (ambient blobs, transitions, growth
+  animations). Since the in-app Browser tool is wedged, visual sign-off is via
+  a published preview artifact before each deploy.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
