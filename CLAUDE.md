@@ -900,8 +900,20 @@ shortcut pill, 5-slot nav unchanged) → chat input → later inference/predicti
   in inc 2); `REQUIRED_SCHEMA_VERSION` 7→8. **Enumerated-diff gate PASS**
   (notes/008: items=0 + schema_version bump, nothing else — inventory never
   touches money); suite 334 + 43 render. NOT deployed (deploy comes with a later
-  inc, `#008 --live`). **Inc 2 next** — the verbs + `shopping_list`/`low_stock`
-  derivations + read/write endpoints.
+  inc, `#008 --live`).
+- **Inc 2 done (Aug 3, 2026).** Verbs `add_item`/`set_item_status`/`archive_item`
+  in `actions.py` (3-state, defaults + validation, audited; a one-off set
+  `stocked` = bought auto-archives off the list); derivations `shopping_list`
+  (staples low/out + active one-offs, urgent-first) + `low_stock` (staples only)
+  — they read `items` not transactions, so the tripwire auto-covers them
+  inflow-invariant; endpoints `GET /api/inventory` (items + computed shopping +
+  low_count) and POST/PUT/DELETE thin callers (`login_required`, write scope for
+  bearer). `test_item_verbs` + `test_inventory_routes` (incl. bearer write-scope
+  gating). **Zero-diff balance gate PASS** (v8 source, 8242bd8→HEAD — inventory
+  inert for the finance snapshot); suite 334→346 python + 43 render. Still not
+  deployed. **Inc 3 next** — the Garden Inventory SPA view (Home shortcut pill,
+  tap-to-cycle chips, shopping-list section, add), then inc 4 chat input; deploy
+  rides inc 3/4 with `#008 --live`.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
