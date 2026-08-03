@@ -596,7 +596,25 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   font-family: inherit; cursor: pointer; }
 .ask-eg:active { background: var(--surface-2); }
 
+/* ---------- motion: growth on appearance ---------- */
+/* Registering --p lets the savings ring's conic fill be animated (older
+   browsers ignore it and simply show the filled ring). */
+@property --p { syntax: "<number>"; inherits: false; initial-value: 0; }
+@keyframes grow-x { from { transform: scaleX(0); } }
+@keyframes ring-grow { from { --p: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+
+/* Bars, vessels, and the rings grow up from empty each time a screen renders
+   (elements are rebuilt on render, so it replays and always feels alive). */
+.cat-bar i, .goal-bar i, .ves i {
+  transform-origin: left;
+  animation: grow-x 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.ring { animation: ring-grow 0.9s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.balance-hero { animation: rise 0.5s ease both; }
+.card { animation: rise 0.42s ease both; }
+
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
-  .ask-thinking span { animation: none; opacity: 0.5; }
+  * { transition: none !important; animation: none !important; }
+  .ask-thinking span { opacity: 0.5; }
 }
