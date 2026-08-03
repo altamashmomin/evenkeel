@@ -415,6 +415,14 @@ main {
   font-family: var(--mono); font-weight: 600; font-size: 34px;
   font-variant-numeric: tabular-nums; margin: 2px 0 0;
 }
+.spent-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.pill {
+  font-family: var(--mono); font-weight: 700; font-size: 12px; white-space: nowrap;
+  padding: 5px 11px; border-radius: 999px; flex: none;
+}
+.pill.up { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.pill.down { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.pill.flat { color: var(--muted); background: var(--surface-2); }
 .cat-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13.5px; }
 .cat-row .cat-name { width: 110px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cat-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--bg); overflow: hidden; }

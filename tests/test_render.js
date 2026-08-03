@@ -130,6 +130,18 @@ check("catEmoji maps categories and falls back to a card", () => {
   assert.strictEqual(R.catEmoji(""), "💳");
 });
 
+// ---- vsLastMonth ----
+check("vsLastMonth pill: up/down/flat, null without a baseline", () => {
+  const s = (a, b) => [{ month: "2026-06", month_spend: a },
+                       { month: "2026-07", month_spend: b }];
+  assert.deepStrictEqual(R.vsLastMonth(s(1000, 1200)), { dir: "up", text: "▲ 20% vs Jun" });
+  assert.deepStrictEqual(R.vsLastMonth(s(1000, 800)), { dir: "down", text: "▼ 20% vs Jun" });
+  assert.strictEqual(R.vsLastMonth(s(1000, 1000)).dir, "flat");
+  assert.strictEqual(R.vsLastMonth(s(0, 500)), null, "no baseline last month");
+  assert.strictEqual(R.vsLastMonth([{ month: "2026-07", month_spend: 5 }]), null, "one month");
+  assert.strictEqual(R.vsLastMonth([]), null);
+});
+
 // ---- shortMonth ----
 check("shortMonth abbreviates", () => {
   assert.strictEqual(R.shortMonth("2026-07"), "Jul");

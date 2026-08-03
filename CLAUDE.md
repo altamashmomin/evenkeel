@@ -865,10 +865,13 @@ Charlee): two-directions compare w/ live light-dark toggle
   cards get a soft fade-rise; all replay on render, all off under
   prefers-reduced-motion (guard now kills animations too). **The Garden redesign
   (phases 1–4) is complete and deployed** — whole app, light+dark w/ crossfade,
-  dashboard matches the mock, other tabs polished, growth motion. Framework
-  migration still deferred (CORE-DESIGN's no-framework line stands); optional
-  future: the "vs last month" pill (needs a prior-month API figure), and a
-  framework migration if/when richer interactions demand it.
+  dashboard matches the mock, other tabs polished, growth motion. **The "vs
+  last month" spent pill is done too (Aug 3)** — a seam-tested `vsLastMonth()`
+  reads the existing `/api/income/trend` 2-month window on the frontend (no
+  backend change; up=clay/down=green, null when no baseline), so the dashboard
+  now matches the mock with nothing outstanding. Framework migration still
+  deferred (CORE-DESIGN's no-framework line stands) — the one remaining
+  optional future, if/when richer interactions demand it.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`

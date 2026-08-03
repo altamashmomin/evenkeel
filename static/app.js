@@ -7,7 +7,7 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 // Pure presentation helpers live in render.js (loaded before this file) so
 // they can be unit-tested in plain node; app.js pulls them off the global.
 const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
-        incomeCardHTML, incomeTrendChartHTML, spendingCompositionHTML,
+        vsLastMonth, incomeCardHTML, incomeTrendChartHTML, spendingCompositionHTML,
         memberBreakdownHTML, billVarianceHTML, savingsRateTrendHTML,
         categoryTrendHTML, askThreadHTML } = window.Render;
 
@@ -273,6 +273,10 @@ async function renderDashboard() {
   // Same month the dashboard resolved to, so the two cards always agree;
   // the /api/dashboard call itself stays unchanged (parity-frozen shape).
   const inc = await api(`/api/income/summary?month=${d.month}`);
+  // This month vs last, for the Spent pill — a 2-month trend window ending at
+  // the dashboard's month; month_spend is the same net-of-refunds figure.
+  const trend = await api(`/api/income/trend?months_back=2&anchor=${d.month}`);
+  const spentPill = vsLastMonth(trend.series);
   window._dash = d;
   const maxCat = Math.max(1, ...d.by_category.map((c) => c.amount));
   const cats = d.by_category.length
@@ -327,8 +331,13 @@ async function renderDashboard() {
   return `
     ${beamHTML(d.balance)}
     <div class="card">
-      <p class="eyebrow">Spent in ${monthName(d.month)}</p>
-      <p class="stat-big">${fmt(d.month_total)}</p>
+      <div class="spent-head">
+        <div>
+          <p class="eyebrow" style="margin-bottom:2px">Spent in ${monthName(d.month)}</p>
+          <p class="stat-big">${fmt(d.month_total)}</p>
+        </div>
+        ${spentPill ? `<span class="pill ${spentPill.dir}">${spentPill.text}</span>` : ""}
+      </div>
       <div style="margin-top:12px">${cats}</div>
     </div>
     ${incomeCardHTML(inc, d.month)}

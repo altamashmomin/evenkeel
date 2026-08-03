@@ -80,6 +80,21 @@
     return "💳";
   }
 
+  // The "vs last month" pill for the Spent card, from an income-trend series
+  // (…, prev, current). Returns {dir, text} or null when there's no usable
+  // baseline (fewer than 2 months, or last month had no spend). Spending MORE
+  // is "up" (bad → clay); spending LESS is "down" (good → green).
+  function vsLastMonth(series) {
+    if (!series || series.length < 2) return null;
+    const cur = series[series.length - 1];
+    const prev = series[series.length - 2];
+    if (!prev || prev.month_spend <= 0) return null;
+    const pct = Math.round(((cur.month_spend - prev.month_spend) / prev.month_spend) * 100);
+    if (pct === 0) return { dir: "flat", text: `— vs ${shortMonth(prev.month)}` };
+    const dir = pct > 0 ? "up" : "down";
+    return { dir, text: `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct)}% vs ${shortMonth(prev.month)}` };
+  }
+
   function incomeCardHTML(inc, month) {
     // No inflows yet (the state until sync imports income, or an empty
     // month): a muted empty state, not a wall of zeros — same grammar as the
@@ -412,7 +427,7 @@
   }
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
-           incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
+           vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML, askThreadHTML };
 });
