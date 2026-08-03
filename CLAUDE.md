@@ -854,9 +854,13 @@ Charlee): two-directions compare w/ live light-dark toggle
   unbuilt mock element is the "▲ vs last month" pill (needs a prior-month
   figure `/api/dashboard` doesn't return — deferred, minor). render seam 42 +
   suite 334 throughout. Light/dark is a manual toggle OR follows the phone.
-  **(3)** the OTHER tabs (Activity/Goals/Bills/Analytics/Ask) still show the
-  token-themed old structure (not per-screen mock-tuned) — next; **(4)** more
-  motion/organic polish.
+  **(3) done (Aug 3):** Garden-polished the other tabs — Bills rows get emoji
+  icon-tiles + Goals get the 🌱 sprout (Activity already inherits icon-tiles via
+  txnRow); the All/Spending/Income filter → rounded pills w/ green active, month
+  switcher rounder, tag banner honey-pill; badges → soft-filled chips (cascades
+  to income/tag chips + bill badges). Analytics/Ask were already token-themed.
+  render seam 42 + suite 334. **(4)** more motion/organic polish remains
+  (growth animations, transitions) as an optional finishing pass.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
