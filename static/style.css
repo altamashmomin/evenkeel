@@ -604,6 +604,32 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   font-family: inherit; cursor: pointer; }
 .ask-eg:active { background: var(--surface-2); }
 
+/* ---------- inventory ("the pantry") ---------- */
+/* The tap-to-cycle status chip — same three-colour language as the badges
+   (green stocked / honey low / clay out), but a real button. */
+.status-chip {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+  font-weight: 700; text-transform: uppercase; padding: 5px 12px;
+  border-radius: 999px; border: 1px solid transparent; cursor: pointer; flex: none;
+}
+.status-chip.stocked { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.status-chip.low { color: var(--brass); background: color-mix(in srgb, var(--brass) 15%, transparent); }
+.status-chip.out { color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); }
+.status-chip:active { transform: translateY(1px); }
+/* faint remove control on a staple row */
+.item-x {
+  flex: none; width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
+  background: none; border: none; color: var(--muted); font-size: 13px;
+}
+.item-x:hover { color: var(--danger); background: var(--surface-2); }
+/* quick-add field closing each pantry card (guards against the global
+   `form > .btn.primary { width:100% }` rule, like .ask-bar does) */
+.inv-add { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+.inv-add input {
+  flex: 1 1 0; min-width: 0; margin-top: 0; padding: 10px 14px; border-radius: 999px;
+}
+.inv-add .btn.primary { width: auto; flex: 0 0 auto; margin-top: 0; }
+
 /* ---------- motion: growth on appearance ---------- */
 /* Registering --p lets the savings ring's conic fill be animated (older
    browsers ignore it and simply show the filled ring). */

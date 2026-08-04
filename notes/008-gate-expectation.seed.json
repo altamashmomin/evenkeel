@@ -1,0 +1,7 @@
+{
+  "note": "Migration #008 (items table -- INVENTORY-DESIGN, the household pantry MVP). One new empty table and its schema_version record -- nothing else. Inventory never touches money, so the who-owes-whom balance and every monthly total are identical; they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.items", "old": null, "new": 0},
+    {"path": "row_counts.schema_version", "old": 7, "new": 8}
+  ]
+}

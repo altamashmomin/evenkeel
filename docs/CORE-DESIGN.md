@@ -234,6 +234,10 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `withdraw_from_goal` | UI | amount positive | Stores the negative contribution row; intent lives in the verb name, not a sign the reader must infer (correction-pass disposition). `archive_goal`/`restore_goal` deferred to their own migration increment |
 | `create_api_token` | UI (session only) | label required; `user_id` an active member; scopes ∈ {`read`, `read,write`} | AGENT-DESIGN step 1. Stores only the SHA-256 hash; returns the plaintext once. Token mint is browser-session-only — a bearer token can't mint more |
 | `revoke_api_token` | UI (session only) | token exists | No delete; a revoked row keeps its audit trail and stops matching immediately |
+| `add_item` | UI, MCP, Ask | name non-empty; `kind` ∈ {`staple`,`oneoff`}; `status` ∈ {`stocked`,`low`,`out`}; category optional | INVENTORY-DESIGN MVP. Creates a household staple or a one-off shopping need; audit carries the created shape. Never touches money |
+| `set_item_status` | UI, MCP, Ask | item exists & active; `status` ∈ vocab | The routine interaction (mark low/out/stocked) — a direct write in the agent tiers (logged, reversible), like `classify_inflow`. A `oneoff` set `stocked` archives itself (bought → off the list) |
+| `rename_item` / `set_item_note` | UI | item exists | Small edits; audit records before/after |
+| `archive_item` | UI, MCP | item exists | Soft delete (`active=0`), matching `delete_goal`/`delete_bill`'s bounded posture; history untouched |
 
 The table grows as features land (scenario verbs arrive with the
 scenarios build), but growth means *adding rows here first* — a write

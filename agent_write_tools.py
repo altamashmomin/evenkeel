@@ -6,10 +6,14 @@ same Flask write ROUTE the SPA uses (one write path, CORE-DESIGN invariant 2),
 executed in-process under the caller's own session — so the write is attributed
 to the person (`ui:<name>`), validated by the verb, logged, and reversible.
 
-v1 exposes exactly one tool: classify_inflow. Rules (create_income_rule /
-apply_rules, two-phase) are a later increment; settle-up, transaction edit or
-delete, and money movement deliberately have NO tool here — ACL by omission
-(AGENT-DESIGN invariant 3).
+Tools exposed: classify_inflow (tag an inflow) and the household-pantry pair
+add_item / set_item_status — the pantry is groceries/supplies, never money, so
+it needs no two-phase choreography (INVENTORY-DESIGN: direct writes like
+classify). Rules (create_income_rule / apply_rules, two-phase) are a later
+increment; settle-up, transaction edit or delete, item removal, and money
+movement deliberately have NO tool here — ACL by omission (AGENT-DESIGN
+invariant 3). The pantry READ ('what do we need?', and finding an item's id)
+is the shared ledger_inventory read tool, not here.
 """
 from typing import Callable
 
@@ -52,6 +56,50 @@ WRITE_TOOLS = [
         "execute": lambda caller, a: caller(
             "PUT", f"/api/transactions/{a['transaction_id']}/classify",
             {"income_type": a.get("income_type")}),
+    },
+    {
+        "name": "ledger_add_item",
+        "description":
+            "Add something to the household pantry. Two kinds: a STAPLE is "
+            "something to keep tracked ongoing (coffee, dish soap); a ONE-OFF is "
+            "a single thing to buy this once (birthday candles) — it lands on the "
+            "shopping list and disappears once bought. Use kind='oneoff' when "
+            "they just need to buy something once, kind='staple' for a thing they "
+            "want to keep an eye on. If they said it's already low or out, pass "
+            "that as status. Logged; there's no undo here (removing a tracked "
+            "item happens in the app). This is groceries/supplies — it never "
+            "touches money.",
+        "input_schema": _obj({
+            "name": {"type": "string",
+                     "description": "The item, e.g. 'Coffee'."},
+            "kind": {"type": "string", "enum": ["staple", "oneoff"],
+                     "description": "'staple' to track ongoing, 'oneoff' for a "
+                                    "one-time buy. Defaults to 'staple'."},
+            "status": {"type": "string", "enum": ["stocked", "low", "out"],
+                       "description": "Only if they said so. Defaults: a staple "
+                                      "starts 'stocked', a one-off starts 'out'."},
+            "note": {"type": "string",
+                     "description": "Optional detail, e.g. a brand or which store."},
+        }, required=["name"]),
+        "execute": lambda caller, a: caller("POST", "/api/inventory", {
+            k: a[k] for k in ("name", "kind", "status", "note") if a.get(k)}),
+    },
+    {
+        "name": "ledger_set_item_status",
+        "description":
+            "Mark a pantry item stocked, low, or out — the everyday update "
+            "('we're out of milk', 'down to the last roll', 'restocked the "
+            "coffee'). Find the item's id first with ledger_inventory. Marking a "
+            "ONE-OFF need 'stocked' means it was bought, so it drops off the "
+            "shopping list. Reversible (set it again) and logged.",
+        "input_schema": _obj({
+            "item_id": {"type": "integer",
+                        "description": "The item's id, from ledger_inventory."},
+            "status": {"type": "string", "enum": ["stocked", "low", "out"],
+                       "description": "The new status."},
+        }, required=["item_id", "status"]),
+        "execute": lambda caller, a: caller(
+            "PUT", f"/api/inventory/{a['item_id']}", {"status": a.get("status")}),
     },
 ]
 

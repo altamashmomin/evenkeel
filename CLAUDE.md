@@ -872,6 +872,93 @@ Charlee): two-directions compare w/ live light-dark toggle
   now matches the mock with nothing outstanding. Framework migration still
   deferred (CORE-DESIGN's no-framework line stands) — the one remaining
   optional future, if/when richer interactions demand it.
+
+**NEW DIRECTION — Household Inventory ("the pantry"), SCOPED (Aug 3, 2026).**
+Alta wants to go beyond finance: track the ~20–30 household staples they don't
+want to run out of + a shared shopping list, so they don't buy twice or run
+low. Design doc written: `docs/INVENTORY-DESIGN.md` (governs, checked against
+CORE-DESIGN). Thesis: Ledger is uniquely placed because it already has the two
+things standalone inventory apps lack — the **bank feed** (purchases = what
+enters the home, for eventual self-population) and the **Ask assistant with
+write access** (upkeep by conversation). Discipline: curated staples, NOT
+exhaustive (exhaustive is the upkeep trap). Recommended MVP + settled defaults
+(open to redirect): household-scoped (like bills/goals), ONE `items` table with
+a 3-state `status` (stocked/low/out, NO quantities), the shopping list is a
+DERIVATION not a stored table, one-offs archive themselves when bought, chat is
+a first-class input from day one (add_item/set_item_status as direct writes
+like classify_inflow). Deferred: purchase auto-population, restock prediction,
+barcode, quantities, money tie-in. First non-finance domain → widens Ledger's
+identity to "the shared household" (money invariants untouched — inventory
+never touches money). Build order: **#008 items migration → verbs + derivations
+(shopping_list/low_stock) + endpoints → Garden Inventory SPA view (Home
+shortcut pill, 5-slot nav unchanged) → chat input → later inference/prediction.**
+- **Inc 1 done (Aug 3, 2026).** Migration #008 creates the empty `items` table
+  (schema_version 7→8): household staples + one-off needs, 3-state `status`
+  (stocked/low/out), no quantities, soft-delete, `CHECK`-constrained `kind`/
+  `status`. `items` into `GOVERNED_TABLES`; add_item/set_item_status/rename_item/
+  set_item_note/archive_item rows added to CORE-DESIGN's registry first (verbs
+  in inc 2); `REQUIRED_SCHEMA_VERSION` 7→8. **Enumerated-diff gate PASS**
+  (notes/008: items=0 + schema_version bump, nothing else — inventory never
+  touches money); suite 334 + 43 render. NOT deployed (deploy comes with a later
+  inc, `#008 --live`).
+- **Inc 2 done (Aug 3, 2026).** Verbs `add_item`/`set_item_status`/`archive_item`
+  in `actions.py` (3-state, defaults + validation, audited; a one-off set
+  `stocked` = bought auto-archives off the list); derivations `shopping_list`
+  (staples low/out + active one-offs, urgent-first) + `low_stock` (staples only)
+  — they read `items` not transactions, so the tripwire auto-covers them
+  inflow-invariant; endpoints `GET /api/inventory` (items + computed shopping +
+  low_count) and POST/PUT/DELETE thin callers (`login_required`, write scope for
+  bearer). `test_item_verbs` + `test_inventory_routes` (incl. bearer write-scope
+  gating). **Zero-diff balance gate PASS** (v8 source, 8242bd8→HEAD — inventory
+  inert for the finance snapshot); suite 334→346 python + 43 render. Still not
+  deployed.
+- **Inc 3 done (Aug 3, 2026).** The Garden Inventory SPA view. Reached from a
+  new **🧺 Pantry** Home shortcut pill (beside Bills/Analytics) + a desktop
+  topnav tab (`TABS` grew to 7; the 5-slot mobile nav is deliberately
+  unchanged — dedicated slot is a later IA call). Two cards: a derived "Need to
+  buy" list (each row a "Got it" check-off = mark stocked; a one-off
+  self-archives off the list when bought) and the Staples tracker with a
+  tap-to-cycle **stocked→low→out** status chip (green/honey/clay, the badge
+  palette), each card closing in a quick-add field; a faint ✕ stops tracking a
+  staple. Pure `inventoryHTML(data)` in `render.js` (the analytics-helper
+  pattern, node-seam tested); `itemIcon` gives pantry rows a 🧺 fallback + a few
+  household keyword icons instead of the money-card glyph. `app.js` wiring is
+  thin — cycle/got-it → `set_item_status`, adds → `add_item`, remove →
+  `archive_item`, all the inc-2 endpoints (no backend change). Gotcha fixed: an
+  input named `name` is shadowed by `form.name`, so the add handlers read the
+  input directly. **Frontend only — no schema/derivation/route touched, so no
+  balance gate** (like every prior frontend increment); suite 346 python + 43→48
+  render. The in-app Browser tool worked this session: verified live end-to-end
+  (status cycle drops Milk off the list + lowers the "running low" badge, both
+  add fields, one-off archive-on-buy, mobile 5-slot nav + desktop 7-tab
+  topnav). Still not deployed.
+- **Inc 4 done (Aug 3, 2026).** Pantry chat input — Charlee keeps the pantry by
+  talking ("we're out of coffee", "add paper towels", "what do we need?"). No
+  new verbs/routes: the tools bottom out in the inc-2 endpoints the SPA uses
+  (one write path). **Read surface (shared, both doors):** `ledger_inventory`
+  joins the 13 read tools in `agent_read_tools.py` + a `ledger_mcp` wrapper
+  (drift test stays green; Alta's MCP gains pantry *visibility* too) — it's the
+  "what do we need?" read and how the model finds an item's `id` before
+  changing it. **Write surface (Ask-only, Charlee's door):** `ledger_add_item`
+  + `ledger_set_item_status` in `agent_write_tools.py` — direct writes like
+  `classify_inflow` (logged, reversible, `ui:<name>`), executed via the session
+  caller against POST/PUT `/api/inventory`; pantry never touches money, so no
+  two-phase. Item removal is deliberately absent (ACL by omission — that's the
+  app). System prompt gained the pantry capability; Ask-tab copy updated for
+  honesty + a "what do we need?" example chip. **MCP-write tier (Alta's door)
+  for the pantry is a later increment, if wanted.** Tests: pantry writes really
+  create/flip the item row through the route + log as the person, bad id
+  recoverable, write tools appear only with a caller (14 read + 3 write),
+  `ledger_inventory` byte-equal to `/api/inventory` through MCP dispatch; four
+  loop/route count bumps. Pure clients of gated endpoints → no balance gate;
+  suite 346→350 python + 48 render. `ask_smoke.py` migrates to v8, so a live
+  pantry question ("add coffee, we're low") is runnable with an
+  `ANTHROPIC_API_KEY` (⚠ Pi key expires ~Aug 30). **The pantry MVP (INVENTORY-
+  DESIGN steps 1–4) is now CODE-COMPLETE** — tap OR talk. **NOT yet deployed:
+  inc 1–4 all await the first pantry deploy, which applies migration `#008
+  --live`** (deploy `deploy/deploy.sh origin/main` — Alta runs it). Next after
+  deploy: INVENTORY-DESIGN step 5 (purchase-feed auto-population + restock
+  prediction), each its own increment.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
