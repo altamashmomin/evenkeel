@@ -117,13 +117,20 @@ if have systemctl; then
 fi
 
 # ── 5. Backups: recent, restorable, not bloating the card ───────────────────
+# Exclude SQLite sidecars (-wal/-shm/-journal): they are not backups, and
+# counting them inflates the total and could pick a non-db file as "newest".
 shopt -s nullglob
-baks=( "$APP_DIR"/finance.db.bak-* )
+baks=()
+for _f in "$APP_DIR"/finance.db.bak-*; do
+  case "$_f" in *-wal|*-shm|*-journal) continue;; esac
+  baks+=("$_f")
+done
 shopt -u nullglob
 if (( ${#baks[@]} == 0 )); then
   crit "no finance.db.bak-* backup found in $APP_DIR — no local rollback point"
 else
-  newest="$(ls -1t "$APP_DIR"/finance.db.bak-* 2>/dev/null | head -1)"
+  newest="$(ls -1t "$APP_DIR"/finance.db.bak-* 2>/dev/null \
+            | grep -vE -- '-(wal|shm|journal)$' | head -1)"
   if have date && have stat; then
     b_epoch="$(stat -c %Y "$newest" 2>/dev/null || echo 0)"
     b_age_h=$(( ($(date +%s) - b_epoch) / 3600 ))
@@ -132,20 +139,21 @@ else
       || ok "newest backup ${b_age_h}h old ($(basename "$newest"))"
   fi
   # Restorability: integrity-check the newest backup (a .bak, never finance.db).
-  # Prefer the sqlite3 CLI; fall back to python3 (always present — the app runs
-  # on it), so a Pi without the CLI still gets the check. Read-only open.
+  # python3 first (always present — the app runs on it) opened immutable=1, so
+  # SQLite reads the static file directly and NEVER creates -wal/-shm sidecars
+  # next to the backup. sqlite3 CLI only as a fallback.
   res=""
-  if have sqlite3; then
-    res="$(sqlite3 "$newest" 'PRAGMA integrity_check;' 2>&1 | head -1)"
-  elif have python3; then
+  if have python3; then
     res="$(python3 -c '
 import sqlite3, sys
 try:
-    c = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True)
+    c = sqlite3.connect("file:%s?immutable=1" % sys.argv[1], uri=True)
     print(c.execute("PRAGMA integrity_check").fetchone()[0])
 except Exception as e:
     print("unreadable (%s)" % e.__class__.__name__)
 ' "$newest" 2>/dev/null | head -1)"
+  elif have sqlite3; then
+    res="$(sqlite3 "$newest" 'PRAGMA integrity_check;' 2>&1 | head -1)"
   fi
   if [[ -z "$res" ]]; then
     warn "cannot integrity-check backups (no sqlite3 or python3)"
