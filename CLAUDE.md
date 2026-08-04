@@ -1107,6 +1107,55 @@ Repo housekeeping: `rework` → `main` merge **done (July 26, 2026)** —
 at `41c2040` on origin. Remaining non-feature task: Tailscale on the Pi
 for phone access (headless).
 
+**Agent + ops layer built (Aug 4, 2026) — a hands-off operations tier around
+the app, all on `rework` and pushed; frontend/tooling only (no app/schema/
+derivation change), so nothing to gate.**
+- Seven role-scoped subagents in `.claude/agents/` under one standard,
+  `docs/OPERATING-CHARTER.md`: `ledger-analyst` (read-only analysis over the MCP
+  reads), `ledger-security` (defensive audit, advisory), `ledger-maintenance`
+  (deps/back-end, stops before commit), `ledger-ops` (live-Pi SRE, recommend-
+  only), `ledger-health-sweep` (weekly code+dep sweep), `ledger-release`
+  (gated-deploy copilot — see NEXT), `ledger-chief-of-staff` (reconciles reports
+  → one weekly briefing). Cross-session detail: memory [[ledger-ops-layer]].
+- **Pi Ops guardian** — `deploy/ops-health-check.sh` + `deploy/pifinance-ops.
+  {service,timer}`, installed OUT of the repo at `~/pifinance-ops/` on the Pi
+  (so `deploy.sh`'s clean-tree guard stays happy), daily 07:00, LIVE + green.
+  Checks service/disk/sync-freshness/backup-restorability/SECRET_KEY/API-key;
+  alerts file a GitHub `ops-alert` issue on amber/red via curl+PAT (`.env`:
+  `OPS_ALERT_GH_REPO` + `OPS_ALERT_GH_TOKEN`).
+- Two cloud routines (RemoteTrigger): Mon 08:00 ET health-sweep, Fri 08:00 ET
+  Chief-of-Staff briefing (both file issues on `evenkeel`).
+- **Security audit** (`docs/SECURITY-AUDIT-2026-08-04.md`): no exploitable
+  vulns; findings are hardening (rate-limit `/api/ask`, cookie Secure flag,
+  login timing) + a clean dependency scan. Finding #1 (SECRET_KEY + 2 workers)
+  VERIFIED RESOLVED (it's set on the Pi).
+- `deploy.sh` hardened: WAL-safe backup (`VACUUM INTO`, not a raw `cp` — a cp of
+  the WAL-mode live DB dropped uncheckpointed transactions) and it now restarts
+  `ledger-mcp` after a deploy. Both activate on the deploy AFTER the one that
+  ships them (deploy.sh backs up + self-replaces before those lines run).
+
+**IMMEDIATE NEXT TASK — the pantry #009 deploy (a real gated migration).**
+`rework` is 13 commits ahead of the deployed `origin/main` (`be27345`, schema
+version 8). The one pending migration is `migrations/009_item_restock_match.py`
+(schema 8→9: the inventory restock-match column + `restock_suggestions`
+derivation + its endpoint/UI, INVENTORY-DESIGN step 5); its enumerated gate
+expectation is `notes/009-gate-expectation.seed.json`. Ship via the per-
+increment loop, driven by the **`ledger-release`** agent:
+1. Classify: it's a migration → needs backup + `--live` + the balance gate.
+2. Build `dev.db` (on the Pi: `cp finance.db dev.db`) and run `gate.py run
+   --db dev.db --old be27345 --new rework --expect notes/009-gate-expectation.seed.json`;
+   only the enumerated diff (new column + `schema_version` bump, no money moved)
+   passes.
+3. Advance `main` → `rework` (`--no-ff` merge, first parent = old `main` so the
+   push fast-forwards, tree = rework), push.
+4. On the Pi (`altamash`@`/home/altamash/pifinance`): `deploy/deploy.sh
+   origin/main` (backs up, dry-run-gates the copy, migrates `--live`, restarts).
+   **Only Alta runs this** (charter). NOTE: #009's OWN backup still uses the old
+   `cp` — the VACUUM/mcp-restart fixes land with this deploy but take effect on
+   the NEXT; optionally take a manual `VACUUM INTO` backup first.
+5. Post-deploy: confirm `GATE PASS`, migration applied, service up, `/api/status`
+   200; the deployed deploy.sh now auto-restarts `ledger-mcp`.
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 
