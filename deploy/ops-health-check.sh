@@ -48,7 +48,7 @@ OPS_STATUS_FILE="${OPS_STATUS_FILE:-$APP_DIR/ops-status.txt}"
 # Worst severity seen so far: 0 green, 1 amber, 2 red.
 WORST=0
 LINES=()
-bump() { (( $1 > WORST )) && WORST=$1; }
+bump() { (( $1 > WORST )) && WORST=$1; return 0; }  # never leak the (( )) status
 ok()   { LINES+=("  ✓ $1"); }
 warn() { LINES+=("  ⚠ $1"); bump 1; }
 crit() { LINES+=("  ✗ $1"); bump 2; }
