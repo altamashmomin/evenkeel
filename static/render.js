@@ -436,18 +436,50 @@
     return bubbles + thinking;
   }
 
-  /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 =====
+  // A purchase date (ISO "YYYY-MM-DD") as a friendly "Aug 1". Used by the
+  // restock-suggestion evidence line.
+  function shortDate(iso) {
+    const [y, m, d] = (iso || "").split("-").map(Number);
+    if (!y) return iso || "";
+    return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 + step 5 =====
      Pure function of the /api/inventory JSON:
        { items: [staples, urgent-first], shopping: [staples low/out + oneoffs],
-         low_count }
-     Two cards: a derived "Need to buy" list (check items off as bought) and the
-     staples tracker (a tap-to-cycle stocked→low→out chip per row). Each card
-     ends in a quick-add field. Interaction wiring lives in app.js; this only
-     builds the markup + its data-* hooks. A staple that's low/out shows in both
-     cards on purpose — the shopping list is a view over the same items. */
+         low_count, restock_suggestions: [{ item_id, name, status, matched_by,
+           purchase: { date, description, amount: {cents, display} } }] }
+     Three cards: a purchase-feed "Looks like you restocked?" nudge (each a
+     one-tap confirm that marks the staple stocked, showing the evidence
+     purchase — INVENTORY-DESIGN step 5), a derived "Need to buy" list (check
+     items off as bought), and the staples tracker (a tap-to-cycle
+     stocked→low→out chip + a 🔎 to set the item's optional purchase-match
+     phrase). Each add/track card ends in a quick-add field. Interaction wiring
+     lives in app.js; this only builds the markup + its data-* hooks. A staple
+     that's low/out shows in both the nudge and shopping cards on purpose —
+     they're views over the same items. */
   function inventoryHTML(data) {
     const items = data.items || [];
     const shopping = data.shopping || [];
+    const suggestions = data.restock_suggestions || [];
+
+    const restockCard = suggestions.length
+      ? `<div class="card restock-card">
+          <p class="eyebrow">Looks like you restocked?</p>
+          <ul class="list">${suggestions.map((s) => {
+            const p = s.purchase || {};
+            const amt = p.amount ? esc(p.amount.display) : "";
+            return `<li>
+              <span class="ic">${itemIcon({ name: s.name })}</span>
+              <div class="grow">
+                <div class="title">${esc(s.name)}</div>
+                <div class="sub">Bought ${esc(p.description || "")} · ${esc(shortDate(p.date))}${amt ? " · " + amt : ""}</div>
+              </div>
+              <button class="btn small primary" data-restock-confirm="${s.item_id}">Yes, restocked</button>
+            </li>`;
+          }).join("")}</ul>
+        </div>`
+      : "";
 
     const shopRows = shopping.length
       ? `<ul class="list">${shopping.map((it) => {
@@ -474,10 +506,13 @@
             <div class="grow">
               <div class="title">${esc(it.name)}</div>
               ${it.note ? `<div class="sub">${esc(it.note)}</div>` : ""}
+              ${it.restock_match ? `<div class="sub match-hint">🔎 matches “${esc(it.restock_match)}”</div>` : ""}
             </div>
             <button class="status-chip ${it.status}" data-item-cycle="${it.id}"
                     data-status="${it.status}"
                     aria-label="${esc(it.name)} is ${it.status}; tap to change">${esc(it.status)}</button>
+            <button class="item-x item-match" data-item-match="${it.id}"
+                    aria-label="Set a purchase match for ${esc(it.name)}">🔎</button>
             <button class="item-x" data-item-remove="${it.id}"
                     aria-label="Stop tracking ${esc(it.name)}">✕</button>
           </li>`).join("")}</ul>`
@@ -488,6 +523,7 @@
         <p class="eyebrow" style="margin:0">The pantry</p>
         ${data.low_count > 0 ? `<span class="badge due">${data.low_count} running low</span>` : ""}
       </div>
+      ${restockCard}
       <div class="card">
         <p class="eyebrow">Need to buy</p>
         ${shopRows}
@@ -507,7 +543,7 @@
   }
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
-           inventoryHTML,
+           shortDate, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML, askThreadHTML };

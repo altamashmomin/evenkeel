@@ -399,4 +399,40 @@ check("inventoryHTML escapes item names (no injection)", () => {
   assert.ok(!html.includes("<b>x</b>"), "no raw tag");
 });
 
+// ---- inventory step 5: restock-suggestion nudge + match affordance ----
+check("inventoryHTML renders a restock nudge with evidence + one-tap confirm", () => {
+  const html = R.inventoryHTML({
+    items: [{ id: 7, name: "Dog food", kind: "staple", status: "out", note: null }],
+    shopping: [], low_count: 1,
+    restock_suggestions: [{
+      item_id: 7, name: "Dog food", status: "out", matched_by: "phrase",
+      purchase: { date: "2026-08-01", description: "CHEWY.COM", amount: { cents: 5420, display: "$54.20" } },
+    }],
+  });
+  assert.ok(html.includes("Looks like you restocked?"), "nudge card heading");
+  assert.ok(html.includes('data-restock-confirm="7"'), "one-tap confirm hooked to the item id");
+  assert.ok(html.includes("Yes, restocked"), "confirm label");
+  assert.ok(html.includes("CHEWY.COM") && html.includes("Aug 1") && html.includes("$54.20"),
+    "evidence line quotes the purchase description, date, and display amount");
+});
+check("inventoryHTML shows no restock card when there are no suggestions", () => {
+  const html = R.inventoryHTML({
+    items: [{ id: 1, name: "Milk", kind: "staple", status: "stocked", note: null }],
+    shopping: [], low_count: 0, restock_suggestions: [],
+  });
+  assert.ok(!html.includes("Looks like you restocked?"), "no nudge card at zero suggestions");
+});
+check("inventoryHTML gives each staple a match-editor button; shows the phrase when set", () => {
+  const html = R.inventoryHTML({
+    items: [{ id: 3, name: "Coffee", kind: "staple", status: "low", note: null, restock_match: "blue bottle" }],
+    shopping: [], low_count: 1,
+  });
+  assert.ok(html.includes('data-item-match="3"'), "match-editor hooked to the item id");
+  assert.ok(html.includes("matches") && html.includes("blue bottle"), "current match phrase shown");
+});
+check("shortDate turns an ISO date into a friendly day, passing junk through", () => {
+  assert.strictEqual(R.shortDate("2026-08-01"), "Aug 1");
+  assert.strictEqual(R.shortDate(""), "");
+});
+
 console.log(`render tests passed (${passed} checks)`);

@@ -553,11 +553,27 @@ const NEXT_STATUS = { stocked: "low", low: "out", out: "stocked" };
 
 async function renderInventory() {
   const data = await api("/api/inventory");
+  window._inv = data;  // stashed so the match editor can pre-fill the current phrase
   return inventoryHTML(data);
 }
 
 async function setItemStatus(id, status) {
   await api(`/api/inventory/${id}`, { method: "PUT", body: { status } });
+  render();
+}
+
+// Set (or clear) a staple's optional purchase-match phrase — the override the
+// restock-suggestion derivation matches against instead of the item name.
+// Blank clears it (the backend treats "" as clear).
+async function setItemMatch(id) {
+  const item = (window._inv && window._inv.items || []).find((x) => x.id === id);
+  const cur = item ? (item.restock_match || "") : "";
+  const next = prompt(
+    "Match purchases whose description contains… (leave blank to use the item's name)",
+    cur);
+  if (next === null) return;               // cancelled
+  if (next.trim() === cur) return;         // unchanged
+  await api(`/api/inventory/${id}`, { method: "PUT", body: { restock_match: next.trim() } });
   render();
 }
 
@@ -670,6 +686,12 @@ function wireMain() {
       setItemStatus(+el.dataset.itemCycle, NEXT_STATUS[el.dataset.status] || "stocked")));
   $$("[data-item-got]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemGot, "stocked")));
+  // Restock nudge: "Yes, restocked" marks the staple stocked (drops it off the
+  // shopping list). Same effect as tapping its chip to stocked.
+  $$("[data-restock-confirm]").forEach((el) =>
+    el.addEventListener("click", () => setItemStatus(+el.dataset.restockConfirm, "stocked")));
+  $$("[data-item-match]").forEach((el) =>
+    el.addEventListener("click", () => setItemMatch(+el.dataset.itemMatch)));
   $$("[data-item-remove]").forEach((el) =>
     el.addEventListener("click", async () => {
       if (!confirm("Stop tracking this item? Its history stays in the log.")) return;
