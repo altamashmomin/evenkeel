@@ -412,3 +412,49 @@ def low_stock(db):
         f"AND status IN ('low', 'out') ORDER BY {_ITEM_STATUS_ORDER}, name COLLATE NOCASE"
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def restock_suggestions(db):
+    """Purchase-feed restock hints (INVENTORY-DESIGN step 5): each staple that
+    is low or out AND has a matching purchase since it ran low — a strong hint
+    you restocked, offered to CONFIRM (never auto-applied: buying it after it
+    ran low is evidence, not proof — "suggest, don't assert").
+
+    A staple matches a purchase when the purchase's description contains the
+    staple's restock_match phrase, or — when that's unset — the staple's own
+    name (the auto-guess), case-insensitive. "Since it ran low" = the purchase
+    dated on/after the day the item last changed (its updated_at), so a purchase
+    that predates the item going low doesn't count (you bought it, used it, THEN
+    it ran low). One suggestion per staple, carrying the most recent matching
+    purchase as evidence, most-urgent (out before low) first.
+
+    OUTFLOWS ONLY (direction='out'), so an inflow whose description happens to
+    contain an item name never fabricates a suggestion — a mandatory filter the
+    derivation tripwire covers. Reads items + transactions; never touches money.
+    """
+    staples = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
+        "AND status IN ('low', 'out')").fetchall()
+    out = []
+    for it in staples:
+        phrase = (it["restock_match"] or it["name"] or "").strip()
+        if not phrase:
+            continue
+        since = (it["updated_at"] or "")[:10]  # the day it last changed
+        row = db.execute(
+            "SELECT txn_date, description, amount_cents FROM transactions "
+            "WHERE direction = 'out' AND txn_date >= ? "
+            "AND instr(lower(description), lower(?)) > 0 "
+            "ORDER BY txn_date DESC, id DESC LIMIT 1",
+            (since, phrase)).fetchone()
+        if row is None:
+            continue
+        out.append({
+            "item_id": it["id"], "name": it["name"], "status": it["status"],
+            "matched_by": "phrase" if it["restock_match"] else "name",
+            "purchase": {"date": row["txn_date"], "description": row["description"],
+                         "amount_cents": row["amount_cents"]},
+        })
+    out.sort(key=lambda s: s["purchase"]["date"], reverse=True)  # recent first
+    out.sort(key=lambda s: 0 if s["status"] == "out" else 1)     # out before low
+    return out

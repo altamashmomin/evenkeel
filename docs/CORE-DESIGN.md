@@ -237,6 +237,7 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `add_item` | UI, MCP, Ask | name non-empty; `kind` ∈ {`staple`,`oneoff`}; `status` ∈ {`stocked`,`low`,`out`}; category optional | INVENTORY-DESIGN MVP. Creates a household staple or a one-off shopping need; audit carries the created shape. Never touches money |
 | `set_item_status` | UI, MCP, Ask | item exists & active; `status` ∈ vocab | The routine interaction (mark low/out/stocked) — a direct write in the agent tiers (logged, reversible), like `classify_inflow`. A `oneoff` set `stocked` archives itself (bought → off the list) |
 | `rename_item` / `set_item_note` | UI | item exists | Small edits; audit records before/after |
+| `set_item_match` | UI | staple exists & active | Sets/clears the OPTIONAL restock-match phrase (purchase-feed suggestions, INVENTORY-DESIGN step 5); blank clears it → detection falls back to the item name; audit before/after. Never touches money |
 | `archive_item` | UI, MCP | item exists | Soft delete (`active=0`), matching `delete_goal`/`delete_bill`'s bounded posture; history untouched |
 
 The table grows as features land (scenario verbs arrive with the

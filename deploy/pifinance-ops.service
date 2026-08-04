@@ -1,0 +1,35 @@
+# Ledger Pi Ops guardian — /etc/systemd/system/pifinance-ops.service
+# Triggered by pifinance-ops.timer; not enabled directly. Deterministic health
+# check of the live Pi (service up, disk, sync freshness, backup restorability,
+# credential expiry). Read-only — it reports and exits, never restarts/prunes.
+#
+# Adjust User and paths if your username or install dir differs (the deployed
+# Pi is user `altamash` at /home/altamash/pifinance; rewrite with sed on copy,
+# never edit this tracked file — a future `git pull` would conflict).
+#
+# Loads the app's .env so it inherits PORT / ANTHROPIC_API_KEY, plus any Ops
+# overrides you add there (ASK_KEY_EXPIRES, OPS_ALERT_GH_REPO, thresholds).
+[Unit]
+Description=Ledger Pi Ops health guardian
+Wants=network-online.target
+After=network-online.target pifinance.service
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/pifinance
+EnvironmentFile=/home/pi/pifinance/.env
+Environment=APP_DIR=/home/pi/pifinance
+ExecStart=/home/pi/pifinance/deploy/ops-health-check.sh
+# A non-zero exit means amber/red; keep it out of systemd's "failed" state so
+# the timer stays clean — the report (journal + ops-status.txt + issue) is the
+# signal, not the unit's status.
+SuccessExitStatus=0 1 2
+
+# Hardening (safe defaults for a home service)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

@@ -63,7 +63,14 @@ git rev-parse --verify --quiet "$NEW_REF^{commit}" >/dev/null || die "unknown re
 
 # --- 3. backup (hard rule 6) -------------------------------------------------
 echo "-> backing up finance.db -> $BACKUP"
-cp finance.db "$BACKUP"
+# Consistent hot backup: VACUUM INTO writes a single-file snapshot that INCLUDES
+# committed WAL data (and defragments). A raw `cp` of the WAL-mode live DB — the
+# service is still running here — silently omits whatever sits in finance.db-wal,
+# so a rollback could lose the most recent transactions (demonstrated: cp dropped
+# a just-committed row that VACUUM INTO kept). Reads finance.db, never modifies
+# it; uses the venv python, so no sqlite3 CLI is needed on the Pi.
+"$PY" -c "import sqlite3,sys; sqlite3.connect('finance.db').execute('VACUUM INTO ?', [sys.argv[1]])" "$BACKUP" \
+    || die "backup (VACUUM INTO) failed — aborting before any change"
 [ -s "$BACKUP" ] || die "backup is empty — aborting before any change"
 
 # --- 4. dry-run gate on the copy (live DB still untouched) --------------------
@@ -81,6 +88,7 @@ rollback() {
     echo "    cp '$BACKUP' finance.db" >&2
     echo "    git checkout $OLD_REF" >&2
     echo "    sudo systemctl start pifinance" >&2
+    echo "    sudo systemctl restart ledger-mcp   # if installed" >&2
 }
 trap rollback ERR
 
@@ -95,6 +103,16 @@ echo "-> migrate.py apply --live finance.db"
 echo "-> starting service"
 sudo systemctl start pifinance
 trap - ERR
+
+# ledger-mcp has Requires=pifinance, so stopping the app also stopped the MCP
+# sibling; starting the app does NOT bring it back (that's the reverse
+# direction). Restart it if it's installed — outside the rollback trap, since
+# the MCP tier is non-critical to the app itself.
+if systemctl cat ledger-mcp.service >/dev/null 2>&1; then
+    echo "-> restarting ledger-mcp (stopped with the app via Requires=)"
+    sudo systemctl restart ledger-mcp \
+        || echo "   WARNING — ledger-mcp restart failed; check: journalctl -u ledger-mcp -e"
+fi
 
 # --- 6. smoke check ----------------------------------------------------------
 sleep 2

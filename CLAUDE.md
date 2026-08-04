@@ -985,10 +985,51 @@ shortcut pill, 5-slot nav unchanged) → chat input → later inference/predicti
   URL still serves). Suite 350→353 + 48 render. **One more hard refresh needed
   after THIS deploys** (to pick up the no-cache shell + new app.js); every
   frontend deploy after is automatic.
-- **Next after deploy of the cache-bust:** INVENTORY-DESIGN step 5 (purchase-feed
-  auto-population + restock prediction), each its own increment; or a finance
-  track (analytics Tier B, income-visibility policy). Not yet deployed:
-  the cache-bust commit `d46aac4` (advance `main`, `deploy.sh origin/main`).
+- **Cache-busting DEPLOYED (Aug 3, 2026).** Advanced `main` via `--no-ff` merge
+  `be27345` (first parent = old main `0eb0301`, fast-forward push); a clean
+  `git fetch origin && deploy.sh origin/main` → **GATE PASS zero-diff, no
+  migration**, service restarted. Verified over the tailnet: `/` serves the
+  `?v=<mtime>`-stamped tags + `Cache-Control: no-cache`, stamped asset 200.
+  Both phones hard-refreshed once (the LAST manual refresh) → pantry add works.
+  Future frontend deploys now self-bust.
+
+**INVENTORY-DESIGN step 5 — purchase-feed auto-population, underway (Aug 3, 2026).**
+Scoped with Alta: matching = **auto-guess by item name + optional override
+phrase**; scope = **restock hints only** (new-staple suggestions deferred). Key
+honest constraint surfaced first: SimpleFIN gives the MERCHANT, not products, so
+this works for merchant-identifiable staples (dog food ← "chewy") and can't tell
+coffee from milk inside a grocery run — the design leans on that. Model mirrors
+income_rules; "suggest, don't assert."
+- **Inc 5a done (Aug 3, 2026).** Migration #009 — `items.restock_match` (nullable
+  override phrase; NULL → derivation falls back to the item name). Guarded `.py`
+  (PRAGMA gate), `REQUIRED_SCHEMA_VERSION` 8→9. **Enumerated-diff gate PASS**
+  (notes/009: only `schema_version` 8→9 — adding a column changes no row count;
+  inventory never touches money). Suite 353.
+- **Inc 5b done (Aug 3, 2026).** The logic. `restock_suggestions(db)` — each
+  staple low/out AND with a matching **outflow** since it ran low (purchase dated
+  ≥ the item's `updated_at`), matched by `restock_match` phrase or else the item
+  name (case-insensitive, `instr`); one per staple, most-urgent first, evidence =
+  the most recent matching purchase. OUTFLOWS ONLY → tripwire-covered; a
+  manufactured matching inflow is proven ignored. `set_item_match` verb
+  (set/clear, audited, registered in CORE-DESIGN); `add_item` accepts
+  `restock_match`; PUT `/api/inventory/<id>` now takes status and/or
+  restock_match; GET `/api/inventory` adds `restock_suggestions` (purchase amount
+  {cents, display}). `item_to_json` carries `restock_match`. `ledger_inventory`'s
+  shared description mentions suggestions → **both doors already surface them**
+  (Charlee/Alta can ask "what did I probably restock?" NOW). No schema change →
+  **zero-diff balance gate PASS**; suite 353→362.
+- **Inc 5c NEXT — the Pantry UI:** a "Looks like you restocked?" nudge section in
+  the SPA pantry view (each suggestion → a one-tap "Yes, mark stocked" calling the
+  existing `set_item_status`, showing the evidence purchase), plus a way to set an
+  item's optional match phrase. Pure `render.js` helper + node-seam test; frontend
+  only, no gate. Then step 5's second half (restock *prediction* from cadence) and
+  new-staple suggestions remain as later increments.
+- **NOT yet deployed:** the cache-bust is live, but step-5 (5a `#009` + 5b) awaits
+  a deploy — `deploy.sh origin/main` will apply `#009 --live` (enumerated diff:
+  `schema_version` 8→9). Do it after 5c so the pantry UI ships with the backend,
+  OR now if you want the chat-door suggestions live first.
+- Alternative tracks if step 5 is paused: analytics Tier B (#13–16) or the
+  income-visibility policy.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
@@ -1065,6 +1106,55 @@ Repo housekeeping: `rework` → `main` merge **done (July 26, 2026)** —
 (fast-forward push, see the reconciled topology note above). `v1.0` tagged
 at `41c2040` on origin. Remaining non-feature task: Tailscale on the Pi
 for phone access (headless).
+
+**Agent + ops layer built (Aug 4, 2026) — a hands-off operations tier around
+the app, all on `rework` and pushed; frontend/tooling only (no app/schema/
+derivation change), so nothing to gate.**
+- Seven role-scoped subagents in `.claude/agents/` under one standard,
+  `docs/OPERATING-CHARTER.md`: `ledger-analyst` (read-only analysis over the MCP
+  reads), `ledger-security` (defensive audit, advisory), `ledger-maintenance`
+  (deps/back-end, stops before commit), `ledger-ops` (live-Pi SRE, recommend-
+  only), `ledger-health-sweep` (weekly code+dep sweep), `ledger-release`
+  (gated-deploy copilot — see NEXT), `ledger-chief-of-staff` (reconciles reports
+  → one weekly briefing). Cross-session detail: memory [[ledger-ops-layer]].
+- **Pi Ops guardian** — `deploy/ops-health-check.sh` + `deploy/pifinance-ops.
+  {service,timer}`, installed OUT of the repo at `~/pifinance-ops/` on the Pi
+  (so `deploy.sh`'s clean-tree guard stays happy), daily 07:00, LIVE + green.
+  Checks service/disk/sync-freshness/backup-restorability/SECRET_KEY/API-key;
+  alerts file a GitHub `ops-alert` issue on amber/red via curl+PAT (`.env`:
+  `OPS_ALERT_GH_REPO` + `OPS_ALERT_GH_TOKEN`).
+- Two cloud routines (RemoteTrigger): Mon 08:00 ET health-sweep, Fri 08:00 ET
+  Chief-of-Staff briefing (both file issues on `evenkeel`).
+- **Security audit** (`docs/SECURITY-AUDIT-2026-08-04.md`): no exploitable
+  vulns; findings are hardening (rate-limit `/api/ask`, cookie Secure flag,
+  login timing) + a clean dependency scan. Finding #1 (SECRET_KEY + 2 workers)
+  VERIFIED RESOLVED (it's set on the Pi).
+- `deploy.sh` hardened: WAL-safe backup (`VACUUM INTO`, not a raw `cp` — a cp of
+  the WAL-mode live DB dropped uncheckpointed transactions) and it now restarts
+  `ledger-mcp` after a deploy. Both activate on the deploy AFTER the one that
+  ships them (deploy.sh backs up + self-replaces before those lines run).
+
+**IMMEDIATE NEXT TASK — the pantry #009 deploy (a real gated migration).**
+`rework` is 13 commits ahead of the deployed `origin/main` (`be27345`, schema
+version 8). The one pending migration is `migrations/009_item_restock_match.py`
+(schema 8→9: the inventory restock-match column + `restock_suggestions`
+derivation + its endpoint/UI, INVENTORY-DESIGN step 5); its enumerated gate
+expectation is `notes/009-gate-expectation.seed.json`. Ship via the per-
+increment loop, driven by the **`ledger-release`** agent:
+1. Classify: it's a migration → needs backup + `--live` + the balance gate.
+2. Build `dev.db` (on the Pi: `cp finance.db dev.db`) and run `gate.py run
+   --db dev.db --old be27345 --new rework --expect notes/009-gate-expectation.seed.json`;
+   only the enumerated diff (new column + `schema_version` bump, no money moved)
+   passes.
+3. Advance `main` → `rework` (`--no-ff` merge, first parent = old `main` so the
+   push fast-forwards, tree = rework), push.
+4. On the Pi (`altamash`@`/home/altamash/pifinance`): `deploy/deploy.sh
+   origin/main` (backs up, dry-run-gates the copy, migrates `--live`, restarts).
+   **Only Alta runs this** (charter). NOTE: #009's OWN backup still uses the old
+   `cp` — the VACUUM/mcp-restart fixes land with this deploy but take effect on
+   the NEXT; optionally take a manual `VACUUM INTO` backup first.
+5. Post-deploy: confirm `GATE PASS`, migration applied, service up, `/api/status`
+   200; the deployed deploy.sh now auto-restarts `ledger-mcp`.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

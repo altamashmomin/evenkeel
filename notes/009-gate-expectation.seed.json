@@ -1,0 +1,6 @@
+{
+  "note": "Migration #009 (items.restock_match -- INVENTORY-DESIGN step 5, purchase-feed auto-population). Adds one nullable column to the existing items table: no new table and no new rows, so the only row-count change is the schema_version record itself. Inventory never touches money, so the who-owes-whom balance and every monthly total are identical; they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 8, "new": 9}
+  ]
+}

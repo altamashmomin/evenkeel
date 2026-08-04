@@ -47,7 +47,8 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual(201, created.status_code)
         item = created.get_json()
         self.assertEqual(
-            ["category", "id", "kind", "name", "note", "status", "updated_at"],
+            ["category", "id", "kind", "name", "note", "restock_match",
+             "status", "updated_at"],
             sorted(item))
         self.assertEqual("stocked", item["status"])
 
@@ -55,7 +56,8 @@ class InventoryRouteTests(unittest.TestCase):
         c.post("/api/inventory", json={"name": "Cake", "kind": "oneoff"})
         c.put(f"/api/inventory/{item['id']}", json={"status": "low"})
         view = c.get("/api/inventory").get_json()
-        self.assertEqual({"items", "shopping", "low_count"}, set(view))
+        self.assertEqual({"items", "shopping", "low_count", "restock_suggestions"},
+                         set(view))
         self.assertEqual(1, view["low_count"])                 # the low staple
         names_on_list = {i["name"] for i in view["shopping"]}
         self.assertEqual({"Coffee", "Cake"}, names_on_list)    # low staple + one-off
@@ -75,6 +77,28 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual(404, c.put("/api/inventory/999999", json={"status": "low"}).status_code)
         # DELETE missing
         self.assertEqual(404, c.delete("/api/inventory/999999").status_code)
+
+    def test_restock_match_and_suggestion_surface(self):
+        c = self.client()
+        item = c.post("/api/inventory", json={"name": "Dog food", "status": "out"}).get_json()
+        # set the override phrase via PUT (its own verb, same route)
+        r = c.put(f"/api/inventory/{item['id']}", json={"restock_match": "chewy"})
+        self.assertEqual(200, r.status_code)
+        self.assertEqual("chewy", r.get_json()["restock_match"])
+        day = r.get_json()["updated_at"][:10]
+        # a matching purchase since it ran out -> a restock suggestion in the view
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT INTO transactions (txn_date, amount_cents, description, "
+            "category, paid_by, is_shared, source, direction) "
+            "VALUES (?, 4200, 'CHEWY.COM', 'Pets', 1, 0, 'simplefin', 'out')", (day,))
+        conn.commit(); conn.close()
+        sugg = c.get("/api/inventory").get_json()["restock_suggestions"]
+        self.assertEqual(1, len(sugg))
+        self.assertEqual(item["id"], sugg[0]["item_id"])
+        self.assertEqual("phrase", sugg[0]["matched_by"])
+        # purchase amount is dollars at the JSON edge
+        self.assertEqual({"cents": 4200, "display": "$42.00"}, sugg[0]["purchase"]["amount"])
 
     def test_requires_auth_and_write_scope(self):
         anon = self.app_module.app.test_client()

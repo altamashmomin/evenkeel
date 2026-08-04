@@ -1,0 +1,14 @@
+# Daily Ops health check — /etc/systemd/system/pifinance-ops.timer
+# Fires at 07:00, ~30min after the 06:30 SimpleFIN sync, so the run can verify
+# that morning's sync actually succeeded.
+[Unit]
+Description=Run the Ledger Pi Ops health guardian daily
+
+[Timer]
+OnCalendar=*-*-* 07:00:00
+# If the Pi was off at 07:00, run when it next boots.
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target
