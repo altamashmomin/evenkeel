@@ -985,10 +985,51 @@ shortcut pill, 5-slot nav unchanged) → chat input → later inference/predicti
   URL still serves). Suite 350→353 + 48 render. **One more hard refresh needed
   after THIS deploys** (to pick up the no-cache shell + new app.js); every
   frontend deploy after is automatic.
-- **Next after deploy of the cache-bust:** INVENTORY-DESIGN step 5 (purchase-feed
-  auto-population + restock prediction), each its own increment; or a finance
-  track (analytics Tier B, income-visibility policy). Not yet deployed:
-  the cache-bust commit `d46aac4` (advance `main`, `deploy.sh origin/main`).
+- **Cache-busting DEPLOYED (Aug 3, 2026).** Advanced `main` via `--no-ff` merge
+  `be27345` (first parent = old main `0eb0301`, fast-forward push); a clean
+  `git fetch origin && deploy.sh origin/main` → **GATE PASS zero-diff, no
+  migration**, service restarted. Verified over the tailnet: `/` serves the
+  `?v=<mtime>`-stamped tags + `Cache-Control: no-cache`, stamped asset 200.
+  Both phones hard-refreshed once (the LAST manual refresh) → pantry add works.
+  Future frontend deploys now self-bust.
+
+**INVENTORY-DESIGN step 5 — purchase-feed auto-population, underway (Aug 3, 2026).**
+Scoped with Alta: matching = **auto-guess by item name + optional override
+phrase**; scope = **restock hints only** (new-staple suggestions deferred). Key
+honest constraint surfaced first: SimpleFIN gives the MERCHANT, not products, so
+this works for merchant-identifiable staples (dog food ← "chewy") and can't tell
+coffee from milk inside a grocery run — the design leans on that. Model mirrors
+income_rules; "suggest, don't assert."
+- **Inc 5a done (Aug 3, 2026).** Migration #009 — `items.restock_match` (nullable
+  override phrase; NULL → derivation falls back to the item name). Guarded `.py`
+  (PRAGMA gate), `REQUIRED_SCHEMA_VERSION` 8→9. **Enumerated-diff gate PASS**
+  (notes/009: only `schema_version` 8→9 — adding a column changes no row count;
+  inventory never touches money). Suite 353.
+- **Inc 5b done (Aug 3, 2026).** The logic. `restock_suggestions(db)` — each
+  staple low/out AND with a matching **outflow** since it ran low (purchase dated
+  ≥ the item's `updated_at`), matched by `restock_match` phrase or else the item
+  name (case-insensitive, `instr`); one per staple, most-urgent first, evidence =
+  the most recent matching purchase. OUTFLOWS ONLY → tripwire-covered; a
+  manufactured matching inflow is proven ignored. `set_item_match` verb
+  (set/clear, audited, registered in CORE-DESIGN); `add_item` accepts
+  `restock_match`; PUT `/api/inventory/<id>` now takes status and/or
+  restock_match; GET `/api/inventory` adds `restock_suggestions` (purchase amount
+  {cents, display}). `item_to_json` carries `restock_match`. `ledger_inventory`'s
+  shared description mentions suggestions → **both doors already surface them**
+  (Charlee/Alta can ask "what did I probably restock?" NOW). No schema change →
+  **zero-diff balance gate PASS**; suite 353→362.
+- **Inc 5c NEXT — the Pantry UI:** a "Looks like you restocked?" nudge section in
+  the SPA pantry view (each suggestion → a one-tap "Yes, mark stocked" calling the
+  existing `set_item_status`, showing the evidence purchase), plus a way to set an
+  item's optional match phrase. Pure `render.js` helper + node-seam test; frontend
+  only, no gate. Then step 5's second half (restock *prediction* from cadence) and
+  new-staple suggestions remain as later increments.
+- **NOT yet deployed:** the cache-bust is live, but step-5 (5a `#009` + 5b) awaits
+  a deploy — `deploy.sh origin/main` will apply `#009 --live` (enumerated diff:
+  `schema_version` 8→9). Do it after 5c so the pantry UI ships with the backend,
+  OR now if you want the chat-door suggestions live first.
+- Alternative tracks if step 5 is paused: analytics Tier B (#13–16) or the
+  income-visibility policy.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
