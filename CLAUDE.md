@@ -1034,10 +1034,19 @@ income_rules; "suggest, don't assert."
   seam 48→52, full python suite 362 green. Visual sign-off was the render-seam +
   a real-markup dump (the in-app Browser tool was wedged again — 300s navigate
   timeouts, same as recent sessions); live on-device check comes after deploy.
-  **NOT yet deployed** — frontend-only, ships through the zero-gate frontend
-  deploy (self-busting cache is live). Then step 5's second half (restock
-  *prediction* from cadence) and new-staple suggestions remain as later
-  increments.
+  **DEPLOYED TO THE PI (Aug 4, 2026).** Advanced `main` to rework's tree via
+  `--no-ff` merge `3cf9784` (first parent = prior main `a07f470`, fast-forward
+  push; rework committed at `e2ae7aa`); `deploy/deploy.sh origin/main` → **GATE
+  PASS, zero diff, no structural changes** (frontend only; migrate a no-op —
+  already schema v9). Rollback backup `finance.db.bak-2026-08-04-161552`. **This
+  deploy was the first to actually exercise the #009-shipped `deploy.sh`
+  hardening** (both self-replaced before running last time): the backup ran
+  through the WAL-safe `VACUUM INTO` path, and `deploy.sh` auto-restarted
+  `ledger-mcp` (`Requires=` stops it with the app) — no manual restart needed.
+  Both ops gaps [[ledger-ops-layer]] flagged are now closed and proven. `/api/
+  status` 200; on-device check of the restock nudge + 🔎 match editor is a
+  per-device hard-refresh away. Then step 5's second half (restock *prediction*
+  from cadence) and new-staple suggestions remain as later increments.
 - **DEPLOYED TO THE PI (Aug 4, 2026) — step-5 backend (5a `#009` + 5b) is LIVE.**
   Advanced `main` to rework's tree via `--no-ff` merge `a07f470` (first parent =
   old main `be27345`, tree byte-identical to rework, fast-forward push); ran
@@ -1170,28 +1179,25 @@ push), `deploy/deploy.sh origin/main` on the Pi → **GATE PASS** (enumerated
 `finance.db.bak-2026-08-04-140904`. Deployed line is now schema v9, `origin/main`
 tree == `rework`. (Detail in INVENTORY-DESIGN step-5 block above.)
 
-**IMMEDIATE NEXT TASK — deploy pantry inc 5c (the restock UI), a frontend-only
-deploy.** Built + gated at the seam (render 52, python 362 green) on `rework`,
-not yet on the Pi. It's **frontend only** (`static/render.js` / `app.js` /
-`style.css` + the render test) — no migration, no schema/derivation/route change
-→ **no balance gate diff to enumerate** (deploy.sh's dry-run gate will show
-zero-diff). Ship via the per-increment loop, `ledger-release` optional here since
-there's no migration to classify:
-1. Advance `main` → `rework` (`--no-ff` merge, first parent = old `main` =
-   `a07f470` so the push fast-forwards, tree = rework), push.
-2. On the Pi (`altamash`@`/home/altamash/pifinance`): `git fetch origin &&
-   deploy/deploy.sh origin/main` → expect **GATE PASS zero-diff, no migration**.
-   **Only Alta runs this.** This deploy's `deploy.sh` is the FIRST to carry the
-   VACUUM-INTO backup + `ledger-mcp` auto-restart (they shipped with #009 but
-   self-replace before running) — so from here backups are WAL-safe and no manual
-   `ledger-mcp` restart is needed.
-3. Post-deploy: `/api/status` 200, then a per-device hard refresh (cache-busting
-   is live, but this is a new UI) — confirm the "Looks like you restocked?" nudge
-   and the 🔎 match editor on the phone. `/api/inventory` unchanged (already
-   deployed with 5b), so no backend surface to re-verify.
-After 5c ships: step 5's second half (restock *prediction* from cadence) +
-new-staple suggestions; or the alternative tracks — analytics Tier B (#13–16) or
-the income-visibility policy.
+**Pantry inc 5c DEPLOYED (Aug 4, 2026) — done.** The whole INVENTORY-DESIGN
+step-5 restock feature (5a `#009` + 5b logic + 5c UI) is now live on the Pi.
+Deployed line is `origin/main` `3cf9784`, schema v9, tree == `rework`
+(`e2ae7aa`, one doc-only commit ahead: this CLAUDE.md update). No open deploy.
+
+**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Step 5's first
+half (purchase-feed restock *hints*) is complete end to end. Candidates:
+- **Step 5 second half — restock *prediction* from cadence** (INVENTORY-DESIGN):
+  learn each staple's typical repurchase interval from its purchase history and
+  predict "you'll likely need X around <date>", a step beyond the reactive
+  low/out hint. Plus **new-staple suggestions** (offer to start tracking a
+  frequently-bought item not yet a staple). Both are new derivations over
+  `items` + `transactions` — heuristic, "suggest don't assert," outflows-only so
+  tripwire-covered; likely a migration only if a new column is needed.
+- **Analytics Tier B (#13–16)** — recurring-charge detection, cash-flow forecast,
+  anomaly flags, goal pace. All read-time derivations riding the `_monthly_series`
+  engine; zero-diff-gated.
+- **Income-visibility policy** — the one still-open step-7 design question (enforce
+  per-person income visibility at the API).
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
