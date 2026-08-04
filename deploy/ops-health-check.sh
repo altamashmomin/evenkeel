@@ -29,7 +29,9 @@
 #   MAX_BACKUP_AGE_H    amber if newest backup older    (default: 168 = 7d)
 #   MAX_BACKUPS         amber if more bak files than    (default: 12)
 #   ASK_KEY_EXPIRES     YYYY-MM-DD; amber within 14d/past (default: unset)
-#   OPS_ALERT_GH_REPO   e.g. altamashmomin/evenkeel; enables gh issue on alert
+#   OPS_ALERT_GH_REPO   e.g. altamashmomin/evenkeel; with the token below, files
+#                       a GitHub issue on amber/red (the Chief-of-Staff bridge)
+#   OPS_ALERT_GH_TOKEN  a fine-grained PAT (that repo, issues:write) for the POST
 #   OPS_STATUS_FILE     heartbeat path         (default: $APP_DIR/ops-status.txt)
 set -uo pipefail
 
@@ -207,15 +209,23 @@ echo "$REPORT"
 printf '%s\n' "$REPORT" > "$OPS_STATUS_FILE" 2>/dev/null || true
 
 # ── Best-effort bridge to the Chief of Staff (only on amber/red) ─────────────
-if (( WORST >= 1 )) && [[ -n "${OPS_ALERT_GH_REPO:-}" ]] && have gh; then
+# Files a GitHub issue via the API with curl (no gh CLI needed) using a
+# fine-grained PAT (OPS_ALERT_GH_TOKEN, scoped to the repo with issues:write).
+# The daily timer means at most one issue per problem-day; the Friday
+# Chief-of-Staff reconciles them.
+if (( WORST >= 1 )) && [[ -n "${OPS_ALERT_GH_REPO:-}" && -n "${OPS_ALERT_GH_TOKEN:-}" ]] \
+   && have curl && have python3; then
   title="Pi Ops ${BADGE} — $(date '+%Y-%m-%d')"
-  # One issue per day at most (the timer runs daily); dedup on today's title.
-  if ! gh issue list --repo "$OPS_ALERT_GH_REPO" --state open --label ops-alert \
-        --search "$title" 2>/dev/null | grep -q .; then
-    gh issue create --repo "$OPS_ALERT_GH_REPO" --label ops-alert \
-      --title "$title" --body "$REPORT" >/dev/null 2>&1 \
-      && echo "  (filed GitHub issue: $title)" \
-      || echo "  (gh issue create failed — check gh auth on the Pi)"
+  payload="$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"body":sys.argv[2],"labels":["ops-alert"]}))' "$title" "$REPORT")"
+  if curl -fsS -X POST \
+        -H "Authorization: Bearer $OPS_ALERT_GH_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "https://api.github.com/repos/$OPS_ALERT_GH_REPO/issues" \
+        -d "$payload" >/dev/null 2>&1; then
+    echo "  (filed GitHub issue: $title)"
+  else
+    echo "  (GitHub issue POST failed — check OPS_ALERT_GH_TOKEN / repo / network)"
   fi
 fi
 

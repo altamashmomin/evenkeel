@@ -65,10 +65,12 @@ The unit loads the app's `.env`, so overrides go there (values, not shell export
 ```
 # Remind before the key dies (billing carries over on rotation):
 ASK_KEY_EXPIRES=2026-08-30
-# Bridge alerts to the cloud Chief of Staff by filing a GitHub issue on amber/red.
-# Requires `gh` installed AND authed on the Pi (gh auth login). Leave unset to keep
+# Bridge alerts to the cloud Chief of Staff by filing a GitHub issue on amber/red
+# (via a curl POST to the GitHub API — no gh CLI needed). Set BOTH the repo and a
+# fine-grained PAT scoped to that repo with issues:write. Leave unset to keep
 # alerts local (journal + ops-status.txt only).
 OPS_ALERT_GH_REPO=altamashmomin/evenkeel
+OPS_ALERT_GH_TOKEN=github_pat_xxx   # fine-grained PAT, evenkeel, issues:write
 # Threshold overrides (defaults shown):
 # DISK_WARN_PCT=80  DISK_CRIT_PCT=90  MAX_SYNC_AGE_H=26  MAX_BACKUP_AGE_H=168
 # MAX_BACKUPS=12
@@ -78,10 +80,10 @@ OPS_ALERT_GH_REPO=altamashmomin/evenkeel
 
 1. **Always:** the journal (`journalctl -u pifinance-ops.service`) and `ops-status.txt`.
 2. **On amber/red, optionally:** a GitHub issue labelled `ops-alert` on
-   `OPS_ALERT_GH_REPO` (one per day max) — this is the bridge the **cloud Chief of
-   Staff** reads, since it can't reach the tailnet. Needs `gh` authed on the Pi.
-   Without `gh`, run the **`ledger-ops`** agent from a machine on the tailnet to
-   investigate an alert live.
+   `OPS_ALERT_GH_REPO` (curl POST to the GitHub API with `OPS_ALERT_GH_TOKEN`;
+   ~one per problem-day) — this is the bridge the **cloud Chief of Staff** reads,
+   since it can't reach the tailnet. Without the token set, run the **`ledger-ops`**
+   agent from a machine on the tailnet to investigate an alert live.
 
 ## What it deliberately does NOT do
 
