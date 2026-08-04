@@ -93,10 +93,13 @@ fi
 
 # ── 4. Sync freshness (from systemd, never from finance.db) ─────────────────
 if have systemctl; then
+  # A Type=oneshot service never enters the 'active' state, so its
+  # ActiveExitTimestamp is always empty — read ExecMainExitTimestamp (when
+  # ExecStart's process last exited) for the real last-run time.
   st="$(systemctl show "$SYNC_SERVICE" \
-        -p ExecMainStatus -p ActiveExitTimestamp -p Result 2>/dev/null)"
+        -p ExecMainStatus -p ExecMainExitTimestamp -p Result 2>/dev/null)"
   exit_status="$(sed -n 's/^ExecMainStatus=//p' <<<"$st")"
-  last_finish="$(sed -n 's/^ActiveExitTimestamp=//p' <<<"$st")"
+  last_finish="$(sed -n 's/^ExecMainExitTimestamp=//p' <<<"$st")"
   if [[ -n "$last_finish" && "$last_finish" != "n/a" ]] && have date; then
     last_epoch="$(date -d "$last_finish" +%s 2>/dev/null || echo 0)"
     now_epoch="$(date +%s)"
@@ -129,11 +132,27 @@ else
       || ok "newest backup ${b_age_h}h old ($(basename "$newest"))"
   fi
   # Restorability: integrity-check the newest backup (a .bak, never finance.db).
+  # Prefer the sqlite3 CLI; fall back to python3 (always present — the app runs
+  # on it), so a Pi without the CLI still gets the check. Read-only open.
+  res=""
   if have sqlite3; then
     res="$(sqlite3 "$newest" 'PRAGMA integrity_check;' 2>&1 | head -1)"
-    [[ "$res" == "ok" ]] \
-      && ok "newest backup passes integrity_check (restorable)" \
-      || crit "newest backup FAILED integrity_check ('$res') — backup may be corrupt"
+  elif have python3; then
+    res="$(python3 -c '
+import sqlite3, sys
+try:
+    c = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True)
+    print(c.execute("PRAGMA integrity_check").fetchone()[0])
+except Exception as e:
+    print("unreadable (%s)" % e.__class__.__name__)
+' "$newest" 2>/dev/null | head -1)"
+  fi
+  if [[ -z "$res" ]]; then
+    warn "cannot integrity-check backups (no sqlite3 or python3)"
+  elif [[ "$res" == "ok" ]]; then
+    ok "newest backup passes integrity_check (restorable)"
+  else
+    crit "newest backup FAILED integrity_check ('$res') — backup may be corrupt"
   fi
   # Bloat: too many bak files slowly fills the SD card.
   (( ${#baks[@]} > MAX_BACKUPS )) \
