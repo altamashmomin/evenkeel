@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -128,6 +129,85 @@ class ItemVerbTests(unittest.TestCase):
         low_ids = [i["id"] for i in derivations.low_stock(self.db)]
         self.assertEqual({low["id"], out["id"]}, set(low_ids))   # staples only
         self.assertNotIn(oneoff["id"], low_ids)
+
+
+    # ---- set_item_match (INVENTORY-DESIGN step 5) ----------------------------
+    def test_set_item_match_sets_and_clears_with_audit(self):
+        item = self.add(name="Coffee")
+        row = actions.set_item_match(self.db, "ui:avery", item["id"], "  Blue Bottle  ")
+        self.assertEqual("Blue Bottle", row["restock_match"])   # trimmed
+        audit = self.db.execute(
+            "SELECT actor, action, detail_json FROM audit_log WHERE target = ? "
+            "AND action = 'set_item_match'", (f"item:{item['id']}",)).fetchone()
+        self.assertEqual("ui:avery", audit["actor"])
+        self.assertEqual({"before": None, "after": "Blue Bottle"},
+                         json.loads(audit["detail_json"]))
+        # blank clears it -> NULL (falls back to the name)
+        cleared = actions.set_item_match(self.db, "ui:avery", item["id"], "   ")
+        self.assertIsNone(cleared["restock_match"])
+
+    def test_set_item_match_not_found(self):
+        with self.assertRaises(actions.NotFound):
+            actions.set_item_match(self.db, "ui:avery", 99999, "x")
+
+    def test_add_item_accepts_restock_match(self):
+        row = self.add(name="Dog food", restock_match="chewy")
+        self.assertEqual("chewy", row["restock_match"])
+
+    # ---- restock_suggestions derivation --------------------------------------
+    def _purchase(self, desc, when, direction="out", income_type=None):
+        """Raw-insert a transaction (test fixture) with a chosen date/direction —
+        the pattern test_income_isolation uses to control the exact shape."""
+        self.db.execute(
+            "INSERT INTO transactions (txn_date, amount_cents, description, "
+            "category, paid_by, is_shared, source, direction, income_type) "
+            "VALUES (?, 1299, ?, 'Groceries', 1, 0, 'simplefin', ?, ?)",
+            (when, desc, direction, income_type))
+        self.db.commit()
+
+    def test_restock_suggestion_matches_by_name_after_it_ran_low(self):
+        item = self.add(name="Coffee", status="out")
+        day = item["updated_at"][:10]
+        self._purchase("BLUE BOTTLE COFFEE", day)   # same day it went out, contains 'coffee'
+        sugg = derivations.restock_suggestions(self.db)
+        self.assertEqual(1, len(sugg))
+        self.assertEqual(item["id"], sugg[0]["item_id"])
+        self.assertEqual("name", sugg[0]["matched_by"])
+        self.assertEqual("BLUE BOTTLE COFFEE", sugg[0]["purchase"]["description"])
+        self.assertEqual(1299, sugg[0]["purchase"]["amount_cents"])
+
+    def test_restock_suggestion_ignores_purchase_before_it_ran_low(self):
+        item = self.add(name="Coffee", status="out")
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        self._purchase("BLUE BOTTLE COFFEE", yesterday)   # predates going-out
+        self.assertEqual([], derivations.restock_suggestions(self.db))
+
+    def test_restock_suggestion_skips_stocked_staples(self):
+        item = self.add(name="Coffee")   # stocked
+        self._purchase("BLUE BOTTLE COFFEE", item["updated_at"][:10])
+        self.assertEqual([], derivations.restock_suggestions(self.db))
+
+    def test_restock_override_phrase_replaces_the_name_guess(self):
+        item = self.add(name="Paper towels", status="low", restock_match="costco")
+        day = item["updated_at"][:10]
+        # A purchase that matches the NAME but not the phrase must NOT suggest.
+        self._purchase("TARGET PAPER TOWELS", day)
+        self.assertEqual([], derivations.restock_suggestions(self.db))
+        # A purchase matching the phrase does — matched_by 'phrase'.
+        self._purchase("COSTCO WHOLESALE", day)
+        sugg = derivations.restock_suggestions(self.db)
+        self.assertEqual(1, len(sugg))
+        self.assertEqual("phrase", sugg[0]["matched_by"])
+        self.assertEqual("COSTCO WHOLESALE", sugg[0]["purchase"]["description"])
+
+    def test_restock_suggestion_ignores_inflows(self):
+        # An inflow whose description contains the item name must never
+        # fabricate a suggestion — the derivation's direction='out' filter
+        # (tripwire-guarded), proven with a manufactured matching inflow.
+        item = self.add(name="Coffee", status="out")
+        self._purchase("COFFEE REFUND", item["updated_at"][:10],
+                       direction="in", income_type="refund")
+        self.assertEqual([], derivations.restock_suggestions(self.db))
 
 
 if __name__ == "__main__":

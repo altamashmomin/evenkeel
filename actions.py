@@ -1319,11 +1319,14 @@ def add_item(db, actor, data):
                 "status must be one of: " + ", ".join(sorted(ITEM_STATUSES)))
         category = (data.get("category") or "").strip()[:60] or None
         note = (data.get("note") or "").strip()[:200] or None
+        # Optional restock-match override (INVENTORY-DESIGN step 5); NULL = the
+        # restock_suggestions derivation falls back to the item name.
+        restock_match = (data.get("restock_match") or "").strip()[:200] or None
         now = _now()
         cur = db.execute(
-            "INSERT INTO items (name, category, kind, status, note, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (name, category, kind, status, note, now, now))
+            "INSERT INTO items (name, category, kind, status, note, restock_match, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, category, kind, status, note, restock_match, now, now))
         row = db.execute("SELECT * FROM items WHERE id = ?", (cur.lastrowid,)).fetchone()
         _write_audit(db, actor, "add_item", f"item:{row['id']}", {"item": dict(row)})
     return row
@@ -1376,4 +1379,28 @@ def archive_item(db, actor, item_id):
             (_now(), item_id))
         _write_audit(db, actor, "archive_item", f"item:{item_id}",
                      {"name": existing["name"], "was_active": bool(existing["active"])})
+    return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+
+
+def set_item_match(db, actor, item_id, restock_match):
+    """Set or clear a staple's restock-match phrase — the OPTIONAL override that
+    ties a purchase's description to this item for restock suggestions
+    (INVENTORY-DESIGN step 5). Blank/whitespace clears it (NULL), so detection
+    falls back to the item's own name (the auto-guess). Never touches money.
+
+    validate — the item exists and is active (NotFound otherwise).
+    edit — one transaction: restock_match + updated_at + an audit row carrying
+    before/after. Returns the updated row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if existing is None or not existing["active"]:
+            raise NotFound("not found")
+        phrase = (restock_match or "").strip()[:200] or None
+        db.execute(
+            "UPDATE items SET restock_match = ?, updated_at = ? WHERE id = ?",
+            (phrase, _now(), item_id))
+        _write_audit(db, actor, "set_item_match", f"item:{item_id}",
+                     {"before": existing["restock_match"], "after": phrase})
     return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
