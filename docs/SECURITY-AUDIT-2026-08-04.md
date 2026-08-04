@@ -22,7 +22,13 @@ real-world impact for a tailnet-only, two-person app.
 
 ## Findings
 
-### 1 — SECRET_KEY with 2 gunicorn workers · MED · verify on the Pi
+### 1 — SECRET_KEY with 2 gunicorn workers · MED · ✅ VERIFIED RESOLVED (2026-08-04)
+**Checked on the Pi: `SECRET_KEY` is set in `/home/altamash/pifinance/.env`**
+(`grep -qE "^SECRET_KEY=.+"` → match), so sessions are stable across both
+gunicorn workers and survive restarts — no action needed. A forward guard now
+exists: the Ops guardian (`deploy/ops-health-check.sh` §6) warns if the key ever
+becomes unset. Original analysis retained below for the record.
+
 `app.py:32` generates a random session key per process when `SECRET_KEY` is
 unset, and only *logs a warning*. `deploy/pifinance.service` runs `--workers 2`
 and gunicorn does not preload the app, so **each worker would generate a
@@ -123,9 +129,9 @@ dependencies and not reachable by the running Flask app. Hygiene only:
 
 ## Recommended next steps
 
-1. Verify `SECRET_KEY` on the Pi (finding 1) — highest silent-failure risk.
-2. Add a `SECRET_KEY`-present check to the Ops guardian (§6) to detect it going
-   forward.
+1. ~~Verify `SECRET_KEY` on the Pi (finding 1)~~ — ✅ done 2026-08-04, set.
+2. ~~Add a `SECRET_KEY`-present check to the Ops guardian (§6)~~ — ✅ done
+   (`ce3f901`).
 3. Consider a rate limit on `/api/ask` (finding 2).
 4. `pip install -U pip setuptools` on the Pi venv (hygiene).
 
