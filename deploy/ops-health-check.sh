@@ -142,6 +142,16 @@ else
 fi
 
 # ── 6. Credentials before they die silently ─────────────────────────────────
+# Session signing key: if unset, each gunicorn worker (the app runs --workers 2)
+# invents its OWN key, so a cookie signed by one worker is rejected by the other
+# — logins fail intermittently and never survive a restart, and app.py only logs
+# a warning. See docs/SECURITY-AUDIT-2026-08-04.md finding #1.
+if [[ -z "${SECRET_KEY:-}" ]]; then
+  warn "SECRET_KEY not set — sessions break across gunicorn workers and are lost on restart; set it in .env"
+else
+  ok "SECRET_KEY present (stable sessions)"
+fi
+
 if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
   warn "ANTHROPIC_API_KEY not set — Charlee's Ask tab will 503"
 else

@@ -23,6 +23,7 @@ stale, a backup that won't restore, a credential about to expire.
 | Newest backup `PRAGMA integrity_check` | — | not `ok` (corrupt) |
 | Backup file count | > `MAX_BACKUPS` (12) | — |
 | Backup present at all | — | none found |
+| `SECRET_KEY` set | missing (sessions unstable across workers) | — |
 | `ANTHROPIC_API_KEY` | missing, or ≤14d to `ASK_KEY_EXPIRES` | expired |
 
 Exit code = worst severity (0 green / 1 amber / 2 red). Output goes to the journal
