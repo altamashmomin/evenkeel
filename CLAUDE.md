@@ -954,11 +954,41 @@ shortcut pill, 5-slot nav unchanged) → chat input → later inference/predicti
   suite 346→350 python + 48 render. `ask_smoke.py` migrates to v8, so a live
   pantry question ("add coffee, we're low") is runnable with an
   `ANTHROPIC_API_KEY` (⚠ Pi key expires ~Aug 30). **The pantry MVP (INVENTORY-
-  DESIGN steps 1–4) is now CODE-COMPLETE** — tap OR talk. **NOT yet deployed:
-  inc 1–4 all await the first pantry deploy, which applies migration `#008
-  --live`** (deploy `deploy/deploy.sh origin/main` — Alta runs it). Next after
-  deploy: INVENTORY-DESIGN step 5 (purchase-feed auto-population + restock
-  prediction), each its own increment.
+  DESIGN steps 1–4) is now CODE-COMPLETE** — tap OR talk.
+- **DEPLOYED TO THE PI (Aug 3, 2026) — pantry MVP is LIVE.** Advanced `main`
+  to rework's tree via `--no-ff` merge `0eb0301` (first parent = old main
+  `26030f0`, tree byte-identical to rework, fast-forward push). Note: the FIRST
+  `deploy.sh origin/main` run re-deployed old code — that run's internal
+  `git fetch` landed a beat before `0eb0301` propagated, so it gated a no-op
+  against unchanged code (safe: backup only, GATE PASS zero-diff, but
+  `/api/inventory` still 404 over the tailnet). A manual `git fetch origin`
+  (origin/main `26030f0`→`0eb0301`) then a re-run did the real thing:
+  **GATE PASS** with the enumerated `#008` diff only (`items` None→0 +
+  `schema_version` 7→8, **balance and every monthly total unchanged to the
+  cent** — inventory never touches money), migration `#008` applied `--live`,
+  `pifinance` restarted clean. Verified over the tailnet: `/api/inventory` now
+  401 (was 404), served `render.js`/`app.js` carry the pantry frontend.
+  Rollback backup `finance.db.bak-2026-08-03-211145`. **CONFIRMED LIVE on
+  Charlee's/Alta's phone** — the Pantry tab and add both work (after a hard
+  refresh). Lesson (2nd time, after the mobile-nav fix): a frontend deploy needs
+  a per-device hard refresh to bust cached `app.js`/`render.js` — a stale cache
+  made pantry "add" appear dead until refresh. `ledger-mcp` gains
+  `ledger_inventory`; restart it + reconnect the client to see the new tool
+  (app pantry works regardless).
+- **Cache-busting shipped (Aug 3, 2026) — so future frontend deploys self-bust.**
+  `index()` (app.py) now stamps `style.css`/`render.js`/`app.js` with a
+  `?v=<mtime>` token and serves the shell `Cache-Control: no-cache`. Per-file
+  mtime read at serve time (no build step, no git at runtime): a deploy's
+  `git checkout` advances only the changed files' mtime, so the browser
+  re-fetches exactly those. Route only → no balance gate;
+  `test_index_cache_busting` locks it (stamped, no-cache, tracks mtime, stamped
+  URL still serves). Suite 350→353 + 48 render. **One more hard refresh needed
+  after THIS deploys** (to pick up the no-cache shell + new app.js); every
+  frontend deploy after is automatic.
+- **Next after deploy of the cache-bust:** INVENTORY-DESIGN step 5 (purchase-feed
+  auto-population + restock prediction), each its own increment; or a finance
+  track (analytics Tier B, income-visibility policy). Not yet deployed:
+  the cache-bust commit `d46aac4` (advance `main`, `deploy.sh origin/main`).
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
   commits behind `rework`; reconciled and shipped the same day. Pushed
   `rework` (`c01c747`); advanced `main` to rework's exact tree via `--no-ff`
