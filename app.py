@@ -9,7 +9,7 @@ import sqlite3
 from datetime import date, datetime
 
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, request, send_from_directory, session
+from flask import Flask, g, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
@@ -1283,9 +1283,36 @@ def dashboard():
 
 # ---------------------------------------------------------------- static
 
+# The SPA's cacheable assets. The index shell stamps each with a version query
+# so a frontend deploy is picked up without a per-device hard refresh.
+_VERSIONED_ASSETS = ("style.css", "render.js", "app.js")
+
+
+def _asset_version(filename):
+    """A cache-busting token = the asset's mtime in whole seconds. It changes
+    only when the file changes — a deploy's `git checkout` rewrites just the
+    files that differ — so the browser re-fetches exactly the changed assets
+    and keeps the rest from cache. Falls back to '0' if the file is missing."""
+    try:
+        return str(int(os.path.getmtime(os.path.join(app.static_folder, filename))))
+    except OSError:
+        return "0"
+
+
 @app.get("/")
 def index():
-    return send_from_directory(app.static_folder, "index.html")
+    """Serve the SPA shell, version-stamping each asset URL (style.css /
+    render.js / app.js). The HTML itself is sent no-cache — it's tiny, and it
+    must be re-read each load so the stamps are always current; the stamped
+    assets are what the browser caches until their content changes."""
+    with open(os.path.join(app.static_folder, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    for name in _VERSIONED_ASSETS:
+        v = _asset_version(name)
+        html = html.replace(f'href="{name}"', f'href="{name}?v={v}"')
+        html = html.replace(f'src="{name}"', f'src="{name}?v={v}"')
+    return html, 200, {"Content-Type": "text/html; charset=utf-8",
+                       "Cache-Control": "no-cache"}
 
 
 if __name__ == "__main__":
