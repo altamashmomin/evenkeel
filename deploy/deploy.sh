@@ -88,6 +88,7 @@ rollback() {
     echo "    cp '$BACKUP' finance.db" >&2
     echo "    git checkout $OLD_REF" >&2
     echo "    sudo systemctl start pifinance" >&2
+    echo "    sudo systemctl restart ledger-mcp   # if installed" >&2
 }
 trap rollback ERR
 
@@ -102,6 +103,16 @@ echo "-> migrate.py apply --live finance.db"
 echo "-> starting service"
 sudo systemctl start pifinance
 trap - ERR
+
+# ledger-mcp has Requires=pifinance, so stopping the app also stopped the MCP
+# sibling; starting the app does NOT bring it back (that's the reverse
+# direction). Restart it if it's installed — outside the rollback trap, since
+# the MCP tier is non-critical to the app itself.
+if systemctl cat ledger-mcp.service >/dev/null 2>&1; then
+    echo "-> restarting ledger-mcp (stopped with the app via Requires=)"
+    sudo systemctl restart ledger-mcp \
+        || echo "   WARNING — ledger-mcp restart failed; check: journalctl -u ledger-mcp -e"
+fi
 
 # --- 6. smoke check ----------------------------------------------------------
 sleep 2
