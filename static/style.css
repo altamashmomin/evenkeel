@@ -622,6 +622,13 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   background: none; border: none; color: var(--muted); font-size: 13px;
 }
 .item-x:hover { color: var(--danger); background: var(--surface-2); }
+/* the 🔎 match-editor shares the faint control look but is not destructive, so
+   it must not pick up .item-x's red hover */
+.item-match:hover { color: var(--ink); background: var(--surface-2); }
+.match-hint { font-style: italic; }
+/* the purchase-feed restock nudge — a soft green accent so it reads as a
+   growth/confirm prompt, not another to-do */
+.restock-card { border-left: 3px solid var(--ok); }
 /* quick-add field closing each pantry card (guards against the global
    `form > .btn.primary { width:100% }` rule, like .ask-bar does) */
 .inv-add { display: flex; gap: 8px; align-items: center; margin-top: 14px; }

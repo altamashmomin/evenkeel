@@ -1018,16 +1018,43 @@ income_rules; "suggest, don't assert."
   shared description mentions suggestions → **both doors already surface them**
   (Charlee/Alta can ask "what did I probably restock?" NOW). No schema change →
   **zero-diff balance gate PASS**; suite 353→362.
-- **Inc 5c NEXT — the Pantry UI:** a "Looks like you restocked?" nudge section in
-  the SPA pantry view (each suggestion → a one-tap "Yes, mark stocked" calling the
-  existing `set_item_status`, showing the evidence purchase), plus a way to set an
-  item's optional match phrase. Pure `render.js` helper + node-seam test; frontend
-  only, no gate. Then step 5's second half (restock *prediction* from cadence) and
-  new-staple suggestions remain as later increments.
-- **NOT yet deployed:** the cache-bust is live, but step-5 (5a `#009` + 5b) awaits
-  a deploy — `deploy.sh origin/main` will apply `#009 --live` (enumerated diff:
-  `schema_version` 8→9). Do it after 5c so the pantry UI ships with the backend,
-  OR now if you want the chat-door suggestions live first.
+- **Inc 5c done (Aug 4, 2026) — the Pantry restock UI.** `inventoryHTML` gained a
+  "Looks like you restocked?" nudge card at the top of the pantry view (only when
+  `restock_suggestions` is non-empty): each row shows the evidence purchase
+  (`Bought <desc> · <short date> · <display amount>`) and a one-tap "Yes,
+  restocked" → `data-restock-confirm` → the existing `set_item_status(id,
+  'stocked')` (drops it off the shopping list). Each staple row also gets a faint
+  🔎 match-editor (`data-item-match`) — a `prompt()` pre-filled from
+  `window._inv` (stashed in `renderInventory`, the `_txns`/`_bills` pattern; no
+  user content in an attribute since `esc` doesn't escape quotes) that PUTs
+  `restock_match` (blank clears); a set phrase shows inline as `🔎 matches "…"`.
+  New `shortDate` helper (exported). Three small CSS rules (`.restock-card` green
+  left-accent, `.item-match:hover` neutral not danger-red, italic `.match-hint`).
+  Frontend only — no schema/derivation/route change, **no balance gate**; render
+  seam 48→52, full python suite 362 green. Visual sign-off was the render-seam +
+  a real-markup dump (the in-app Browser tool was wedged again — 300s navigate
+  timeouts, same as recent sessions); live on-device check comes after deploy.
+  **NOT yet deployed** — frontend-only, ships through the zero-gate frontend
+  deploy (self-busting cache is live). Then step 5's second half (restock
+  *prediction* from cadence) and new-staple suggestions remain as later
+  increments.
+- **DEPLOYED TO THE PI (Aug 4, 2026) — step-5 backend (5a `#009` + 5b) is LIVE.**
+  Advanced `main` to rework's tree via `--no-ff` merge `a07f470` (first parent =
+  old main `be27345`, tree byte-identical to rework, fast-forward push); ran
+  `deploy/deploy.sh origin/main` on the Pi (altamash). **GATE PASS** — balance and
+  every monthly total unchanged to the cent, only the enumerated `#009` structural
+  diff (`schema_version` 8→9; inventory never touches money); migration `#009`
+  applied `--live`, `pifinance` restarted clean, `/api/status` OK; `ledger-mcp`
+  restarted by hand (this deploy's `deploy.sh` doesn't yet auto-restart it — that
+  fix shipped now, takes effect next deploy). Rollback backup
+  `finance.db.bak-2026-08-04-140904`. Merge carried the whole Aug-4 agent/ops
+  layer alongside #009 (a deliberate batch — safe because the gate is
+  authoritative and every non-#009 change is tooling/docs/deploy/frontend, no
+  schema/money-derivation impact). Gated via the `ledger-release` agent; the pre-
+  gate step-C needed the expectation file pulled from `origin/rework`
+  (`git show origin/rework:notes/009-gate-expectation.seed.json`) since the
+  working tree was still at pre-#009 `be27345`. The chat-door restock suggestions
+  are now live (Charlee/Alta can ask "what did I probably restock?").
 - Alternative tracks if step 5 is paused: analytics Tier B (#13–16) or the
   income-visibility policy.
 - **DEPLOYED TO THE PI (Jul 27, 2026).** The deployed line had drifted ~27
@@ -1134,27 +1161,37 @@ derivation change), so nothing to gate.**
   `ledger-mcp` after a deploy. Both activate on the deploy AFTER the one that
   ships them (deploy.sh backs up + self-replaces before those lines run).
 
-**IMMEDIATE NEXT TASK — the pantry #009 deploy (a real gated migration).**
-`rework` is 13 commits ahead of the deployed `origin/main` (`be27345`, schema
-version 8). The one pending migration is `migrations/009_item_restock_match.py`
-(schema 8→9: the inventory restock-match column + `restock_suggestions`
-derivation + its endpoint/UI, INVENTORY-DESIGN step 5); its enumerated gate
-expectation is `notes/009-gate-expectation.seed.json`. Ship via the per-
-increment loop, driven by the **`ledger-release`** agent:
-1. Classify: it's a migration → needs backup + `--live` + the balance gate.
-2. Build `dev.db` (on the Pi: `cp finance.db dev.db`) and run `gate.py run
-   --db dev.db --old be27345 --new rework --expect notes/009-gate-expectation.seed.json`;
-   only the enumerated diff (new column + `schema_version` bump, no money moved)
-   passes.
-3. Advance `main` → `rework` (`--no-ff` merge, first parent = old `main` so the
-   push fast-forwards, tree = rework), push.
-4. On the Pi (`altamash`@`/home/altamash/pifinance`): `deploy/deploy.sh
-   origin/main` (backs up, dry-run-gates the copy, migrates `--live`, restarts).
-   **Only Alta runs this** (charter). NOTE: #009's OWN backup still uses the old
-   `cp` — the VACUUM/mcp-restart fixes land with this deploy but take effect on
-   the NEXT; optionally take a manual `VACUUM INTO` backup first.
-5. Post-deploy: confirm `GATE PASS`, migration applied, service up, `/api/status`
-   200; the deployed deploy.sh now auto-restarts `ledger-mcp`.
+**Pantry #009 DEPLOYED (Aug 4, 2026) — done.** The gated migration shipped via
+the `ledger-release` agent's go/no-go: `origin/main` advanced to rework's tree
+(`--no-ff` merge `a07f470`, first parent = old main `be27345`, fast-forward
+push), `deploy/deploy.sh origin/main` on the Pi → **GATE PASS** (enumerated
+`schema_version` 8→9 only, no money moved), `#009` applied `--live`, `pifinance`
++ `ledger-mcp` restarted, `/api/status` 200. Rollback backup
+`finance.db.bak-2026-08-04-140904`. Deployed line is now schema v9, `origin/main`
+tree == `rework`. (Detail in INVENTORY-DESIGN step-5 block above.)
+
+**IMMEDIATE NEXT TASK — deploy pantry inc 5c (the restock UI), a frontend-only
+deploy.** Built + gated at the seam (render 52, python 362 green) on `rework`,
+not yet on the Pi. It's **frontend only** (`static/render.js` / `app.js` /
+`style.css` + the render test) — no migration, no schema/derivation/route change
+→ **no balance gate diff to enumerate** (deploy.sh's dry-run gate will show
+zero-diff). Ship via the per-increment loop, `ledger-release` optional here since
+there's no migration to classify:
+1. Advance `main` → `rework` (`--no-ff` merge, first parent = old `main` =
+   `a07f470` so the push fast-forwards, tree = rework), push.
+2. On the Pi (`altamash`@`/home/altamash/pifinance`): `git fetch origin &&
+   deploy/deploy.sh origin/main` → expect **GATE PASS zero-diff, no migration**.
+   **Only Alta runs this.** This deploy's `deploy.sh` is the FIRST to carry the
+   VACUUM-INTO backup + `ledger-mcp` auto-restart (they shipped with #009 but
+   self-replace before running) — so from here backups are WAL-safe and no manual
+   `ledger-mcp` restart is needed.
+3. Post-deploy: `/api/status` 200, then a per-device hard refresh (cache-busting
+   is live, but this is a new UI) — confirm the "Looks like you restocked?" nudge
+   and the 🔎 match editor on the phone. `/api/inventory` unchanged (already
+   deployed with 5b), so no backend surface to re-verify.
+After 5c ships: step 5's second half (restock *prediction* from cadence) +
+new-staple suggestions; or the alternative tracks — analytics Tier B (#13–16) or
+the income-visibility policy.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
