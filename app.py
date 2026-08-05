@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import actions
 import ask_loop
 from actions import active_members, current_period, payer_share_pct, to_cents
-from derivations import (bill_variance, category_trend,
+from derivations import (bill_variance, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, income_summary,
                          income_trend, low_stock, member_breakdown,
                          recurring_charges, restock_forecast, restock_suggestions,
@@ -893,6 +893,32 @@ def recurring_view():
             "last_charge": c["last_charge"],
             "predicted_next": c["predicted_next"],
         } for c in recurring_charges(db)],
+    })
+
+
+@app.get("/api/analytics/cash-flow-forecast")
+@login_required
+def cash_flow_forecast_view():
+    """Projected month-end net cash flow — a conservative floor (analytics Tier
+    B #14), from the `cash_flow_forecast` derivation: net-so-far (income − spend)
+    minus the bills still unpaid this month. It's NET FLOW, not an account
+    balance, and does NOT assume a not-yet-landed paycheck, so real month-end is
+    usually better. Goals excluded (no scheduled contributions). Money as
+    {cents, display}. Pure read."""
+    db = get_db()
+    period = request.args.get("period") or current_period()
+    f = cash_flow_forecast(db, period)
+    return jsonify({
+        "period": period,
+        "income_so_far": money(f["income_so_far_cents"]),
+        "spend_so_far": money(f["spend_so_far_cents"]),
+        "net_so_far": money(f["net_so_far_cents"]),
+        "bills_remaining": [{
+            "bill_id": b["bill_id"], "name": b["name"], "due_day": b["due_day"],
+            "amount": money(b["amount_cents"]),
+        } for b in f["bills_remaining"]],
+        "bills_remaining_total": money(f["bills_remaining_cents"]),
+        "projected_net": money(f["projected_net_cents"]),
     })
 
 

@@ -56,6 +56,10 @@ EXEMPT = {
     "savings_rate_trend": "savings rate over a window (raw + rolling) — built "
                           "on income_trend/income_summary, counting inflows "
                           "is its whole job (same as income_trend).",
+    "cash_flow_forecast": "projected month-end NET CASH FLOW (in − out) — "
+                          "built on income_summary, so it counts income by "
+                          "construction; the bills half is separately guarded "
+                          "by bill_variance's own tripwire check.",
 }
 
 

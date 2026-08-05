@@ -293,6 +293,47 @@ def bill_variance(db, period=None):
     return out
 
 
+def cash_flow_forecast(db, period=None):
+    """Projected month-end NET CASH FLOW for `period` — a conservative floor
+    (analytics Tier B #14): where this month lands if the only thing left to
+    happen is the bills still unpaid.
+
+    net_so_far = income_summary(period).net_cash_flow (true income − spend,
+    month-to-date, refund-netted). bills_remaining = this period's active bills
+    NOT yet paid (from bill_variance) — the known upcoming OUTFLOWS.
+    projected_net = net_so_far − bills_remaining.
+
+    Deliberately a FLOOR, and honest about its limits:
+    - It does NOT assume any not-yet-landed paycheck (income cadence isn't
+      modelled — income_rules don't encode it), so real month-end is usually
+      BETTER than this. Bills-only was the design call.
+    - It is NET FLOW (in − out), NOT an account balance — the app tracks no cash
+      balance.
+    - Goals are excluded: contributions aren't scheduled, so nothing to project.
+
+    EXEMPT in the derivation tripwire like income_summary — net cash flow counts
+    income by construction; the bills half is separately guarded (bill_variance
+    is itself tripwire-checked). Integer cents; the endpoint renders
+    {cents, display}. `period` defaults to None (all-time, matching
+    income_summary) purely so it's callable bare; real callers pass a month."""
+    inc = income_summary(db, period)
+    net_so_far = inc["net_cash_flow_cents"]
+    remaining = sorted((b for b in bill_variance(db, period) if not b["paid"]),
+                       key=lambda b: (b["due_day"], b["name"]))
+    bills_remaining_cents = sum(b["defined_cents"] for b in remaining)
+    return {
+        "period": period,
+        "income_so_far_cents": inc["true_income_cents"],
+        "spend_so_far_cents": inc["month_spend_cents"],
+        "net_so_far_cents": net_so_far,
+        "bills_remaining": [{"bill_id": b["bill_id"], "name": b["name"],
+                             "due_day": b["due_day"],
+                             "amount_cents": b["defined_cents"]} for b in remaining],
+        "bills_remaining_cents": bills_remaining_cents,
+        "projected_net_cents": net_so_far - bills_remaining_cents,
+    }
+
+
 def member_breakdown(db, month=None):
     """Per-member shared-expense breakdown for a month (analytics #11): how
     much each person PAID for shared expenses (fronted the money) versus

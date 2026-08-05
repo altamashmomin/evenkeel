@@ -279,6 +279,16 @@ def ledger_recurring_charges() -> str:
     return _json(api_get("/api/analytics/recurring"))
 
 
+@mcp.tool(name="ledger_cash_flow_forecast", title="Cash-flow forecast",
+          description=DESCRIPTIONS["ledger_cash_flow_forecast"], annotations=_READ)
+def ledger_cash_flow_forecast(
+    period: Annotated[Optional[str], Field(
+        default=None, pattern=r"^\d{4}-\d{2}$",
+        description="ISO month 'YYYY-MM'. Omit for the current month.")] = None,
+) -> str:
+    return _json(api_get("/api/analytics/cash-flow-forecast", {"period": period}))
+
+
 @mcp.tool(name="ledger_list_income_rules", title="List income rules",
           description=DESCRIPTIONS["ledger_list_income_rules"], annotations=_READ)
 def ledger_list_income_rules() -> str:
