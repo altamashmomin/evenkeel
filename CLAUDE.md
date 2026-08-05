@@ -496,11 +496,20 @@ Tier B — needs a heuristic, still no schema change:
     (no money path) + live deploy GATE PASS (no migration, v9;
     `finance.db.bak-2026-08-05-012130`). Suite 369→**381**. Honest caveat: sparse
     on real data until a few months of history (a monthly charge needs 3 months).
-14. Cash-flow forecast — project end-of-month / next-month position from
-    recurring income (paycheck `income_rules` encode cadence+owner),
-    recurring bills, and scheduled goal contributions. Where rules, bills,
-    and goals finally combine into one forward-looking number; the natural
-    bridge into step 7 (the MCP assistant).
+14. Cash-flow forecast — **DONE + DEPLOYED (Aug 5, 2026), backend + MCP.**
+    `cash_flow_forecast(db, period)` = `income_summary`'s net-so-far (income −
+    spend, month-to-date) minus the bills still UNPAID this period (from
+    `bill_variance`) → projected month-end **NET CASH FLOW**. **Grounding
+    correction (important):** the roadmap's premise here was wrong — `income_
+    rules` do NOT encode cadence, goals have NO scheduled contributions, and the
+    app tracks NO cash/account balance. So it's a deliberate **conservative
+    FLOOR**: bills-only (no inferred paycheck → real month-end is usually
+    better), **net flow not a balance**, goals excluded (Alta's call). EXEMPT in
+    the tripwire like `income_summary` (counts income by construction; the bills
+    half is guarded by `bill_variance`). `GET /api/analytics/cash-flow-forecast`
+    + shared read tool `ledger_cash_flow_forecast` (both doors; analyst granted).
+    Zero-diff gate PASS; suite 381→387. (Not `_monthly_series`-based — it's a
+    single-period floor, not a trailing window.)
 15. Anomaly flags — "category X is N% above its trailing 3-mo average"; a
     threshold on top of #8, surfaced passively in the activity feed.
 16. Goal pace / projection — completion-date projection at current
@@ -1229,12 +1238,12 @@ deploy.
   to start tracking a frequently-bought item not yet a staple — heuristic,
   "suggest don't assert," outflows-only so tripwire-covered; likely a migration
   only if a new column is needed. The natural pantry follow-on.
-- **Analytics Tier B — #14–16 remain** (#13 recurring-charge detection is DONE
-  + deployed, backend + MCP): **#14 cash-flow forecast** (project end-of-month
-  position from recurring income + bills + goal contributions — the first thing
-  that combines all three), **#15 anomaly flags** ("category X is N% over its
-  3-mo average"), **#16 goal pace** (projected completion date). All read-time,
-  zero-diff-gated.
+- **Analytics Tier B — #15–16 remain** (#13 recurring-charge detection and #14
+  cash-flow forecast are both DONE + deployed, backend + MCP): **#15 anomaly
+  flags** ("category X is N% over its trailing 3-mo average" — a threshold on
+  top of #8 `category_trend`, surfaced passively), **#16 goal pace** (projected
+  completion date at the current contribution rate over `goal_contributions`).
+  Both read-time, zero-diff-gated.
 - **Analytics frontend batch** — surface the backend-only Tier A/B reads that
   have no UI yet: **the recurring-charges "Subscriptions" card** (#13), plus
   `category_trend` (#8) and `savings_rate_trend` visuals. Frontend-only, no gate.
