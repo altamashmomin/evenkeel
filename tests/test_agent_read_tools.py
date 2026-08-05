@@ -103,7 +103,7 @@ class AgentReadToolsTests(unittest.TestCase):
 
     def test_anthropic_tools_schema_and_caching(self):
         tools = art.anthropic_tools()
-        self.assertEqual(17, len(tools))
+        self.assertEqual(18, len(tools))
         for t in tools:
             self.assertEqual({"name", "description", "input_schema"} <= set(t), True)
             self.assertEqual("object", t["input_schema"]["type"])

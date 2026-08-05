@@ -199,6 +199,24 @@ READ_TOOLS = [
         "fetch": lambda g, a: g("/api/analytics/goal-pace", {"as_of": a.get("as_of")}),
     },
     {
+        "name": "ledger_anomaly_flags",
+        "description":
+            "Categories spending unusually high in a month vs their trailing "
+            "3-month average — a passive heads-up ('groceries are 60% over "
+            "their recent norm'), not an authority. Each flag has the month's "
+            "spend, the baseline, the delta, and pct_over. Refund-netted (same "
+            "spend the dashboard shows). Noise-guarded (needs a real baseline + "
+            "a meaningful dollar jump). `threshold` is the percent-over cutoff "
+            "(default 50). Money {cents, display}. Empty when nothing's unusual.",
+        "input_schema": _obj({
+            "month": _MONTH,
+            "threshold": {"type": "integer", "minimum": 1,
+                          "description": "Percent over the 3-mo average to flag (default 50)."},
+        }),
+        "fetch": lambda g, a: g("/api/analytics/anomalies",
+                                {"month": a.get("month"), "threshold": a.get("threshold")}),
+    },
+    {
         "name": "ledger_list_income_rules",
         "description":
             "All income-classification rules in priority order (first match "

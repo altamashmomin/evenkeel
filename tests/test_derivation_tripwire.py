@@ -60,6 +60,10 @@ EXEMPT = {
                           "built on income_summary, so it counts income by "
                           "construction; the bills half is separately guarded "
                           "by bill_variance's own tripwire check.",
+    "anomaly_flags": "category-overage flags vs a trailing baseline, read "
+                     "through spending_summary — so category spend is refund-"
+                     "NETTED (same bounded exemption as category_trend); a "
+                     "refund can legitimately clear an anomaly.",
 }
 
 

@@ -15,7 +15,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import actions
 import ask_loop
 from actions import active_members, current_period, payer_share_pct, to_cents
-from derivations import (bill_variance, cash_flow_forecast, category_trend,
+from derivations import (anomaly_flags, bill_variance, cash_flow_forecast,
+                         category_trend,
                          compute_balance as derive_balance, goal_pace,
                          income_summary,
                          income_trend, low_stock, member_breakdown,
@@ -920,6 +921,34 @@ def cash_flow_forecast_view():
         } for b in f["bills_remaining"]],
         "bills_remaining_total": money(f["bills_remaining_cents"]),
         "projected_net": money(f["projected_net_cents"]),
+    })
+
+
+@app.get("/api/analytics/anomalies")
+@login_required
+def anomalies_view():
+    """Categories spending unusually high this month vs their trailing 3-month
+    average (analytics Tier B #15), from the `anomaly_flags` derivation. A
+    passive heads-up: same normalized-month spend as the dashboard (refund-
+    netted), flagged when `pct_over` clears the threshold and the jump clears a
+    noise floor. `month` defaults to the current month; `threshold` (percent
+    over baseline, default 50) is tunable. Money as {cents, display}. Pure read."""
+    db = get_db()
+    month = request.args.get("month") or current_period()
+    try:
+        threshold = int(request.args.get("threshold", 50))
+    except ValueError:
+        return bad_request("threshold must be an integer percent")
+    return jsonify({
+        "month": month,
+        "threshold_pct": threshold,
+        "anomalies": [{
+            "category": a["category"],
+            "current": money(a["current_cents"]),
+            "baseline": money(a["baseline_cents"]),
+            "delta": money(a["delta_cents"]),
+            "pct_over": a["pct_over"],
+        } for a in anomaly_flags(db, month, threshold_pct=threshold)],
     })
 
 
