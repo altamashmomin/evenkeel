@@ -1261,11 +1261,18 @@ deploy.
   MCP). What remains on the analytics track is only the **frontend batch** (below)
   and the deferred Tier C (budgets/envelopes — its own designed feature, NOT a
   quick add).
-- **Analytics frontend batch** — the whole Tier B is backend+MCP-only, no UI yet.
-  Surface it in the Analytics tab (or activity feed for anomalies): a
-  "Subscriptions" card (#13), a cash-flow-forecast card (#14), anomaly chips
-  (#15), goal-pace projections (#16), plus the still-UI-less `category_trend`
-  (#8). Frontend-only, no gate — the biggest single user-visible payoff left.
+- **Analytics frontend batch — DONE + DEPLOYED (Aug 5, 2026).** The Analytics
+  tab now surfaces all four Tier B reads as Garden cards (`origin/main`
+  `c87c547`, zero-diff GATE PASS, frontend-only): `cashFlowForecastHTML` (#14 —
+  projected month-end floor + remaining bills), `anomaliesHTML` (#15 — category
+  spikes vs the 3-mo avg, all-clear state), `recurringChargesHTML` (#13 —
+  detected subscriptions, sparse note), `goalPaceHTML` (#16 — saved/target +
+  status chip + projected finish). `renderAnalytics` fans out the four new
+  endpoints via `Promise.all`; reused existing classes (no new CSS); node-seam
+  57→62. `category_trend` (#8) already had UI (the biggest-category drill-in).
+  **All of Tier B is now visible in-app.** On-device: hard-refresh, open
+  Analytics; goal pace has real data (istanbul/Emergency fund), the rest are
+  sparse until more history.
 - **Analytics frontend batch** — surface the backend-only Tier A/B reads that
   have no UI yet: **the recurring-charges "Subscriptions" card** (#13), plus
   `category_trend` (#8) and `savings_rate_trend` visuals. Frontend-only, no gate.
