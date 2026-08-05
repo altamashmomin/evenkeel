@@ -18,7 +18,8 @@ from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (bill_variance, category_trend,
                          compute_balance as derive_balance, income_summary,
                          income_trend, low_stock, member_breakdown,
-                         restock_suggestions, savings_rate_trend, shopping_list,
+                         restock_forecast, restock_suggestions,
+                         savings_rate_trend, shopping_list,
                          spending_summary, top_merchants)
 from schema_runtime import connect_existing, require_current_schema
 
@@ -613,6 +614,7 @@ def inventory_view():
         "shopping": [item_to_json(r) for r in shopping_list(db)],
         "low_count": len(low_stock(db)),
         "restock_suggestions": suggestions,
+        "restock_forecast": restock_forecast(db),
     })
 
 

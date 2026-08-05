@@ -56,8 +56,9 @@ class InventoryRouteTests(unittest.TestCase):
         c.post("/api/inventory", json={"name": "Cake", "kind": "oneoff"})
         c.put(f"/api/inventory/{item['id']}", json={"status": "low"})
         view = c.get("/api/inventory").get_json()
-        self.assertEqual({"items", "shopping", "low_count", "restock_suggestions"},
-                         set(view))
+        self.assertEqual(
+            {"items", "shopping", "low_count", "restock_suggestions", "restock_forecast"},
+            set(view))
         self.assertEqual(1, view["low_count"])                 # the low staple
         names_on_list = {i["name"] for i in view["shopping"]}
         self.assertEqual({"Coffee", "Cake"}, names_on_list)    # low staple + one-off

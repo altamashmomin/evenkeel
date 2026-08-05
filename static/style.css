@@ -629,6 +629,9 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 /* the purchase-feed restock nudge — a soft green accent so it reads as a
    growth/confirm prompt, not another to-do */
 .restock-card { border-left: 3px solid var(--ok); }
+/* the cadence forecast ("Coming up") — a honey accent: forward-looking heads-up,
+   distinct from the green "did you restock?" nudge */
+.forecast-card { border-left: 3px solid var(--brass); }
 /* quick-add field closing each pantry card (guards against the global
    `form > .btn.primary { width:100% }` rule, like .ask-bar does) */
 .inv-add { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
