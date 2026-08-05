@@ -1350,9 +1350,15 @@ assertion the phrase is wrong — some staples are bought inside grocery runs an
 can't match by product (the step-5 merchant-not-product limit). No schema/
 migration, no money path → **zero-diff balance gate PASS** (`origin/main`→HEAD);
 suite 417→**422** python + 66→**70** render. Visual pass in light+dark via harness.
-**Not yet deployed** — frontend + read-endpoint, ships through the zero-gate
-frontend deploy path when Alta merges + runs `deploy.sh`; `ledger-mcp` picks up
-the extended `ledger_inventory` passthrough on its restart.
+**DEPLOYED (Aug 5, 2026)** via `main` `16d575d` (`--no-ff` merge, first parent =
+prior main `47fb5b0`, tree == rework), `deploy.sh origin/main` → GATE PASS
+zero-diff, no migration; `ledger-mcp` restarted (picks up the extended
+`ledger_inventory` passthrough). Verified live: the Pi's `render.js` serves
+`unmatchedStaplesHTML` + "Check the match?". Deploy note: the first `deploy.sh`
+run hit the propagation race (its `git fetch` got the prior `47fb5b0` a beat
+before `16d575d` landed, so it re-shipped predicted-low); a second `git fetch
+origin && deploy.sh origin/main` deployed `16d575d` — the same race+fix seen on
+the Aug 3 pantry MVP deploy.
 
 **IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates:
 - **Deploy the broken-match detector** (above) — Alta's manual merge + `deploy.sh
