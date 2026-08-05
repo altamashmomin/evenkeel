@@ -598,6 +598,19 @@ async function addItem(name, kind) {
   render();
 }
 
+// "Track" on a new-staple suggestion: start tracking that merchant as a staple,
+// seeding its restock-match phrase from the suggestion so future purchases match.
+// Reads the row out of window._inv by index (no user content in the attribute).
+async function trackSuggestedStaple(idx) {
+  const s = (window._inv && window._inv.new_staple_suggestions || [])[idx];
+  if (!s) return;
+  await api("/api/inventory", {
+    method: "POST",
+    body: { name: s.merchant, kind: "staple", restock_match: s.suggested_match },
+  });
+  render();
+}
+
 /* ================= ask ================= */
 
 // Renders from client state only (no fetch), so re-rendering mid-chat is cheap.
@@ -706,6 +719,9 @@ function wireMain() {
     el.addEventListener("click", () => setItemStatus(+el.dataset.restockConfirm, "stocked")));
   $$("[data-item-match]").forEach((el) =>
     el.addEventListener("click", () => setItemMatch(+el.dataset.itemMatch)));
+  // New-staple suggestion: "Track" starts tracking that merchant as a staple.
+  $$("[data-track-staple]").forEach((el) =>
+    el.addEventListener("click", () => trackSuggestedStaple(+el.dataset.trackStaple)));
   $$("[data-item-remove]").forEach((el) =>
     el.addEventListener("click", async () => {
       if (!confirm("Stop tracking this item? Its history stays in the log.")) return;

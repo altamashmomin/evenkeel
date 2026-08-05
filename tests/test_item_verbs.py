@@ -276,6 +276,89 @@ class ItemVerbTests(unittest.TestCase):
         fc = derivations.restock_forecast(self.db)
         self.assertEqual([sooner["id"], later["id"]], [f["item_id"] for f in fc])
 
+    # ---- new_staple_suggestions derivation (step 5 sibling) ------------------
+    # NOTE: this derivation scans ALL outflows, so the seed contributes its own
+    # merchant clusters — these assertions target the merchants they inject and
+    # never assume the seed produces none.
+    def _outflow(self, desc, when, amt=1500, source="simplefin"):
+        self.db.execute(
+            "INSERT INTO transactions (txn_date, amount_cents, description, "
+            "category, paid_by, is_shared, source, direction) "
+            "VALUES (?, ?, ?, 'Pets', 1, 0, ?, 'out')", (when, amt, desc, source))
+        self.db.commit()
+
+    def _find(self, sugg, merchant):
+        return next((s for s in sugg if s["merchant"] == merchant), None)
+
+    def test_new_staple_suggested_after_three_distinct_days(self):
+        # A merchant bought on 3 distinct days, not tracked, not a subscription
+        # (varied amounts) → offered as a new staple.
+        for day, amt in (("2026-01-01", 1500), ("2026-01-20", 1799),
+                         ("2026-02-10", 1299)):
+            self._outflow("CHEWY.COM* NJ", day, amt)
+        s = self._find(derivations.new_staple_suggestions(self.db), "Chewy")
+        self.assertIsNotNone(s)
+        self.assertEqual(3, s["purchases_seen"])
+        self.assertEqual("2026-01-01", s["first_purchase"])
+        self.assertEqual("2026-02-10", s["last_purchase"])
+        self.assertEqual(1500 + 1799 + 1299, s["total_spent_cents"])
+        self.assertEqual("chewy", s["suggested_match"])
+        self.assertEqual("CHEWY.COM* NJ", s["example_description"])
+
+    def test_new_staple_needs_three_distinct_days(self):
+        self._outflow("CHEWY.COM* NJ", "2026-01-01")
+        self._outflow("CHEWY.COM* NJ", "2026-01-01")   # same day → one restock
+        self._outflow("CHEWY.COM* NJ", "2026-01-20")   # 3 rows, 2 distinct days
+        self.assertIsNone(self._find(
+            derivations.new_staple_suggestions(self.db), "Chewy"))
+
+    def test_new_staple_excludes_already_tracked_merchant(self):
+        # Track it as a staple (restock_match 'chewy'); it must NOT be re-offered.
+        # Varied amounts so recurring_charges won't flag it — isolating the
+        # already-tracked exclusion as the reason it's absent.
+        self.add(name="Dog food", restock_match="chewy")
+        for day, amt in (("2026-01-01", 1500), ("2026-01-20", 1799),
+                         ("2026-02-10", 1299)):
+            self._outflow("CHEWY.COM* NJ", day, amt)
+        self.assertIsNone(self._find(
+            derivations.new_staple_suggestions(self.db), "Chewy"))
+
+    def test_new_staple_excludes_fixed_amount_subscription(self):
+        # Identical amount on a regular monthly cadence → recurring_charges flags
+        # it a subscription, so it's NOT offered as a pantry staple.
+        for day in ("2026-01-05", "2026-02-05", "2026-03-05"):
+            self._outflow("NETFLIX.COM", day, 1599)
+        self.assertIn("Netflix",
+                      [c["merchant"] for c in derivations.recurring_charges(self.db)])
+        self.assertIsNone(self._find(
+            derivations.new_staple_suggestions(self.db), "Netflix"))
+
+    def test_new_staple_excludes_settlements(self):
+        for day in ("2026-01-01", "2026-01-20", "2026-02-10"):
+            self._outflow("SETTLE UP AVERY", day, source="settlement")
+        self.assertIsNone(self._find(
+            derivations.new_staple_suggestions(self.db), "Settle Up Avery"))
+
+    def test_new_staple_ignores_inflows(self):
+        # An inflow that names a merchant on 3 days must never fabricate a
+        # suggestion — the outflows-only filter (tripwire-guarded too).
+        for day in ("2026-01-01", "2026-01-20", "2026-02-10"):
+            self._purchase("CHEWY REFUND", day, direction="in", income_type="refund")
+        sugg = derivations.new_staple_suggestions(self.db)
+        self.assertTrue(all("CHEWY" not in s["merchant"].upper() for s in sugg))
+
+    def test_new_staple_sorted_most_bought_first(self):
+        # Varied amounts so neither reads as a fixed-amount subscription.
+        for day, amt in (("2026-01-01", 850), ("2026-01-08", 900),
+                         ("2026-01-15", 875), ("2026-01-22", 950)):  # 4×
+            self._outflow("BLUE BOTTLE COFFEE", day, amt)
+        for day, amt in (("2026-02-01", 1400), ("2026-02-10", 1650),
+                         ("2026-02-20", 1299)):  # 3×
+            self._outflow("PETCO", day, amt)
+        merchants = [s["merchant"] for s in derivations.new_staple_suggestions(self.db)]
+        mine = [m for m in merchants if m in ("Blue Bottle Coffee", "Petco")]
+        self.assertEqual(["Blue Bottle Coffee", "Petco"], mine)  # 4× before 3×
+
 
 if __name__ == "__main__":
     unittest.main()

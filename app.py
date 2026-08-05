@@ -20,6 +20,7 @@ from derivations import (anomaly_flags, bill_variance, cash_flow_forecast,
                          compute_balance as derive_balance, goal_pace,
                          income_summary,
                          income_trend, low_stock, member_breakdown,
+                         new_staple_suggestions,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
                          spending_summary, top_merchants)
@@ -598,10 +599,12 @@ def item_to_json(r):
 @login_required
 def inventory_view():
     """The pantry: the tracked staples, the computed shopping list, a low-stock
-    count, and purchase-feed restock suggestions (low/out staples with a
-    matching purchase since they ran low — hints to confirm, INVENTORY-DESIGN
-    step 5). Staples ordered most-urgent (out, then low) first; the suggestion
-    purchase amount is dollars at the JSON edge."""
+    count, purchase-feed restock suggestions (low/out staples with a matching
+    purchase since they ran low — hints to confirm, INVENTORY-DESIGN step 5), a
+    cadence-based restock forecast, and new-staple suggestions (frequently-bought
+    merchants you don't yet track — an offer to start). Staples ordered
+    most-urgent (out, then low) first; every money amount is dollars at the JSON
+    edge."""
     db = get_db()
     staples = db.execute(
         "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
@@ -611,12 +614,17 @@ def inventory_view():
     for s in suggestions:
         cents = s["purchase"].pop("amount_cents")
         s["purchase"]["amount"] = {"cents": cents, "display": money_display(cents)}
+    new_staples = new_staple_suggestions(db)
+    for s in new_staples:
+        cents = s.pop("total_spent_cents")
+        s["total_spent"] = {"cents": cents, "display": money_display(cents)}
     return jsonify({
         "items": [item_to_json(r) for r in staples],
         "shopping": [item_to_json(r) for r in shopping_list(db)],
         "low_count": len(low_stock(db)),
         "restock_suggestions": suggestions,
         "restock_forecast": restock_forecast(db),
+        "new_staple_suggestions": new_staples,
     })
 
 

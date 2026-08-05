@@ -471,6 +471,31 @@ check("restockForecastHTML is empty without a today (derivation is clock-free)",
   assert.strictEqual(html, "", "no forecast section without a client date");
 });
 
+// ---- new-staple suggestions ("Bought a lot — track it?") — step 5 sibling ----
+check("newStapleSuggestionsHTML offers a track button carrying the row index", () => {
+  const html = R.newStapleSuggestionsHTML([
+    { merchant: "Chewy", example_description: "CHEWY.COM* NJ", purchases_seen: 4,
+      first_purchase: "2026-06-02", last_purchase: "2026-08-01",
+      total_spent: { cents: 8400, display: "$84.00" }, suggested_match: "chewy" },
+  ]);
+  assert.ok(html.includes("Bought a lot — track it?"), "card heading");
+  assert.ok(html.includes("Chewy"), "merchant name");
+  assert.ok(html.includes("Bought 4×") && html.includes("$84.00") && html.includes("Aug 1"),
+    "count, total spent, and last-purchase date");
+  assert.ok(html.includes('data-track-staple="0"'), "track button carries the array index");
+});
+check("newStapleSuggestionsHTML is empty when there is nothing to suggest", () => {
+  assert.strictEqual(R.newStapleSuggestionsHTML([]), "", "no card at zero suggestions");
+  assert.strictEqual(R.newStapleSuggestionsHTML(undefined), "", "no card when field absent");
+});
+check("newStapleSuggestionsHTML escapes the merchant name (no injection)", () => {
+  const html = R.newStapleSuggestionsHTML([
+    { merchant: "<b>x</b>", purchases_seen: 3, last_purchase: "2026-08-01",
+      total_spent: { cents: 100, display: "$1.00" }, suggested_match: "x" },
+  ]);
+  assert.ok(html.includes("&lt;b&gt;x&lt;/b&gt;") && !html.includes("<b>x</b>"), "merchant escaped");
+});
+
 // ---- analytics frontend batch (Tier B cards) ----
 const money = (c) => ({ cents: c, display: (c < 0 ? "−$" : "$") + Math.abs(c / 100).toFixed(2) });
 
