@@ -922,3 +922,36 @@ def unmatched_staples(db):
         })
     out.sort(key=lambda s: s["tracked_since"])
     return out
+
+
+def stale_shopping_items(db):
+    """List-rot detector (INVENTORY-DESIGN step 5 sibling): staples that have been
+    low or out for a while with NO matching purchase since they ran low — sitting
+    on the shopping list, forgotten. The exact inverse of restock_suggestions,
+    which surfaces low/out staples WITH such a purchase (a probable restock); here
+    there is none, so either you still need it or you bought it somewhere the feed
+    can't see. A gentle "still need this?" prompt to keep the list honest.
+
+    Each carries name, status, and low_since (the day it last changed = went
+    low/out, its updated_at). Clock-free: "for a while" is a view-layer grace
+    against the client's date (so a staple that just went low isn't nagged), the
+    same split restock_forecast/unmatched_staples use. OUTFLOWS ONLY via
+    _matching_purchases — an inflow that happens to name the item never counts as
+    the missing restock, so a genuinely-neglected item stays surfaced (tripwire-
+    covered, no exemption). Reads items + transactions; never touches money.
+    Oldest (longest-neglected) first.
+    """
+    staples = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
+        "AND status IN ('low', 'out')").fetchall()
+    out = []
+    for it in staples:
+        since = (it["updated_at"] or "")[:10]   # the day it went low/out
+        if _matching_purchases(db, it, since=since):   # bought since → not rot
+            continue                                   # (restock_suggestions owns it)
+        out.append({
+            "item_id": it["id"], "name": it["name"], "status": it["status"],
+            "low_since": since,
+        })
+    out.sort(key=lambda s: (s["low_since"], s["name"]))   # oldest-neglected first
+    return out

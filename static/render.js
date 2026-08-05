@@ -641,6 +641,37 @@
       </div>`;
   }
 
+  /* ===== "Still need these?" — list-rot detector (step 5 sibling) =====
+     Pure function of stale_shopping_items[] (each { item_id, name, status,
+     low_since }) and the client's today. A staple that's been low/out a long
+     time with no matching purchase since is either still needed or was bought
+     off-feed — a gentle prompt to prune the list. Only surfaces items low/out
+     for at least `minDays` (grace), so a just-flagged item isn't nagged; the
+     derivation is clock-free, "a while" decided here (no today → no card). The
+     "Not anymore" action reuses data-item-remove (archive, stop tracking) — no
+     new app.js wiring. Still-need-it? Leave it; it stays on the shopping list. */
+  function staleShoppingHTML(items, todayISO, minDays) {
+    if (!items || !items.length || !todayISO) return "";
+    const grace = minDays == null ? 14 : minDays;
+    const plur = (n) => (n === 1 ? "" : "s");
+    const rows = items
+      .map((s) => ({ s, days: daysBetween(s.low_since, todayISO) }))
+      .filter((x) => x.s.low_since && x.days >= grace);
+    if (!rows.length) return "";
+    const li = rows.map(({ s, days }) => `<li>
+        <span class="ic">${itemIcon({ name: s.name })}</span>
+        <div class="grow">
+          <div class="title">${esc(s.name)}</div>
+          <div class="sub">${esc(s.status)} for ${days} day${plur(days)} · no purchase yet</div>
+        </div>
+        <button class="btn small" data-item-remove="${s.item_id}">Not anymore</button>
+      </li>`).join("");
+    return `<div class="card suggest-card">
+        <p class="eyebrow">Still need these?</p>
+        <ul class="list">${li}</ul>
+      </div>`;
+  }
+
   /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 + step 5 =====
      Pure function of the /api/inventory JSON:
        { items: [staples, urgent-first], shopping: [staples low/out + oneoffs],
@@ -662,6 +693,7 @@
     const forecastCard = restockForecastHTML(data.restock_forecast, todayISO);
     const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions);
     const matchCard = unmatchedStaplesHTML(data.unmatched_staples, todayISO);
+    const staleCard = staleShoppingHTML(data.stale_shopping_items, todayISO);
 
     const restockCard = suggestions.length
       ? `<div class="card restock-card">
@@ -732,6 +764,7 @@
           <button class="btn small primary" type="submit">Add</button>
         </form>
       </div>
+      ${staleCard}
       ${forecastCard}
       <div class="card">
         <p class="eyebrow">Staples</p>
@@ -747,7 +780,7 @@
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
-           unmatchedStaplesHTML, inventoryHTML,
+           unmatchedStaplesHTML, staleShoppingHTML, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML,

@@ -1350,20 +1350,47 @@ assertion the phrase is wrong — some staples are bought inside grocery runs an
 can't match by product (the step-5 merchant-not-product limit). No schema/
 migration, no money path → **zero-diff balance gate PASS** (`origin/main`→HEAD);
 suite 417→**422** python + 66→**70** render. Visual pass in light+dark via harness.
-**Not yet deployed** — frontend + read-endpoint, ships through the zero-gate
-frontend deploy path when Alta merges + runs `deploy.sh`; `ledger-mcp` picks up
-the extended `ledger_inventory` passthrough on its restart.
+**DEPLOYED (Aug 5, 2026)** via `main` `16d575d` (`--no-ff` merge, first parent =
+prior main `47fb5b0`, tree == rework), `deploy.sh origin/main` → GATE PASS
+zero-diff, no migration; `ledger-mcp` restarted (picks up the extended
+`ledger_inventory` passthrough). Verified live: the Pi's `render.js` serves
+`unmatchedStaplesHTML` + "Check the match?". Deploy note: the first `deploy.sh`
+run hit the propagation race (its `git fetch` got the prior `47fb5b0` a beat
+before `16d575d` landed, so it re-shipped predicted-low); a second `git fetch
+origin && deploy.sh origin/main` deployed `16d575d` — the same race+fix seen on
+the Aug 3 pantry MVP deploy.
 
-**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates:
-- **Deploy the broken-match detector** (above) — Alta's manual merge + `deploy.sh
+**Pantry list-rot detector — DONE, NOT YET DEPLOYED (Aug 5, 2026).** Third pantry
+inference this session, and the exact inverse of `restock_suggestions`. New
+read-time derivation `stale_shopping_items(db)`: staples that have been **low or
+out** for a while with **no matching purchase since they ran low** — sitting on
+the shopping list, forgotten (restock_suggestions owns the ones WITH a purchase-
+since, a probable restock; this owns the ones without). Each carries name,
+status, and `low_since` (updated_at, the day it went low/out). **Clock-free** (a
+"low/out ≥14 days" grace lives at the view layer) and **outflows-only** via
+`_matching_purchases` (an inflow naming the item is never the missing restock, so
+a neglected item stays surfaced) → tripwire-covered, no exemption; reads items +
+transactions, never touches money. `GET /api/inventory` gains
+`stale_shopping_items`; rides `ledger_inventory` to both doors (MCP byte-equality
+test extended). Pantry UI: a "Still need these?" card (`staleShoppingHTML`) below
+"Need to buy", each row showing how long it's been neglected + a **"Not anymore"**
+action reusing the existing `data-item-remove` archive (no new app.js wiring;
+still-need-it → leave it, it stays on the list). No schema/migration, no money
+path → **zero-diff balance gate PASS**; suite 422→**426** python + 70→**73**
+render. Visual pass light+dark via harness. **Not yet deployed** — frontend +
+read-endpoint, zero-gate frontend deploy path when Alta merges + runs `deploy.sh`.
+
+**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates
+(session plan: work the remaining pantry inferences easiest→hardest, then Tier C):
+- **Deploy the list-rot detector** (above) — Alta's manual merge + `deploy.sh
   origin/main` + hard refresh (frontend, zero-gate).
+- More pantry inference (brainstormed Aug 5; predicted-low ✅ + broken-match ✅ +
+  list-rot ✅ built, these remain): money tie-in ("$X/mo at the coffee shop") —
+  next up; then post-shopping review nudge. Each its own INVENTORY-DESIGN step-5+
+  increment; quantities/co-purchase remain refused.
 - **Analytics Tier C (budgets/envelopes)** — its own designed feature (a `budgets`
-  migration + `set_budget` verb + `budget_status` derivation), NOT a quick add.
-- More pantry inference (brainstormed Aug 5; predicted-low ✅ + broken-match ✅
-  built, these remain): money tie-in ("$X/mo at the coffee shop"), post-shopping
-  review nudge, list-rot detector (out/low for weeks, no purchase → "still need
-  it?"). Each its own INVENTORY-DESIGN step-5+ increment; quantities/co-purchase
-  remain refused.
+  migration + `set_budget` verb + `budget_status` derivation), NOT a quick add;
+  the largest of the remaining candidates.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
