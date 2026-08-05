@@ -512,8 +512,17 @@ Tier B — needs a heuristic, still no schema change:
     single-period floor, not a trailing window.)
 15. Anomaly flags — "category X is N% above its trailing 3-mo average"; a
     threshold on top of #8, surfaced passively in the activity feed.
-16. Goal pace / projection — completion-date projection at current
-    contribution rate over `goal_contributions`.
+16. Goal pace / projection — **DONE + DEPLOYED (Aug 5, 2026), backend + MCP.**
+    `goal_pace(db, as_of)`: per goal, net saved ÷ days since the first
+    contribution (**lifetime-average** rate, Alta's call) → a monthly rate + a
+    projected finish date, compared to `target_date` → status
+    complete/on_track/behind/projected/no_pace. Signed `amount_cents` so
+    withdrawals net out; float-free (`round_ratio`). Reads goals +
+    goal_contributions ONLY (never transactions) → trivially tripwire-safe, no
+    exemption. `GET /api/analytics/goal-pace` (`as_of` defaults to today) +
+    shared read tool `ledger_goal_pace` (both doors; analyst granted). Zero-diff
+    gate PASS; suite 387→396. First of the three forecasts with real data to
+    chew on (two live goals), so immediately useful.
 
 Deferred (Tier C, its own designed feature — NOT smuggled inline):
 category budgets / envelopes. Explicitly out of scope in INCOME-DESIGN;
@@ -1238,12 +1247,11 @@ deploy.
   to start tracking a frequently-bought item not yet a staple — heuristic,
   "suggest don't assert," outflows-only so tripwire-covered; likely a migration
   only if a new column is needed. The natural pantry follow-on.
-- **Analytics Tier B — #15–16 remain** (#13 recurring-charge detection and #14
-  cash-flow forecast are both DONE + deployed, backend + MCP): **#15 anomaly
-  flags** ("category X is N% over its trailing 3-mo average" — a threshold on
-  top of #8 `category_trend`, surfaced passively), **#16 goal pace** (projected
-  completion date at the current contribution rate over `goal_contributions`).
-  Both read-time, zero-diff-gated.
+- **Analytics Tier B — only #15 remains** (#13 recurring-charge detection, #14
+  cash-flow forecast, #16 goal pace all DONE + deployed, backend + MCP): **#15
+  anomaly flags** — "category X is N% over its trailing 3-mo average", a
+  threshold on top of #8 `category_trend`'s rolling average, surfaced passively.
+  Read-time, zero-diff-gated. The last Tier B backend piece.
 - **Analytics frontend batch** — surface the backend-only Tier A/B reads that
   have no UI yet: **the recurring-charges "Subscriptions" card** (#13), plus
   `category_trend` (#8) and `savings_rate_trend` visuals. Frontend-only, no gate.
