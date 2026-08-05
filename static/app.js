@@ -9,7 +9,9 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         vsLastMonth, incomeCardHTML, incomeTrendChartHTML, spendingCompositionHTML,
         memberBreakdownHTML, billVarianceHTML, savingsRateTrendHTML,
-        categoryTrendHTML, askThreadHTML, inventoryHTML } = window.Render;
+        categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
+        recurringChargesHTML, goalPaceHTML,
+        askThreadHTML, inventoryHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -515,13 +517,18 @@ async function renderAnalytics() {
   // month-prev/next (wired in wireMain) shift the whole window. Every card
   // reads a Tier A endpoint — no math here, the server computed it all.
   const m = state.month;
-  const [trend, comp, members, bills, savings] = await Promise.all([
-    api(`/api/income/trend?anchor=${m}&months_back=6`),
-    api(`/api/analytics/spending-composition?month=${m}`),
-    api(`/api/analytics/member-breakdown?month=${m}`),
-    api(`/api/analytics/bill-variance?period=${m}`),
-    api(`/api/analytics/savings-rate-trend?anchor=${m}&months_back=6`),
-  ]);
+  const [trend, comp, members, bills, savings, forecast, anomalies, recurring, goals] =
+    await Promise.all([
+      api(`/api/income/trend?anchor=${m}&months_back=6`),
+      api(`/api/analytics/spending-composition?month=${m}`),
+      api(`/api/analytics/member-breakdown?month=${m}`),
+      api(`/api/analytics/bill-variance?period=${m}`),
+      api(`/api/analytics/savings-rate-trend?anchor=${m}&months_back=6`),
+      api(`/api/analytics/cash-flow-forecast?period=${m}`),
+      api(`/api/analytics/anomalies?month=${m}`),
+      api(`/api/analytics/recurring`),           // not month-scoped
+      api(`/api/analytics/goal-pace`),           // projects from today
+    ]);
   // Drill into the biggest category this month — a trend without a picker.
   let catCard = "";
   const top = (comp.by_category || [])[0];
@@ -538,11 +545,15 @@ async function renderAnalytics() {
       <button id="month-next" aria-label="Later months">›</button>
     </div>
     ${incomeTrendChartHTML(trend.series)}
+    ${cashFlowForecastHTML(forecast)}
     ${savingsRateTrendHTML(savings)}
     ${spendingCompositionHTML(comp)}
+    ${anomaliesHTML(anomalies)}
     ${catCard}
+    ${recurringChargesHTML(recurring)}
     ${memberBreakdownHTML(members)}
-    ${billVarianceHTML(bills)}`;
+    ${billVarianceHTML(bills)}
+    ${goalPaceHTML(goals)}`;
 }
 
 /* ================= inventory ("the pantry") ================= */
