@@ -4,7 +4,10 @@ requests>=2.31
 gunicorn>=21.2
 
 # Agent layer (AGENT-DESIGN): the ledger_mcp read-tier sibling process.
-mcp>=1.2
+# Upper-bounded: mcp 2.0 removed mcp.server.fastmcp.FastMCP, which
+# ledger_mcp.py imports. A fresh install of an unbounded >=1.2 pulls 2.0
+# and breaks the MCP server; pin to 1.x until ledger_mcp is ported.
+mcp>=1.2,<2
 httpx>=0.27
 # Charlee's in-app Ask tab — the Anthropic tool-use loop (POST /api/ask).
 # Only used at runtime by the endpoint; the loop tests mock the client.

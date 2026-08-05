@@ -565,6 +565,35 @@
       </div>`;
   }
 
+  /* ===== "Bought a lot — track it?" — new-staple suggestions (step 5 sibling)
+     Pure function of new_staple_suggestions[] (each { merchant,
+     example_description, purchases_seen, first_purchase, last_purchase,
+     total_spent: {cents, display}, suggested_match }). Frequently-bought
+     merchants not yet tracked — a one-tap offer to START tracking one as a
+     staple (the discovery counterpart to the restock cards, which act on
+     staples you already track). The button carries the array INDEX; app.js reads
+     the row out of window._inv to POST add_item with the merchant name +
+     suggested_match (no user content in an attribute — esc doesn't escape
+     quotes). Suggest, never auto-add. */
+  function newStapleSuggestionsHTML(suggestions) {
+    if (!suggestions || !suggestions.length) return "";
+    const li = suggestions.map((s, i) => {
+      const spent = s.total_spent ? " · " + esc(s.total_spent.display) : "";
+      return `<li>
+        <span class="ic">${itemIcon({ name: s.merchant })}</span>
+        <div class="grow">
+          <div class="title">${esc(s.merchant)}</div>
+          <div class="sub">Bought ${s.purchases_seen}×${spent} · last ${esc(shortDate(s.last_purchase))}</div>
+        </div>
+        <button class="btn small primary" data-track-staple="${i}">Track</button>
+      </li>`;
+    }).join("");
+    return `<div class="card suggest-card">
+        <p class="eyebrow">Bought a lot — track it?</p>
+        <ul class="list">${li}</ul>
+      </div>`;
+  }
+
   /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 + step 5 =====
      Pure function of the /api/inventory JSON:
        { items: [staples, urgent-first], shopping: [staples low/out + oneoffs],
@@ -584,6 +613,7 @@
     const shopping = data.shopping || [];
     const suggestions = data.restock_suggestions || [];
     const forecastCard = restockForecastHTML(data.restock_forecast, todayISO);
+    const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions);
 
     const restockCard = suggestions.length
       ? `<div class="card restock-card">
@@ -662,11 +692,12 @@
           <input name="name" maxlength="100" placeholder="Track a staple…">
           <button class="btn small primary" type="submit">Add</button>
         </form>
-      </div>`;
+      </div>
+      ${trackCard}`;
   }
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
-           shortDate, daysBetween, restockForecastHTML, inventoryHTML,
+           shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML,

@@ -632,6 +632,9 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 /* the cadence forecast ("Coming up") — a honey accent: forward-looking heads-up,
    distinct from the green "did you restock?" nudge */
 .forecast-card { border-left: 3px solid var(--brass); }
+/* new-staple discovery ("track it?") — a muted accent: an exploratory offer,
+   lower-key than the actionable restock/forecast nudges */
+.suggest-card { border-left: 3px solid var(--line); }
 /* quick-add field closing each pantry card (guards against the global
    `form > .btn.primary { width:100% }` rule, like .ask-bar does) */
 .inv-add { display: flex; gap: 8px; align-items: center; margin-top: 14px; }

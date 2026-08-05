@@ -807,3 +807,77 @@ def restock_forecast(db, min_purchases=3):
         })
     out.sort(key=lambda f: f["predicted_date"])  # soonest-due first
     return out
+
+
+def new_staple_suggestions(db, min_purchases=3):
+    """New-staple suggestions (INVENTORY-DESIGN step 5 sibling): frequently-bought
+    merchants you don't yet track — an offer to START tracking one as a staple,
+    the discovery counterpart to restock_suggestions/restock_forecast (which act
+    on staples you ALREADY track).
+
+    Clusters outflows by normalized merchant (the same _normalize_merchant the
+    subscription detector uses) and surfaces a cluster bought on >= min_purchases
+    (default 3) DISTINCT days — the conservative "suggest, don't assert" bar, so
+    a one-off spending spree never becomes a suggestion. Two exclusions keep the
+    list honest and short:
+      * merchants already represented by an active tracked item (staple OR
+        one-off) — matched on the item's restock_match phrase, or its name when
+        unset, normalized the same way — so nothing you already track is
+        re-offered; and
+      * merchants recurring_charges already flags as fixed-amount recurring
+        subscriptions (a streaming service, a gym) — those are surfaced as
+        subscriptions and aren't pantry staples.
+
+    Clock-free like restock_forecast: it reports only history-derived facts
+    (first/last purchase, count, total spent) and never reads a "today", so it
+    stays an inflow-insensitive aggregate the derivation tripwire covers with no
+    exemption. OUTFLOWS ONLY, settlements excluded (like recurring_charges /
+    top_merchants) — an inflow that happens to name a merchant never fabricates a
+    suggestion. Reads transactions + items; never touches money. Most-bought
+    first, then most-recent.
+
+    Honest caveat inherited from step 5: SimpleFIN gives the MERCHANT, not the
+    product, so this finds merchant-identifiable habits (a pet store, a coffee
+    shop) and can't isolate one grocery item inside a supermarket run.
+    """
+    rows = db.execute(
+        "SELECT txn_date, amount_cents, description FROM transactions "
+        "WHERE direction = 'out' AND source != 'settlement'").fetchall()
+    buckets = {}
+    for r in rows:
+        key = _normalize_merchant(r["description"])
+        if not key:
+            continue
+        buckets.setdefault(key, []).append(r)
+
+    # Merchants already tracked (any active item) or already known to be a
+    # fixed-amount subscription — excluded so we only ever offer genuinely-new
+    # pantry staples.
+    tracked = {
+        _normalize_merchant(_item_match_phrase(it))
+        for it in db.execute(
+            "SELECT name, restock_match FROM items WHERE active = 1").fetchall()
+    }
+    tracked.discard("")
+    subscriptions = {c["merchant"] for c in recurring_charges(db)}
+
+    out = []
+    for key, occ in buckets.items():
+        if key in tracked or key.title() in subscriptions:
+            continue
+        days = sorted({o["txn_date"][:10] for o in occ})
+        if len(days) < min_purchases:
+            continue
+        # most-recent purchase as the example (deterministic tiebreak on desc)
+        example = sorted(occ, key=lambda o: (o["txn_date"], o["description"]))[-1]
+        out.append({
+            "merchant": key.title(),
+            "example_description": example["description"],
+            "purchases_seen": len(days),
+            "first_purchase": days[0],
+            "last_purchase": days[-1],
+            "total_spent_cents": sum(o["amount_cents"] for o in occ),
+            "suggested_match": key.lower(),
+        })
+    out.sort(key=lambda s: (s["purchases_seen"], s["last_purchase"]), reverse=True)
+    return out
