@@ -1250,27 +1250,41 @@ logic + 5c UI) AND restock *prediction* from cadence (`restock_forecast` + the
 `rework` (`f57cc4a`, one doc-only commit ahead: this CLAUDE.md update). No open
 deploy.
 
+**Analytics frontend batch — DONE + merged to `main` (`5ded8a8`, Aug 5, 2026).**
+The backend-only Tier B reads now render as Analytics-tab cards: cash-flow
+forecast (#14), anomaly flags (#15), recurring/subscriptions (#13), goal pace
+(#16) — four pure `render.js` helpers + a `renderAnalytics` `Promise.all`
+fan-out, reusing the Garden card classes. Node-seam tested (57→62), frontend
+only, no gate. (Deploy to the Pi is Alta's manual `deploy.sh` trigger — verify
+before assuming it's live.)
+
+**New-staple suggestions — DONE (Aug 5, 2026; on `claude/ledger-next-increment-prw28h`,
+draft PR #5).** The remaining INVENTORY-DESIGN step-5 sibling. New read-time
+derivation `new_staple_suggestions(db, min_purchases=3)`: clusters **outflows**
+by normalized merchant (reuses `_normalize_merchant`) and offers those bought on
+**≥3 distinct days** that aren't already tracked and aren't fixed-amount
+subscriptions (excluded via `recurring_charges`) — the *discovery* counterpart
+to `restock_suggestions`/`restock_forecast`, which act on already-tracked
+staples. **Clock-free + outflows-only** → tripwire-covered, no exemption; reads
+transactions + items, never touches money. `GET /api/inventory` gains
+`new_staple_suggestions` (`total_spent` `{cents, display}`); rides
+`ledger_inventory` to both doors (MCP byte-equality test extended). Pantry UI: a
+muted "Bought a lot — track it?" card (`newStapleSuggestionsHTML`); one-tap
+Track `add_item`s the merchant as a staple, seeding `restock_match` from the
+suggestion. No schema/migration, no money-path change → **zero-diff balance gate
+PASS** (`origin/main`→HEAD, 21 values); suite 414 python + 65 render. Honest
+caveat inherited from step 5: merchant-not-product (finds a pet store, not one
+grocery item). **Not yet deployed** — frontend + read-endpoint, ships through
+the zero-gate frontend deploy path when Alta merges + runs `deploy.sh`;
+`ledger-mcp` picks up the extended `ledger_inventory` desc on its restart.
+
 **IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates:
-- **New-staple suggestions** (the remaining INVENTORY-DESIGN step-5 sibling,
-  deliberately deferred from the prediction increment): a new derivation offering
-  to start tracking a frequently-bought item not yet a staple — heuristic,
-  "suggest don't assert," outflows-only so tripwire-covered; likely a migration
-  only if a new column is needed. The natural pantry follow-on.
-- **Analytics Tier B — COMPLETE** (#13 recurring detection, #14 cash-flow
-  forecast, #15 anomaly flags, #16 goal pace all DONE + deployed, backend +
-  MCP). What remains on the analytics track is only the **frontend batch** (below)
-  and the deferred Tier C (budgets/envelopes — its own designed feature, NOT a
-  quick add).
-- **Analytics frontend batch** — the whole Tier B is backend+MCP-only, no UI yet.
-  Surface it in the Analytics tab (or activity feed for anomalies): a
-  "Subscriptions" card (#13), a cash-flow-forecast card (#14), anomaly chips
-  (#15), goal-pace projections (#16), plus the still-UI-less `category_trend`
-  (#8). Frontend-only, no gate — the biggest single user-visible payoff left.
-- **Analytics frontend batch** — surface the backend-only Tier A/B reads that
-  have no UI yet: **the recurring-charges "Subscriptions" card** (#13), plus
-  `category_trend` (#8) and `savings_rate_trend` visuals. Frontend-only, no gate.
 - **Income-visibility policy** — the one still-open step-7 design question (enforce
   per-person income visibility at the API).
+- **Analytics Tier C (budgets/envelopes)** — its own designed feature (a `budgets`
+  migration + `set_budget` verb + `budget_status` derivation), NOT a quick add.
+- Further pantry inference (quantities, money tie-in) — each its own INVENTORY-
+  DESIGN step-5+ increment.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
