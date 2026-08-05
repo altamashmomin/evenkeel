@@ -1278,13 +1278,39 @@ grocery item). **Not yet deployed** — frontend + read-endpoint, ships through
 the zero-gate frontend deploy path when Alta merges + runs `deploy.sh`;
 `ledger-mcp` picks up the extended `ledger_inventory` desc on its restart.
 
+**Income-visibility policy — RATIFIED: full transparency (Aug 5, 2026).** The
+last open step-7 design question, closed. Design pass held (recorded in
+INCOME-DESIGN "Two people can see each other's paychecks" + AGENT-DESIGN "What
+the agent layer does to the income visibility question"): both members see all
+income, matching the rest of the pooled-visibility app — Alta's call, neither
+wants income private. A decisive finding drove it past a mere default: **for a
+two-person household, owner-only rows + shared aggregates does NOT give privacy**
+— a partner who sees any blended aggregate (net_cash_flow, savings_rate), knows
+their own income, and sees shared spend can solve for the other's income by
+subtraction. So the only coherent options were full transparency or a real
+"personal income mode" (owner-scoped rows *and* aggregates); the household chose
+transparency. The policy is the **absence** of per-owner filtering, pinned as a
+cross-door tested contract in `tests/test_income_visibility_policy.py` (a
+paycheck owned by each member, viewed as the other through BOTH the session and a
+read token, shows both incomes + the household total; three teeth proven to bite
+by temporarily injecting `WHERE paid_by=<viewer>`). Enforcement point is ready if
+ever reopened: `g.auth["user_id"]` is the uniform key (`_resolve_auth` populates
+it for session and token alike). **Docs + one load-bearing test only — no schema,
+verb, derivation, route, or money-path change → no balance gate applies**; suite
+414→**417** python + 65 render. **CORE-DESIGN step 7 (the assistant) is now fully
+settled — no open design questions remain.**
+
 **IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates:
-- **Income-visibility policy** — the one still-open step-7 design question (enforce
-  per-person income visibility at the API).
 - **Analytics Tier C (budgets/envelopes)** — its own designed feature (a `budgets`
   migration + `set_budget` verb + `budget_status` derivation), NOT a quick add.
 - Further pantry inference (quantities, money tie-in) — each its own INVENTORY-
   DESIGN step-5+ increment.
+- **Maintenance:** pin `mcp>=1.2,<2` in `requirements.txt` (or port `ledger_mcp.py`
+  to the mcp 2.0 API). `mcp>=1.2` now floats to 2.0.0, which removed
+  `mcp.server.fastmcp.FastMCP` → a *fresh* install breaks the MCP server. The Pi
+  is safe for now (`deploy.sh` runs `pip install -r`, not `-U`, so the installed
+  1.x stays), but a rebuild / `pip install -U` / CI clone would break it. Natural
+  `ledger-maintenance` job. Surfaced Aug 5, 2026.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
