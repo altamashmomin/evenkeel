@@ -334,6 +334,67 @@ def cash_flow_forecast(db, period=None):
     }
 
 
+def goal_pace(db, as_of=None):
+    """Per-goal completion-date projection at the LIFETIME-AVERAGE contribution
+    rate (analytics Tier B #16): net saved ÷ days since the first contribution
+    (measured to `as_of`) → a daily rate → the date the remaining amount is
+    covered, compared against the goal's target_date.
+
+    `amount_cents` is signed, so `saved` is NET of withdrawals and the rate
+    reflects real progress. Float-free: days-to-go and the monthly rate use
+    `round_ratio`. Status per goal:
+      - complete   — saved ≥ target already
+      - on_track   — has a target_date and projected ≤ it
+      - behind     — has a target_date and projected is later
+      - projected  — no target_date, just a projected date
+      - no_pace    — can't project (no net progress, no contributions, or the
+                     contribution span is under a day) — projected_date null
+    `as_of` defaults to the latest contribution date (deterministic, clock-free,
+    so it's callable bare and the tripwire can run it); the endpoint passes
+    today. Reads goals + goal_contributions only — never transactions — so an
+    inflow can't touch it (NOT tripwire-exempt; it passes trivially). Money is
+    integer cents; the endpoint renders {cents, display}."""
+    if as_of is None:
+        row = db.execute("SELECT MAX(c_date) AS d FROM goal_contributions").fetchone()
+        as_of = (row["d"] or "")[:10] or None
+    ref = date.fromisoformat(as_of) if as_of else None
+    goals = db.execute(
+        "SELECT id, name, target_cents, target_date FROM goals "
+        "ORDER BY created_at, id").fetchall()
+    out = []
+    for g in goals:
+        contribs = db.execute(
+            "SELECT amount_cents, c_date FROM goal_contributions "
+            "WHERE goal_id = ? ORDER BY c_date", (g["id"],)).fetchall()
+        saved = sum(c["amount_cents"] for c in contribs)
+        target = g["target_cents"]
+        remaining = target - saved
+        entry = {
+            "goal_id": g["id"], "name": g["name"], "target_cents": target,
+            "saved_cents": saved, "remaining_cents": max(0, remaining),
+            "target_date": g["target_date"], "monthly_rate_cents": None,
+            "projected_date": None, "status": None,
+        }
+        if remaining <= 0:
+            entry["status"] = "complete"
+        elif saved <= 0 or not contribs or ref is None:
+            entry["status"] = "no_pace"          # no net progress to extrapolate
+        else:
+            span_days = (ref - date.fromisoformat(contribs[0]["c_date"][:10])).days
+            if span_days < 1:
+                entry["status"] = "no_pace"       # not a measurable period yet
+            else:
+                days_to_go = round_ratio(remaining * span_days, saved)
+                entry["monthly_rate_cents"] = round_ratio(saved * 30, span_days)
+                entry["projected_date"] = (ref + timedelta(days=days_to_go)).isoformat()
+                entry["status"] = (
+                    "projected" if not g["target_date"]
+                    else "on_track" if entry["projected_date"] <= g["target_date"][:10]
+                    else "behind")
+        out.append(entry)
+    return out
+
+
 def member_breakdown(db, month=None):
     """Per-member shared-expense breakdown for a month (analytics #11): how
     much each person PAID for shared expenses (fronted the money) versus

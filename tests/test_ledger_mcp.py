@@ -37,7 +37,8 @@ READ_TOOLS = {
     "ledger_income_summary", "ledger_income_trend",
     "ledger_savings_rate_trend", "ledger_member_breakdown",
     "ledger_bill_variance", "ledger_recurring_charges",
-    "ledger_cash_flow_forecast", "ledger_list_income_rules",
+    "ledger_cash_flow_forecast", "ledger_goal_pace",
+    "ledger_list_income_rules",
     "ledger_unclassified_inflows", "ledger_search_transactions",
     "ledger_list_goals_and_bills", "ledger_inventory",
 }
@@ -163,6 +164,12 @@ class LedgerMcpReadTierTests(unittest.TestCase):
         self.assertEqual(self.direct("/api/analytics/cash-flow-forecast",
                                      period="2026-06"), body)
         self.assertEqual("2026-06", body["period"])
+
+    def test_goal_pace_matches_direct_api(self):
+        body = self.call("ledger_goal_pace", as_of="2026-07-19")
+        self.assertEqual(self.direct("/api/analytics/goal-pace",
+                                     as_of="2026-07-19"), body)
+        self.assertEqual({"as_of", "goals"}, set(body))
 
     def test_inventory_matches_direct_api(self):
         body = self.call("ledger_inventory")
