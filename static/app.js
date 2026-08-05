@@ -717,6 +717,10 @@ function wireMain() {
   // shopping list). Same effect as tapping its chip to stocked.
   $$("[data-restock-confirm]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.restockConfirm, "stocked")));
+  // Forecast "Mark low": an overdue stocked staple is probably low now — one tap
+  // flips it to low, dropping it into "Need to buy". Same verb as the chip cycle.
+  $$("[data-mark-low]").forEach((el) =>
+    el.addEventListener("click", () => setItemStatus(+el.dataset.markLow, "low")));
   $$("[data-item-match]").forEach((el) =>
     el.addEventListener("click", () => setItemMatch(+el.dataset.itemMatch)));
   // New-staple suggestion: "Track" starts tracking that merchant as a staple.
