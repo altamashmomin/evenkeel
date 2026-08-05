@@ -1,5 +1,7 @@
 """Canonical read-time financial derivations shared by every surface."""
 
+from datetime import date, timedelta
+
 
 def round_ratio(numerator, denominator):
     """Round a positive rational to nearest integer, ties to even, no floats."""
@@ -414,6 +416,46 @@ def low_stock(db):
     return [dict(r) for r in rows]
 
 
+def _item_match_phrase(item):
+    """The phrase a staple's purchases are matched against: its explicit
+    restock_match override, else its own name (the auto-guess). '' if neither —
+    the caller skips those (nothing to match on)."""
+    return (item["restock_match"] or item["name"] or "").strip()
+
+
+def _matching_purchases(db, item, since=None):
+    """Every OUTFLOW purchase whose description contains the item's match phrase
+    (restock_match, or the name when unset), most-recent first. `since` (a
+    'YYYY-MM-DD') limits to purchases dated on/after it. Empty when the item has
+    no match phrase. OUTFLOWS ONLY (direction='out') — the mandatory filter both
+    restock derivations share, so an inflow that happens to name the item never
+    counts. A plumbing helper (leading underscore): it takes an `item`, not just
+    `db`, so it is not one of the tripwire's income-ignoring aggregates."""
+    phrase = _item_match_phrase(item)
+    if not phrase:
+        return []
+    sql = ("SELECT txn_date, description, amount_cents FROM transactions "
+           "WHERE direction = 'out' AND instr(lower(description), lower(?)) > 0")
+    params = [phrase]
+    if since:
+        sql += " AND txn_date >= ?"
+        params.append(since)
+    sql += " ORDER BY txn_date DESC, id DESC"
+    return db.execute(sql, params).fetchall()
+
+
+def _median_int(values):
+    """Median of a non-empty list of non-negative ints, as an int. Even count:
+    the two middle averaged, ties-to-even, float-free (round_ratio) — same
+    rounding discipline as the money derivations."""
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2:
+        return ordered[mid]
+    return round_ratio(ordered[mid - 1] + ordered[mid], 2)
+
+
 def restock_suggestions(db):
     """Purchase-feed restock hints (INVENTORY-DESIGN step 5): each staple that
     is low or out AND has a matching purchase since it ran low — a strong hint
@@ -428,27 +470,21 @@ def restock_suggestions(db):
     it ran low). One suggestion per staple, carrying the most recent matching
     purchase as evidence, most-urgent (out before low) first.
 
-    OUTFLOWS ONLY (direction='out'), so an inflow whose description happens to
-    contain an item name never fabricates a suggestion — a mandatory filter the
-    derivation tripwire covers. Reads items + transactions; never touches money.
+    OUTFLOWS ONLY (via _matching_purchases), so an inflow whose description
+    happens to contain an item name never fabricates a suggestion — a mandatory
+    filter the derivation tripwire covers. Reads items + transactions; never
+    touches money.
     """
     staples = db.execute(
         "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
         "AND status IN ('low', 'out')").fetchall()
     out = []
     for it in staples:
-        phrase = (it["restock_match"] or it["name"] or "").strip()
-        if not phrase:
-            continue
         since = (it["updated_at"] or "")[:10]  # the day it last changed
-        row = db.execute(
-            "SELECT txn_date, description, amount_cents FROM transactions "
-            "WHERE direction = 'out' AND txn_date >= ? "
-            "AND instr(lower(description), lower(?)) > 0 "
-            "ORDER BY txn_date DESC, id DESC LIMIT 1",
-            (since, phrase)).fetchone()
-        if row is None:
+        rows = _matching_purchases(db, it, since=since)
+        if not rows:
             continue
+        row = rows[0]  # most recent matching purchase (helper orders DESC)
         out.append({
             "item_id": it["id"], "name": it["name"], "status": it["status"],
             "matched_by": "phrase" if it["restock_match"] else "name",
@@ -457,4 +493,54 @@ def restock_suggestions(db):
         })
     out.sort(key=lambda s: s["purchase"]["date"], reverse=True)  # recent first
     out.sort(key=lambda s: 0 if s["status"] == "out" else 1)     # out before low
+    return out
+
+
+def restock_forecast(db, min_purchases=3):
+    """Cadence-based restock prediction (INVENTORY-DESIGN step 5, second half):
+    for each tracked staple with a repeat purchase history, project WHEN it will
+    next be needed from the typical gap between its purchases — a forward
+    heads-up beyond the reactive low/out hint restock_suggestions gives.
+
+    A staple qualifies only with >= min_purchases (default 3) matching purchases
+    on DISTINCT days (i.e. 2+ intervals), so a single coincidental gap can't
+    drive a forecast — the conservative "suggest, don't assert" bar. The
+    interval is the MEDIAN gap (in days) between consecutive purchase dates
+    (robust to one unusually early/late buy); predicted_date = the last purchase
+    + that interval.
+
+    Deliberately CLOCK-FREE: it returns only facts derived from the purchase
+    history (interval, last_purchase, predicted_date) and never reads a "today".
+    The days-until / overdue framing is a presentation concern computed at the
+    view layer against the client's real date — which also keeps this an inflow-
+    INSENSITIVE aggregate (its answer can't move when an inflow lands), so the
+    derivation tripwire covers it with no exemption. (This is why it doesn't ride
+    _monthly_series as the design doc's rough sketch guessed: cadence is about
+    intervals between individual purchases, not monthly buckets.)
+
+    OUTFLOWS ONLY via _matching_purchases. Includes staples of any status (the
+    UI decides what to surface — low/out ones already appear in the shopping
+    list); soonest-due first. Reads items + transactions; never touches money.
+    """
+    staples = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple'").fetchall()
+    out = []
+    for it in staples:
+        rows = _matching_purchases(db, it)
+        # distinct purchase DAYS, chronological — two buys on one day are one
+        # restock event, not a zero-length interval.
+        days = sorted({r["txn_date"][:10] for r in rows})
+        if len(days) < min_purchases:
+            continue
+        dates = [date.fromisoformat(d) for d in days]
+        interval = _median_int([(b - a).days for a, b in zip(dates, dates[1:])])
+        predicted = dates[-1] + timedelta(days=interval)
+        out.append({
+            "item_id": it["id"], "name": it["name"], "status": it["status"],
+            "purchases_seen": len(days),
+            "interval_days": interval,
+            "last_purchase": dates[-1].isoformat(),
+            "predicted_date": predicted.isoformat(),
+        })
+    out.sort(key=lambda f: f["predicted_date"])  # soonest-due first
     return out

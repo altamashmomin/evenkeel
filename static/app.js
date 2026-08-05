@@ -554,7 +554,10 @@ const NEXT_STATUS = { stocked: "low", low: "out", out: "stocked" };
 async function renderInventory() {
   const data = await api("/api/inventory");
   window._inv = data;  // stashed so the match editor can pre-fill the current phrase
-  return inventoryHTML(data);
+  // today (local ISO date) drives the forecast's "due in N days / overdue"
+  // framing — the derivation is clock-free, so "now" enters at the view layer.
+  const today = new Date().toLocaleDateString("en-CA");  // YYYY-MM-DD, local
+  return inventoryHTML(data, today);
 }
 
 async function setItemStatus(id, status) {

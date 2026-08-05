@@ -444,6 +444,50 @@
     return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
+  // Whole days between two ISO dates (b − a), calendar-based (parsed at local
+  // midnight so DST can't shift the count). Positive when b is later.
+  function daysBetween(aISO, bISO) {
+    const a = new Date(aISO + "T00:00:00"), b = new Date(bISO + "T00:00:00");
+    return Math.round((b - a) / 86400000);
+  }
+
+  /* ===== "Coming up" — cadence-based restock forecast (step 5, 2nd half) =====
+     Pure function of restock_forecast[] (each { item_id, name, status,
+     interval_days, last_purchase, predicted_date }) and the client's today
+     (ISO). The derivation is clock-free on purpose — "how soon / overdue" is a
+     view concern, computed here against the real date. We surface only STOCKED
+     staples due within the horizon or already overdue: low/out staples already
+     appear in "Need to buy", so a forecast for them would just double up. A
+     gentle heads-up, never an auto-add (suggest, don't assert). */
+  function restockForecastHTML(forecasts, todayISO, horizonDays) {
+    if (!forecasts || !forecasts.length || !todayISO) return "";
+    const horizon = horizonDays == null ? 14 : horizonDays;
+    const rows = forecasts
+      .filter((f) => f.status === "stocked")
+      .map((f) => ({ f, days: daysBetween(todayISO, f.predicted_date) }))
+      .filter((x) => x.days <= horizon)   // due soon, or overdue (negative)
+      .sort((a, b) => a.days - b.days);
+    if (!rows.length) return "";
+    const plur = (n) => (Math.abs(n) === 1 ? "" : "s");
+    const li = rows.map(({ f, days }) => {
+      const when = days < 0 ? `overdue by ${-days} day${plur(days)}`
+        : days === 0 ? "likely due today"
+        : `likely need in ${days} day${plur(days)}`;
+      return `<li>
+        <span class="ic">${itemIcon({ name: f.name })}</span>
+        <div class="grow">
+          <div class="title">${esc(f.name)}</div>
+          <div class="sub">${when} · about every ${f.interval_days} days</div>
+        </div>
+        <span class="badge ${days < 0 ? "overdue" : "due"}">${esc(shortDate(f.predicted_date))}</span>
+      </li>`;
+    }).join("");
+    return `<div class="card forecast-card">
+        <p class="eyebrow">Coming up</p>
+        <ul class="list">${li}</ul>
+      </div>`;
+  }
+
   /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 + step 5 =====
      Pure function of the /api/inventory JSON:
        { items: [staples, urgent-first], shopping: [staples low/out + oneoffs],
@@ -458,10 +502,11 @@
      lives in app.js; this only builds the markup + its data-* hooks. A staple
      that's low/out shows in both the nudge and shopping cards on purpose —
      they're views over the same items. */
-  function inventoryHTML(data) {
+  function inventoryHTML(data, todayISO) {
     const items = data.items || [];
     const shopping = data.shopping || [];
     const suggestions = data.restock_suggestions || [];
+    const forecastCard = restockForecastHTML(data.restock_forecast, todayISO);
 
     const restockCard = suggestions.length
       ? `<div class="card restock-card">
@@ -532,6 +577,7 @@
           <button class="btn small primary" type="submit">Add</button>
         </form>
       </div>
+      ${forecastCard}
       <div class="card">
         <p class="eyebrow">Staples</p>
         ${stapleRows}
@@ -543,7 +589,7 @@
   }
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
-           shortDate, inventoryHTML,
+           shortDate, daysBetween, restockForecastHTML, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML, askThreadHTML };

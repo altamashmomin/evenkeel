@@ -209,6 +209,73 @@ class ItemVerbTests(unittest.TestCase):
                        direction="in", income_type="refund")
         self.assertEqual([], derivations.restock_suggestions(self.db))
 
+    # ---- restock_forecast derivation (step 5, second half) -------------------
+    def test_forecast_predicts_from_median_gap(self):
+        item = self.add(name="Coffee")  # stocked
+        for day in ("2026-01-01", "2026-01-31", "2026-03-02"):  # gaps 30, 30
+            self._purchase("BLUE BOTTLE COFFEE", day)
+        fc = derivations.restock_forecast(self.db)
+        self.assertEqual(1, len(fc))
+        f = fc[0]
+        self.assertEqual(item["id"], f["item_id"])
+        self.assertEqual(3, f["purchases_seen"])
+        self.assertEqual(30, f["interval_days"])
+        self.assertEqual("2026-03-02", f["last_purchase"])
+        self.assertEqual("2026-04-01", f["predicted_date"])  # last + 30 days
+        self.assertNotIn("days_until", f)  # clock-free: no 'today' in the derivation
+
+    def test_forecast_needs_at_least_three_purchases(self):
+        self.add(name="Coffee")
+        for day in ("2026-01-01", "2026-01-31"):  # only 2 → 1 interval
+            self._purchase("BLUE BOTTLE COFFEE", day)
+        self.assertEqual([], derivations.restock_forecast(self.db))
+
+    def test_forecast_median_is_robust_to_an_outlier(self):
+        self.add(name="Coffee")
+        # gaps 7, 7, 60 → median 7 (a mean would be skewed to ~25)
+        for day in ("2026-01-01", "2026-01-08", "2026-01-15", "2026-03-16"):
+            self._purchase("BLUE BOTTLE COFFEE", day)
+        self.assertEqual(7, derivations.restock_forecast(self.db)[0]["interval_days"])
+
+    def test_forecast_collapses_same_day_purchases(self):
+        self.add(name="Coffee")
+        # 3 rows but only 2 distinct DAYS (two bought Jan 1) → below the bar
+        self._purchase("BLUE BOTTLE COFFEE", "2026-01-01")
+        self._purchase("BLUE BOTTLE COFFEE", "2026-01-01")
+        self._purchase("BLUE BOTTLE COFFEE", "2026-01-31")
+        self.assertEqual([], derivations.restock_forecast(self.db))
+
+    def test_forecast_even_gap_count_rounds_ties_to_even(self):
+        self.add(name="Coffee")
+        # gaps 10 and 21 → 15.5 → ties-to-even → 16 (float-free round_ratio)
+        for day in ("2026-01-01", "2026-01-11", "2026-02-01"):
+            self._purchase("BLUE BOTTLE COFFEE", day)
+        self.assertEqual(16, derivations.restock_forecast(self.db)[0]["interval_days"])
+
+    def test_forecast_ignores_inflows(self):
+        # A matching INFLOW must not count toward the cadence: 2 outflows + a
+        # matching inflow = 2 real purchases → still below the 3-buy bar, so no
+        # forecast. Proves the outflows-only filter (tripwire-guarded too).
+        self.add(name="Coffee")
+        self._purchase("BLUE BOTTLE COFFEE", "2026-01-01")
+        self._purchase("BLUE BOTTLE COFFEE", "2026-01-31")
+        self._purchase("COFFEE REFUND", "2026-03-02", direction="in",
+                       income_type="refund")
+        self.assertEqual([], derivations.restock_forecast(self.db))
+
+    def test_forecast_sorted_soonest_due_first(self):
+        # Unique restock_match tokens so the seed's own transactions can't
+        # collide with the item names (forecast reads ALL matching outflows,
+        # unlike restock_suggestions' since-filter).
+        later = self.add(name="Milk", restock_match="zzmilkzz")
+        sooner = self.add(name="Soap", restock_match="zzsoapzz")
+        for day in ("2026-02-01", "2026-02-08", "2026-02-15"):  # weekly, recent → predicted later
+            self._purchase("ZZMILKZZ", day)
+        for day in ("2026-01-01", "2026-01-08", "2026-01-15"):  # weekly, older → predicted sooner
+            self._purchase("ZZSOAPZZ", day)
+        fc = derivations.restock_forecast(self.db)
+        self.assertEqual([sooner["id"], later["id"]], [f["item_id"] for f in fc])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -435,4 +435,40 @@ check("shortDate turns an ISO date into a friendly day, passing junk through", (
   assert.strictEqual(R.shortDate(""), "");
 });
 
+// ---- restock forecast ("Coming up") — step 5 second half ----
+check("daysBetween counts whole calendar days (b − a)", () => {
+  assert.strictEqual(R.daysBetween("2026-08-04", "2026-08-10"), 6);
+  assert.strictEqual(R.daysBetween("2026-08-04", "2026-08-01"), -3);
+  assert.strictEqual(R.daysBetween("2026-08-04", "2026-08-04"), 0);
+});
+check("restockForecastHTML surfaces stocked staples due soon, soonest first", () => {
+  const html = R.restockForecastHTML([
+    { item_id: 1, name: "Coffee", status: "stocked", interval_days: 30, predicted_date: "2026-08-12" },
+    { item_id: 2, name: "Milk", status: "stocked", interval_days: 7, predicted_date: "2026-08-06" },
+  ], "2026-08-04");
+  assert.ok(html.includes("Coming up"), "section heading");
+  assert.ok(html.includes("likely need in 8 days") && html.includes("likely need in 2 days"), "day counts");
+  assert.ok(html.includes("about every 7 days"), "cadence shown");
+  assert.ok(html.indexOf("Milk") < html.indexOf("Coffee"), "soonest-due (Milk) first");
+});
+check("restockForecastHTML labels an overdue staple", () => {
+  const html = R.restockForecastHTML(
+    [{ item_id: 1, name: "Coffee", status: "stocked", interval_days: 14, predicted_date: "2026-08-01" }],
+    "2026-08-04");
+  assert.ok(html.includes("overdue by 3 days"), "overdue label");
+});
+check("restockForecastHTML hides far-future and non-stocked staples", () => {
+  const html = R.restockForecastHTML([
+    { item_id: 1, name: "Rice", status: "stocked", interval_days: 60, predicted_date: "2026-09-30" }, // beyond horizon
+    { item_id: 2, name: "Soap", status: "low", interval_days: 7, predicted_date: "2026-08-05" },      // already in "Need to buy"
+  ], "2026-08-04");
+  assert.strictEqual(html, "", "no card when nothing is stocked-and-due-soon");
+});
+check("restockForecastHTML is empty without a today (derivation is clock-free)", () => {
+  const html = R.restockForecastHTML(
+    [{ item_id: 1, name: "Coffee", status: "stocked", interval_days: 30, predicted_date: "2026-08-06" }],
+    undefined);
+  assert.strictEqual(html, "", "no forecast section without a client date");
+});
+
 console.log(`render tests passed (${passed} checks)`);
