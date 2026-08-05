@@ -401,6 +401,83 @@
     </div>`;
   }
 
+  // Cash-flow forecast (#14): projected month-end NET — a conservative floor
+  // (no unlanded paycheck assumed). Headline is projected_net (green/red); the
+  // sub shows net-so-far and bills still due; then the remaining-bills list.
+  function cashFlowForecastHTML(f) {
+    const proj = f.projected_net || { cents: 0 };
+    const bills = f.bills_remaining || [];
+    const billRows = bills.length
+      ? `<ul class="list">${bills.map((b) => `
+          <li><div class="grow"><div class="title">${esc(b.name)}</div>
+            <div class="sub">due day ${b.due_day}</div></div>
+            <span class="amt amount">${amt(b.amount)}</span></li>`).join("")}</ul>`
+      : `<p class="empty">No bills left to pay this month.</p>`;
+    return `<div class="card">
+      <p class="eyebrow">Cash flow — ${monthName(f.period)}</p>
+      <p class="chart-headline"><span class="${proj.cents >= 0 ? "pos" : "neg"}">${amt(proj)}</span></p>
+      <p class="chart-sub">projected month-end floor · ${amt(f.net_so_far)} net so far, ${amt(f.bills_remaining_total)} in bills still due</p>
+      ${billRows}
+    </div>`;
+  }
+
+  // Anomaly flags (#15): categories spending well over their trailing 3-month
+  // average this month. Passive heads-up; empty when nothing's unusual.
+  function anomaliesHTML(data) {
+    const flags = data.anomalies || [];
+    if (!flags.length) {
+      return `<div class="card"><p class="eyebrow">Spending spikes — ${monthName(data.month)}</p>
+        <p class="empty">Nothing unusual this month 🌿</p></div>`;
+    }
+    const rows = flags.map((a) => `
+      <li><div class="grow"><div class="title">${esc(a.category)}</div>
+        <div class="sub">vs ${amt(a.baseline)} avg</div></div>
+        <span class="badge overdue">${a.pct_over}% over</span>
+        <span class="amt amount">${amt(a.current)}</span></li>`).join("");
+    return `<div class="card"><p class="eyebrow">Spending spikes — ${monthName(data.month)}</p>
+      <ul class="list">${rows}</ul></div>`;
+  }
+
+  // Recurring / subscriptions (#13): detected repeat charges (same merchant +
+  // amount on a regular cadence). Sparse until a few months of history.
+  function recurringChargesHTML(data) {
+    const rec = data.recurring || [];
+    if (!rec.length) {
+      return `<div class="card"><p class="eyebrow">Recurring & subscriptions</p>
+        <p class="empty">None detected yet — needs a few months of history.</p></div>`;
+    }
+    const rows = rec.map((r) => `
+      <li><div class="grow"><div class="title">${esc(r.merchant)}</div>
+        <div class="sub">${esc(r.cadence)} · next ~${esc(shortDate(r.predicted_next))}</div></div>
+        <span class="amt amount">${amt(r.amount)}</span></li>`).join("");
+    return `<div class="card"><p class="eyebrow">Recurring & subscriptions</p>
+      <ul class="list">${rows}</ul></div>`;
+  }
+
+  // Goal pace (#16): each goal's saved/target, a status chip vs its target
+  // date, and the projected finish date. Reuses the badge palette.
+  const GOAL_STATUS = {
+    complete: ["done", "paid"], on_track: ["on track", "paid"],
+    behind: ["behind", "overdue"], projected: ["projected", "due"],
+    no_pace: ["no pace yet", "due"],
+  };
+  function goalPaceHTML(data) {
+    const goals = data.goals || [];
+    if (!goals.length) {
+      return `<div class="card"><p class="eyebrow">Goal pace</p>
+        <p class="empty">No goals yet.</p></div>`;
+    }
+    const rows = goals.map((g) => {
+      const [label, cls] = GOAL_STATUS[g.status] || ["", "due"];
+      const when = g.projected_date ? ` · ~${esc(shortDate(g.projected_date))}` : "";
+      return `<li><div class="grow"><div class="title">${esc(g.name)}</div>
+        <div class="sub">${amt(g.saved)} of ${amt(g.target)}${when}</div></div>
+        <span class="badge ${cls}">${label}</span></li>`;
+    }).join("");
+    return `<div class="card"><p class="eyebrow">Goal pace</p>
+      <ul class="list">${rows}</ul></div>`;
+  }
+
   // The Ask tab's chat thread. Pure function of the client-held messages
   // ([{role:'user'|'assistant', content}]) plus a pending flag. Content is
   // escaped and rendered as plain text (newlines preserved by CSS white-space);
@@ -592,5 +669,7 @@
            shortDate, daysBetween, restockForecastHTML, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
-           savingsRateTrendHTML, categoryTrendHTML, askThreadHTML };
+           savingsRateTrendHTML, categoryTrendHTML,
+           cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
+           askThreadHTML };
 });

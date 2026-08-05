@@ -471,4 +471,58 @@ check("restockForecastHTML is empty without a today (derivation is clock-free)",
   assert.strictEqual(html, "", "no forecast section without a client date");
 });
 
+// ---- analytics frontend batch (Tier B cards) ----
+const money = (c) => ({ cents: c, display: (c < 0 ? "−$" : "$") + Math.abs(c / 100).toFixed(2) });
+
+check("cashFlowForecastHTML shows projected net + remaining bills", () => {
+  const html = R.cashFlowForecastHTML({
+    period: "2026-08", net_so_far: money(180000),
+    bills_remaining_total: money(8000), projected_net: money(172000),
+    bills_remaining: [{ bill_id: 1, name: "Internet", due_day: 15, amount: money(5000) }],
+  });
+  assert.ok(html.includes("Cash flow — August 2026"), "titled by month");
+  assert.ok(html.includes(">$1,720.00<") && html.includes('class="pos"'), "projected net, green");
+  assert.ok(html.includes("Internet") && html.includes("due day 15"), "remaining bill listed");
+});
+check("cashFlowForecastHTML colors a negative projection red", () => {
+  const html = R.cashFlowForecastHTML({
+    period: "2026-08", net_so_far: money(-1000), bills_remaining_total: money(0),
+    projected_net: money(-1000), bills_remaining: [],
+  });
+  assert.ok(html.includes('class="neg"'), "negative projection is red");
+  assert.ok(html.includes("No bills left to pay"), "empty bills state");
+});
+check("anomaliesHTML flags a spike, and has an all-clear empty state", () => {
+  const flagged = R.anomaliesHTML({
+    month: "2026-04", threshold_pct: 50,
+    anomalies: [{ category: "Groceries", current: money(20000), baseline: money(10000),
+                  delta: money(10000), pct_over: 100 }],
+  });
+  assert.ok(flagged.includes("Groceries") && flagged.includes("100% over"), "shows overage");
+  const clear = R.anomaliesHTML({ month: "2026-04", threshold_pct: 50, anomalies: [] });
+  assert.ok(clear.includes("Nothing unusual"), "all-clear empty state");
+});
+check("recurringChargesHTML lists a subscription, else the sparse note", () => {
+  const html = R.recurringChargesHTML({
+    recurring: [{ merchant: "Netflix", cadence: "monthly", amount: money(1549),
+                  predicted_next: "2026-09-01" }],
+  });
+  assert.ok(html.includes("Netflix") && html.includes("monthly"), "subscription row");
+  assert.ok(R.recurringChargesHTML({ recurring: [] }).includes("None detected yet"), "sparse note");
+});
+check("goalPaceHTML maps status to a chip and shows the projection", () => {
+  const html = R.goalPaceHTML({
+    goals: [
+      { name: "Vacation", saved: money(40000), target: money(100000),
+        projected_date: "2026-10-28", status: "on_track" },
+      { name: "Car", saved: money(20000), target: money(100000),
+        projected_date: "2027-02-01", status: "behind" },
+    ],
+  });
+  assert.ok(html.includes("Vacation") && html.includes("on track") && html.includes('badge paid'), "on_track → green chip");
+  assert.ok(html.includes("Car") && html.includes("behind") && html.includes('badge overdue'), "behind → clay chip");
+  assert.ok(html.includes("$400.00 of $1,000.00"), "saved of target");
+  assert.ok(R.goalPaceHTML({ goals: [] }).includes("No goals yet"), "empty state");
+});
+
 console.log(`render tests passed (${passed} checks)`);
