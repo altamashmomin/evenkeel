@@ -287,10 +287,12 @@ READ_TOOLS = [
             "The household pantry: the tracked staples (each stocked / low / "
             "out) plus the derived shopping list — everything that needs buying "
             "right now: staples that are low or out AND one-off needs — a count "
-            "of staples running low, and restock_suggestions (low/out staples "
+            "of staples running low, restock_suggestions (low/out staples "
             "with a matching purchase since they ran low — hints someone may "
-            "have restocked, to confirm, never assumed). Use this for 'what do "
-            "we need?' / 'are we out of X?', and to find an item's `id` before "
+            "have restocked, to confirm, never assumed), and new_staple_"
+            "suggestions (frequently-bought merchants not yet tracked — an offer "
+            "to start tracking one as a staple, never assumed). Use this for "
+            "'what do we need?' / 'are we out of X?', and to find an item's `id` before "
             "changing its status. This is groceries and supplies, not money — "
             "nothing here touches the balance, spending, or income.",
         "input_schema": _obj(),

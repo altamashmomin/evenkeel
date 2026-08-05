@@ -163,7 +163,7 @@ figuring out *which* expense it repays is a matching problem this design
 refuses. If the reimbursement is your partner paying you back, that's what
 Settle up is for, and it already works.
 
-## Open problem: two people can see each other's paychecks
+## Two people can see each other's paychecks — DECIDED: full transparency (Aug 5, 2026)
 
 Today the app shows both people everything — fine for spending you've
 agreed to pool visibility on. Income is more intimate; some couples share
@@ -171,11 +171,31 @@ numbers freely, some don't. There's no per-row privacy in the app at all,
 and adding it (row-level ACLs, filtered feeds, aggregates that respect
 visibility) is a genuinely large change hiding inside a checkbox.
 
-Options: (1) full transparency — both see all income, matching how the
-rest of the app works; (2) income rows visible only to their owner, with
-shared aggregates (net household cash flow) still computed over both;
-(3) per-person toggle. This is a relationship decision disguised as a
-schema decision — it's yours and Charlee's to make, not mine.
+Options considered: (1) full transparency — both see all income, matching
+how the rest of the app works; (2) income rows visible only to their owner,
+with shared aggregates (net household cash flow) still computed over both;
+(3) per-person toggle.
+
+**Decision — option (1), full transparency.** Neither Alta nor Charlee
+wants income private; the whole app already pools visibility and they've
+run it that way happily. A design-pass finding made this more than a
+default: **for a two-person household, option (2) does not actually deliver
+privacy.** If one partner can see any blended household aggregate
+(net_cash_flow, savings_rate) and knows their own income and the shared
+spend, they can solve for the other's income by subtraction. Real income
+privacy for N=2 therefore requires hiding the blended aggregates too —
+which guts the feature's headline numbers for at least one viewer. So the
+coherent choices were really "full transparency" or "personal income mode"
+(owner-scoped rows *and* owner-scoped aggregates, dropping the household
+savings-rate/net-cash-flow); the household chose transparency.
+
+The policy is the **absence** of per-owner filtering. It is pinned as a
+tested contract in `tests/test_income_visibility_policy.py`: a paycheck
+owned by each member, viewed as the other member through both doors (session
+and read token), must show both incomes and the household total. If anyone
+later adds `WHERE paid_by = <viewer>` to an income surface, that test fails,
+turning the change back into a deliberate decision. Reopening this is
+"personal income mode" as scoped above — a real increment, not a checkbox.
 
 ---
 
@@ -216,8 +236,9 @@ Ship 1–3 together; 4–5 ride their own features.
 ## Decisions needed from you (and Charlee)
 
 1. **Income visibility**: full transparency, owner-only rows, or a toggle?
-   (The one decision that blocks the build — everything else has a chosen
-   default you can override later.)
+   **DECIDED (Aug 5, 2026): full transparency** — see "Two people can see
+   each other's paychecks" above for the reasoning and the N=2 subtraction
+   finding; pinned by `tests/test_income_visibility_policy.py`.
 2. **Refund netting**: comfortable with categories dipping when a refund
    lands in a later month, or should refunds be income-excluded but *not*
    netted (simpler, slightly less honest categories)?

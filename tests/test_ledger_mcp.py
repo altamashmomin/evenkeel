@@ -182,7 +182,8 @@ class LedgerMcpReadTierTests(unittest.TestCase):
         body = self.call("ledger_inventory")
         self.assertEqual(self.direct("/api/inventory"), body)
         self.assertEqual(
-            {"items", "shopping", "low_count", "restock_suggestions", "restock_forecast"},
+            {"items", "shopping", "low_count", "restock_suggestions",
+             "restock_forecast", "new_staple_suggestions"},
             set(body))
 
     # -- money shape ----------------------------------------------------------

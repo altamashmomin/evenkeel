@@ -582,7 +582,7 @@ Era thesis. The client is fungible; the guarantees live in the server.
 
 ---
 
-## What the agent layer does to the income visibility question
+## What the agent layer does to the income visibility question — RESOLVED (Aug 5, 2026)
 
 INCOME-DESIGN's open problem #1 (can each partner see the other's
 paychecks?) gets one new constraint: **whatever you choose must be
@@ -592,6 +592,19 @@ the frontend, the MCP path leaks income rows to whichever partner's agent
 asks. Enforced at the API, every client — SPA, Claude, anything future —
 inherits the policy for free. The decision itself is still yours and
 Charlee's; this just fixes *where* it must be implemented.
+
+**Decision (Aug 5, 2026): full transparency** — see INCOME-DESIGN "Two
+people can see each other's paychecks" for the reasoning (including why
+owner-only rows can't give real privacy at N=2). The chosen policy is the
+*absence* of per-owner filtering, so there is no filter to enforce today —
+but the "enforce at the API, keyed to `g.auth["user_id"]`" constraint above
+still stands as the rule for the day it's ever reopened as "personal income
+mode." `g.auth["user_id"]` is already the uniform key (`_resolve_auth`
+populates it for both session and token), so the enforcement point is ready.
+The transparency policy is pinned as a cross-door contract in
+`tests/test_income_visibility_policy.py` (session AND read-token views both
+show the full household income). **This closes the last open step-7 design
+question — the assistant chapter is fully settled.**
 
 ## Build order
 
