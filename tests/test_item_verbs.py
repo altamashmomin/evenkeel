@@ -359,6 +359,48 @@ class ItemVerbTests(unittest.TestCase):
         mine = [m for m in merchants if m in ("Blue Bottle Coffee", "Petco")]
         self.assertEqual(["Blue Bottle Coffee", "Petco"], mine)  # 4× before 3×
 
+    # ---- unmatched_staples derivation (broken-match detector) ----------------
+    def _unmatched(self, name):
+        return [u for u in derivations.unmatched_staples(self.db) if u["name"] == name]
+
+    def test_unmatched_surfaced_when_no_purchase_ever_matches(self):
+        item = self.add(name="Dish soap")
+        u = self._unmatched("Dish soap")
+        self.assertEqual(1, len(u))
+        self.assertEqual(item["id"], u[0]["item_id"])
+        self.assertEqual("name", u[0]["matched_by"])         # no phrase → the name
+        self.assertEqual(item["created_at"][:10], u[0]["tracked_since"])
+
+    def test_unmatched_excludes_a_staple_with_a_matching_purchase(self):
+        self.add(name="Coffee")
+        self._purchase("BLUE BOTTLE COFFEE", "2026-05-01")   # contains 'coffee'
+        self.assertEqual([], self._unmatched("Coffee"))
+
+    def test_unmatched_uses_the_override_phrase_not_the_name(self):
+        # Matched on the phrase 'costco': a purchase matching the NAME but not the
+        # phrase leaves it unmatched; one matching the phrase clears it.
+        self.add(name="Paper towels", restock_match="costco")
+        self._purchase("TARGET PAPER TOWELS", "2026-05-01")
+        u = self._unmatched("Paper towels")
+        self.assertEqual(1, len(u))
+        self.assertEqual("phrase", u[0]["matched_by"])
+        self.assertEqual("costco", u[0]["restock_match"])
+        self._purchase("COSTCO WHOLESALE", "2026-05-02")
+        self.assertEqual([], self._unmatched("Paper towels"))
+
+    def test_unmatched_ignores_inflows(self):
+        # An inflow whose description contains the name must NOT count as a match,
+        # so the staple stays surfaced — the direction='out' filter in
+        # _matching_purchases (tripwire-guarded), proven with a matching inflow.
+        self.add(name="Coffee")
+        self._purchase("COFFEE REFUND", "2026-05-01",
+                       direction="in", income_type="refund")
+        self.assertEqual(1, len(self._unmatched("Coffee")))
+
+    def test_unmatched_is_staples_only_not_oneoffs(self):
+        self.add(name="Birthday candles", kind="oneoff")   # never a staple
+        self.assertEqual([], self._unmatched("Birthday candles"))
+
 
 if __name__ == "__main__":
     unittest.main()

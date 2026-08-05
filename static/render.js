@@ -603,6 +603,44 @@
       </div>`;
   }
 
+  /* ===== "Check the match?" — broken-match detector (step 5 sibling) =====
+     Pure function of unmatched_staples[] (each { item_id, name, restock_match,
+     matched_by, tracked_since }) and the client's today. A staple whose match
+     phrase has matched NO purchase is silently invisible to every restock
+     inference (restock_suggestions / forecast / predicted-low all need a match),
+     so we surface it to fix the phrase — but only once it's been tracked at
+     least `minDays` (grace), so a just-added staple isn't nagged before there's
+     been time to expect a purchase. The derivation is clock-free; "tracked long
+     enough" is decided here against the real date (same split the forecast uses;
+     no today → no card). Tapping a row opens the same match editor
+     (data-item-match) the staples list uses. A review prompt, never an assertion
+     the phrase is wrong: some staples are bought inside grocery runs and can't
+     match by product (the step-5 merchant-not-product limit). */
+  function unmatchedStaplesHTML(unmatched, todayISO, minDays) {
+    if (!unmatched || !unmatched.length || !todayISO) return "";
+    const grace = minDays == null ? 21 : minDays;
+    const rows = unmatched.filter(
+      (u) => u.tracked_since && daysBetween(u.tracked_since, todayISO) >= grace);
+    if (!rows.length) return "";
+    const li = rows.map((u) => {
+      const on = u.matched_by === "phrase"
+        ? `nothing matched “${esc(u.restock_match || "")}”`
+        : "nothing matched its name";
+      return `<li>
+        <span class="ic">${itemIcon({ name: u.name })}</span>
+        <div class="grow">
+          <div class="title">${esc(u.name)}</div>
+          <div class="sub">${on} · tracked since ${esc(shortDate(u.tracked_since))}</div>
+        </div>
+        <button class="btn small" data-item-match="${u.item_id}">Fix match</button>
+      </li>`;
+    }).join("");
+    return `<div class="card suggest-card">
+        <p class="eyebrow">Check the match?</p>
+        <ul class="list">${li}</ul>
+      </div>`;
+  }
+
   /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 + step 5 =====
      Pure function of the /api/inventory JSON:
        { items: [staples, urgent-first], shopping: [staples low/out + oneoffs],
@@ -623,6 +661,7 @@
     const suggestions = data.restock_suggestions || [];
     const forecastCard = restockForecastHTML(data.restock_forecast, todayISO);
     const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions);
+    const matchCard = unmatchedStaplesHTML(data.unmatched_staples, todayISO);
 
     const restockCard = suggestions.length
       ? `<div class="card restock-card">
@@ -702,11 +741,13 @@
           <button class="btn small primary" type="submit">Add</button>
         </form>
       </div>
-      ${trackCard}`;
+      ${trackCard}
+      ${matchCard}`;
   }
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
-           shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML, inventoryHTML,
+           shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
+           unmatchedStaplesHTML, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML,
