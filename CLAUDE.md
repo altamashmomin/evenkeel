@@ -1045,8 +1045,32 @@ income_rules; "suggest, don't assert."
   `ledger-mcp` (`Requires=` stops it with the app) — no manual restart needed.
   Both ops gaps [[ledger-ops-layer]] flagged are now closed and proven. `/api/
   status` 200; on-device check of the restock nudge + 🔎 match editor is a
-  per-device hard-refresh away. Then step 5's second half (restock *prediction*
-  from cadence) and new-staple suggestions remain as later increments.
+  per-device hard-refresh away.
+- **Step 5 SECOND HALF — restock *prediction* from cadence — DONE + DEPLOYED
+  (Aug 5, 2026).** New read-time derivation `restock_forecast(db, min_purchases=3)`:
+  for each staple with **≥3 matching purchases on distinct days**, the **median
+  gap** between purchase dates projects `predicted_date = last_purchase +
+  interval` (median is robust to one odd early/late buy; ≥3 = the conservative
+  "suggest don't assert" bar, Alta's call). Purchase-matching factored out of
+  `restock_suggestions` into a shared `_matching_purchases` helper (behavior-
+  neutral — its tests stayed green). **Deliberately clock-free**: the derivation
+  returns only history-derived facts (interval/last/predicted), never a "today",
+  so it stays an inflow-insensitive aggregate the tripwire covers **with no
+  exemption**; the "days-until / overdue" framing is computed at the **view
+  layer** against the client's real date. (Honest deviation from the design doc's
+  "rides `_monthly_series`" sketch — cadence is intervals between purchases, not
+  monthly buckets.) `/api/inventory` gains `restock_forecast` (rides
+  `ledger_inventory` to both doors, pure passthrough — MCP byte-equality test
+  green). Frontend: a honey-accented **"Coming up"** pantry card
+  (`restockForecastHTML`, stocked staples due ≤14d or overdue, soonest-first,
+  informational — no auto-add). Scope was **prediction only** (Alta's call);
+  **new-staple suggestions deferred** to their own increment. Seeded **zero-diff
+  balance gate PASS** (23 values, no money path touched) + live deploy GATE PASS
+  (no migration, schema stays v9; `finance.db.bak-2026-08-05-001709`); `ledger-mcp`
+  auto-restarted. Suite 362→**369**, render seam 52→**57**. Honest caveat: sparse
+  on real data at first (bank feed only ~2 weeks old → few staples have 3+
+  matching purchases yet; fills in as history accrues), and inherits 5b's
+  merchant-not-product limitation.
 - **DEPLOYED TO THE PI (Aug 4, 2026) — step-5 backend (5a `#009` + 5b) is LIVE.**
   Advanced `main` to rework's tree via `--no-ff` merge `a07f470` (first parent =
   old main `be27345`, tree byte-identical to rework, fast-forward push); ran
@@ -1179,20 +1203,19 @@ push), `deploy/deploy.sh origin/main` on the Pi → **GATE PASS** (enumerated
 `finance.db.bak-2026-08-04-140904`. Deployed line is now schema v9, `origin/main`
 tree == `rework`. (Detail in INVENTORY-DESIGN step-5 block above.)
 
-**Pantry inc 5c DEPLOYED (Aug 4, 2026) — done.** The whole INVENTORY-DESIGN
-step-5 restock feature (5a `#009` + 5b logic + 5c UI) is now live on the Pi.
-Deployed line is `origin/main` `3cf9784`, schema v9, tree == `rework`
-(`e2ae7aa`, one doc-only commit ahead: this CLAUDE.md update). No open deploy.
+**Pantry step 5 COMPLETE + DEPLOYED (through Aug 5, 2026).** The whole
+INVENTORY-DESIGN step 5 now ships: purchase-feed restock *hints* (5a `#009` + 5b
+logic + 5c UI) AND restock *prediction* from cadence (`restock_forecast` + the
+"Coming up" card). Deployed line is `origin/main` `f8ea301`, schema v9, tree ==
+`rework` (`f57cc4a`, one doc-only commit ahead: this CLAUDE.md update). No open
+deploy.
 
-**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Step 5's first
-half (purchase-feed restock *hints*) is complete end to end. Candidates:
-- **Step 5 second half — restock *prediction* from cadence** (INVENTORY-DESIGN):
-  learn each staple's typical repurchase interval from its purchase history and
-  predict "you'll likely need X around <date>", a step beyond the reactive
-  low/out hint. Plus **new-staple suggestions** (offer to start tracking a
-  frequently-bought item not yet a staple). Both are new derivations over
-  `items` + `transactions` — heuristic, "suggest don't assert," outflows-only so
-  tripwire-covered; likely a migration only if a new column is needed.
+**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates:
+- **New-staple suggestions** (the remaining INVENTORY-DESIGN step-5 sibling,
+  deliberately deferred from the prediction increment): a new derivation offering
+  to start tracking a frequently-bought item not yet a staple — heuristic,
+  "suggest don't assert," outflows-only so tripwire-covered; likely a migration
+  only if a new column is needed. The natural pantry follow-on.
 - **Analytics Tier B (#13–16)** — recurring-charge detection, cash-flow forecast,
   anomaly flags, goal pace. All read-time derivations riding the `_monthly_series`
   engine; zero-diff-gated.

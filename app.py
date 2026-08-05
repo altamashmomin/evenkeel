@@ -18,7 +18,7 @@ from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (bill_variance, category_trend,
                          compute_balance as derive_balance, income_summary,
                          income_trend, low_stock, member_breakdown,
-                         restock_forecast, restock_suggestions,
+                         recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
                          spending_summary, top_merchants)
 from schema_runtime import connect_existing, require_current_schema
@@ -868,6 +868,31 @@ def member_breakdown_view():
             "owed": money(m["owed_cents"]),
             "net": money(m["net_cents"]),
         } for m in member_breakdown(db, month)],
+    })
+
+
+@app.get("/api/analytics/recurring")
+@login_required
+def recurring_view():
+    """Likely recurring charges / subscriptions (analytics Tier B #13), from the
+    `recurring_charges` derivation: outflows that repeat at a stable amount on a
+    regular cadence. A *suggestion* surface — a coincidence must not silently
+    become a "subscription" — so it's conservative (same merchant + identical
+    amount + ≥3 charges + regular gaps). Reports the detected cadence and the
+    next expected date. Money as {cents, display}. Pure read."""
+    db = get_db()
+    return jsonify({
+        "recurring": [{
+            "merchant": c["merchant"],
+            "example_description": c["example_description"],
+            "amount": money(c["amount_cents"]),
+            "occurrences": c["occurrences"],
+            "interval_days": c["interval_days"],
+            "cadence": c["cadence"],
+            "first_charge": c["first_charge"],
+            "last_charge": c["last_charge"],
+            "predicted_next": c["predicted_next"],
+        } for c in recurring_charges(db)],
     })
 
 

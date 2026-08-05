@@ -36,7 +36,8 @@ READ_TOOLS = {
     "ledger_spending_composition", "ledger_category_trend",
     "ledger_income_summary", "ledger_income_trend",
     "ledger_savings_rate_trend", "ledger_member_breakdown",
-    "ledger_bill_variance", "ledger_list_income_rules",
+    "ledger_bill_variance", "ledger_recurring_charges",
+    "ledger_list_income_rules",
     "ledger_unclassified_inflows", "ledger_search_transactions",
     "ledger_list_goals_and_bills", "ledger_inventory",
 }
@@ -151,6 +152,11 @@ class LedgerMcpReadTierTests(unittest.TestCase):
         self.assertEqual({"goals", "bills"}, set(body))
         self.assertEqual(self.direct("/api/goals"), body["goals"])
         self.assertEqual(self.direct("/api/bills"), body["bills"])
+
+    def test_recurring_matches_direct_api(self):
+        body = self.call("ledger_recurring_charges")
+        self.assertEqual(self.direct("/api/analytics/recurring"), body)
+        self.assertEqual({"recurring"}, set(body))
 
     def test_inventory_matches_direct_api(self):
         body = self.call("ledger_inventory")

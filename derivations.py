@@ -1,5 +1,6 @@
 """Canonical read-time financial derivations shared by every surface."""
 
+import re
 from datetime import date, timedelta
 
 
@@ -355,6 +356,118 @@ def top_merchants(db, month=None, limit=10):
             LIMIT ?""", params).fetchall()
     return [{"description": r["description"], "amount_cents": r["total"],
              "count": r["n"]} for r in rows]
+
+
+# ---- recurring-charge / subscription detection (analytics Tier B #13) -------
+# Bank descriptions wrap the real merchant in noise that VARIES between two
+# charges from the same place — auth codes, store numbers, card masks, ACH
+# metadata, a trailing city/state. These strip that so the same merchant lands
+# on one key. Order matters (masks/urls before the generic digit/punct sweep).
+_MERCHANT_ACH_TAIL = re.compile(r"\b(?:DES|INDN)\b.*$")          # "DES:.. INDN:.." ACH metadata (+ payer name)
+_MERCHANT_MASK = re.compile(r"X{3,}[\dX#]*")                     # XXXXX3462XXXX card masks
+_MERCHANT_URL = re.compile(r"\b(?:WWW\.|HTTPS?://)\S+")          # WWW.* / http* (NOT bare NETFLIX.COM — that's the merchant)
+_MERCHANT_STARID = re.compile(r"\*\s*[A-Z0-9]{5,}")             # "* O21CE1G63" txn ids
+_MERCHANT_AUTH = re.compile(r"\bAP\s+\d+\b")                     # "AP 405524" auth codes
+_MERCHANT_LEAD = re.compile(
+    r"^(?:VISA\s+DDA\s+PUR|DDA\s+PURCHASE|CHECKCARD|CHECK\s?CARD|"
+    r"PURCHASE|POS\s+DEBIT|DEBIT|VISA|DD)\b")                    # leading transaction-type prefix
+_MERCHANT_STATE_TAIL = re.compile(r"\s\*?\s*[A-Z]{2}\s*$")       # trailing "* NJ" / " NY"
+_MERCHANT_FILLER = {"AP", "PUR", "DDA", "POS", "DEBIT", "CO", "COM", "NET", "ORG"}
+
+
+def _normalize_merchant(description):
+    """Reduce a noisy bank description to a stable merchant key for clustering.
+
+    Conservative by design: it errs toward UNDER-merging (two same-merchant
+    descriptions may fail to collapse if they differ a lot) rather than
+    OVER-merging (fabricating a shared merchant), because a false merge is what
+    would invent a phantom 'subscription'. Clean recurring descriptors
+    (NETFLIX.COM, SPOTIFY) normalize reliably; very noisy retail may not — fine,
+    retail isn't a subscription. Returns '' when nothing meaningful survives."""
+    s = (description or "").upper()
+    s = _MERCHANT_ACH_TAIL.sub(" ", s)
+    s = _MERCHANT_MASK.sub(" ", s)
+    s = _MERCHANT_URL.sub(" ", s)
+    s = _MERCHANT_STARID.sub(" ", s)
+    s = _MERCHANT_AUTH.sub(" ", s)
+    s = _MERCHANT_LEAD.sub(" ", s)
+    s = _MERCHANT_STATE_TAIL.sub(" ", s)
+    s = re.sub(r"[^A-Z ]+", " ", s)   # drop digits & punctuation
+    tokens = [t for t in s.split() if len(t) > 1 and t not in _MERCHANT_FILLER]
+    return " ".join(tokens)
+
+
+def _gaps_regular(gaps, median):
+    """True when every consecutive gap is within ±40% of the median — i.e. the
+    charge recurs on a genuine rhythm, not three coincidental hits. Integer /
+    float-free: 0.6·median ≤ g ≤ 1.4·median ⇔ 3·median ≤ 5·g ≤ 7·median."""
+    if median < 3:                     # sub-3-day "cadence" is a flurry, not a subscription
+        return False
+    return all(3 * median <= 5 * g <= 7 * median for g in gaps)
+
+
+def _cadence_label(days):
+    """A human name for a repeat interval, or 'every ~N days' when it fits no
+    common band. Bands are generous so real-world jitter still reads naturally."""
+    for lo, hi, name in ((5, 9, "weekly"), (12, 16, "biweekly"), (26, 35, "monthly"),
+                         (58, 66, "bimonthly"), (84, 96, "quarterly"),
+                         (170, 195, "semiannually"), (350, 385, "yearly")):
+        if lo <= days <= hi:
+            return name
+    return f"every ~{days} days"
+
+
+def recurring_charges(db, min_occurrences=3):
+    """Likely recurring charges / subscriptions (analytics Tier B #13): outflows
+    that repeat at a stable AMOUNT on a regular CADENCE. A *suggestion* surface,
+    never an authority — a coincidence must not silently become a "subscription"
+    (the same honesty as INCOME-DESIGN's refused transfer auto-pairing), so the
+    bar is deliberately high: same normalized merchant + identical amount + ≥
+    min_occurrences (default 3) charges on distinct days + gaps regular to ±40%.
+
+    Clustering by (merchant, EXACT amount) is the conservative choice — a
+    merchant with variable amounts (retail) never forms a same-amount cluster,
+    and a price change simply splits into two clusters rather than smearing one.
+    Reports the detected interval and a cadence label (any rhythm, not just
+    monthly) plus the next expected date. Clock-free like restock_forecast — no
+    "today"; days-until framing is the view layer's job.
+
+    OUTFLOWS ONLY, settlements excluded (like top_merchants) — so it's NOT
+    tripwire-exempt: an inflow must leave it unchanged, and the tripwire proves
+    it. Reads transactions only; never touches money. Most-recent activity
+    first."""
+    rows = db.execute(
+        "SELECT txn_date, amount_cents, description FROM transactions "
+        "WHERE direction = 'out' AND source != 'settlement'").fetchall()
+    buckets = {}
+    for r in rows:
+        key = _normalize_merchant(r["description"])
+        if not key:
+            continue
+        buckets.setdefault((key, r["amount_cents"]), []).append(r)
+    out = []
+    for (key, amount_cents), occ in buckets.items():
+        days = sorted({o["txn_date"][:10] for o in occ})   # distinct days
+        if len(days) < min_occurrences:
+            continue
+        dates = [date.fromisoformat(d) for d in days]
+        gaps = [(b - a).days for a, b in zip(dates, dates[1:])]
+        interval = _median_int(gaps)
+        if not _gaps_regular(gaps, interval):
+            continue
+        out.append({
+            "merchant": key.title(),
+            "example_description": occ[-1]["description"],
+            "amount_cents": amount_cents,
+            "occurrences": len(days),
+            "interval_days": interval,
+            "cadence": _cadence_label(interval),
+            "first_charge": dates[0].isoformat(),
+            "last_charge": dates[-1].isoformat(),
+            "predicted_next": (dates[-1] + timedelta(days=interval)).isoformat(),
+        })
+    out.sort(key=lambda c: (c["last_charge"], c["amount_cents"]), reverse=True)
+    return out
 
 
 def savings_rate_trend(db, months_back=6, anchor=None):

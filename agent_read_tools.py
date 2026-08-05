@@ -154,6 +154,21 @@ READ_TOOLS = [
                                 {"period": a.get("period")}),
     },
     {
+        "name": "ledger_recurring_charges",
+        "description":
+            "Likely recurring charges / subscriptions: outflows that repeat at a "
+            "stable amount on a regular cadence (weekly through yearly, or 'every "
+            "~N days'). A SUGGESTION, not an authority — a coincidence is not a "
+            "subscription — so it is conservative: same normalized merchant + "
+            "IDENTICAL amount + at least 3 charges + gaps regular to ±40%. Each "
+            "carries the detected cadence, interval_days, occurrences, first/last "
+            "charge, and the next expected date. Money as {cents, display}. "
+            "Expect it to be SPARSE until there are a few months of history — a "
+            "monthly charge needs 3 months before it shows.",
+        "input_schema": _obj(),
+        "fetch": lambda g, a: g("/api/analytics/recurring", {}),
+    },
+    {
         "name": "ledger_list_income_rules",
         "description":
             "All income-classification rules in priority order (first match "
