@@ -478,11 +478,24 @@ Tier A — pure read-time derivations, no schema, zero-diff gate:
     unpaid. Zero-diff gate; suite 251→259. **Completes Tier A (#8–12).**
 
 Tier B — needs a heuristic, still no schema change:
-13. Recurring-charge / subscription detection — cluster outflows by
-    (normalized description, ~amount, ~monthly cadence); a *suggestion*
-    surface, not an authority (same honesty as INCOME-DESIGN's refused
-    transfer auto-pairing — a coincidence must not silently become a
-    "subscription").
+13. Recurring-charge / subscription detection — **DONE + DEPLOYED (Aug 5,
+    2026), backend + MCP.** `recurring_charges(db)` clusters outflows by
+    **normalized merchant + IDENTICAL amount** and flags those recurring on a
+    **regular cadence** (≥3 charges, gaps within ±40% of the median); reports
+    the detected interval, a cadence label (**any rhythm** — weekly..yearly, or
+    "every ~N days", Alta's call), and the next expected date. A *suggestion*,
+    not an authority — conservative bar + a merchant normalizer (`_normalize_
+    merchant`) that biases to **under-merge** so it never invents a phantom
+    subscription (verified on real bank descriptions: NETFLIX.COM/Spotify/Citi/
+    NJM normalize clean, no false merges). Clock-free like `restock_forecast`;
+    outflows-only + settlements excluded → tripwire-covered, no exemption. `GET
+    /api/analytics/recurring` (money {cents, display}) + shared read tool
+    `ledger_recurring_charges` (both doors — analyst/MCP and Ask; read-tool count
+    14→15, MCP tools 18→19). **Backend-first** (Alta's call) — the "Subscriptions"
+    card joins the analytics frontend batch later. Zero-diff balance gate PASS
+    (no money path) + live deploy GATE PASS (no migration, v9;
+    `finance.db.bak-2026-08-05-012130`). Suite 369→**381**. Honest caveat: sparse
+    on real data until a few months of history (a monthly charge needs 3 months).
 14. Cash-flow forecast — project end-of-month / next-month position from
     recurring income (paycheck `income_rules` encode cadence+owner),
     recurring bills, and scheduled goal contributions. Where rules, bills,
@@ -1216,9 +1229,15 @@ deploy.
   to start tracking a frequently-bought item not yet a staple — heuristic,
   "suggest don't assert," outflows-only so tripwire-covered; likely a migration
   only if a new column is needed. The natural pantry follow-on.
-- **Analytics Tier B (#13–16)** — recurring-charge detection, cash-flow forecast,
-  anomaly flags, goal pace. All read-time derivations riding the `_monthly_series`
-  engine; zero-diff-gated.
+- **Analytics Tier B — #14–16 remain** (#13 recurring-charge detection is DONE
+  + deployed, backend + MCP): **#14 cash-flow forecast** (project end-of-month
+  position from recurring income + bills + goal contributions — the first thing
+  that combines all three), **#15 anomaly flags** ("category X is N% over its
+  3-mo average"), **#16 goal pace** (projected completion date). All read-time,
+  zero-diff-gated.
+- **Analytics frontend batch** — surface the backend-only Tier A/B reads that
+  have no UI yet: **the recurring-charges "Subscriptions" card** (#13), plus
+  `category_trend` (#8) and `savings_rate_trend` visuals. Frontend-only, no gate.
 - **Income-visibility policy** — the one still-open step-7 design question (enforce
   per-person income visibility at the API).
 

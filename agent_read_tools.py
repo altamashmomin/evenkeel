@@ -169,6 +169,20 @@ READ_TOOLS = [
         "fetch": lambda g, a: g("/api/analytics/recurring", {}),
     },
     {
+        "name": "ledger_cash_flow_forecast",
+        "description":
+            "Projected month-end NET CASH FLOW — a conservative FLOOR: net-so-far "
+            "(true income − spend this month) minus the bills still unpaid this "
+            "month (each listed with its due day). It is net FLOW, not an account "
+            "balance, and does NOT assume a paycheck that hasn't landed yet — so "
+            "real month-end is usually BETTER than projected_net. Goals are "
+            "excluded (contributions aren't scheduled). Answers 'how does this "
+            "month end?' / 'can we cover the bills still due?'. Money {cents, display}.",
+        "input_schema": _obj({"period": _MONTH}),
+        "fetch": lambda g, a: g("/api/analytics/cash-flow-forecast",
+                                {"period": a.get("period")}),
+    },
+    {
         "name": "ledger_list_income_rules",
         "description":
             "All income-classification rules in priority order (first match "
