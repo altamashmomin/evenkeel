@@ -299,6 +299,20 @@ def ledger_goal_pace(
     return _json(api_get("/api/analytics/goal-pace", {"as_of": as_of}))
 
 
+@mcp.tool(name="ledger_anomaly_flags", title="Spending anomalies",
+          description=DESCRIPTIONS["ledger_anomaly_flags"], annotations=_READ)
+def ledger_anomaly_flags(
+    month: Annotated[Optional[str], Field(
+        default=None, pattern=r"^\d{4}-\d{2}$",
+        description="ISO month 'YYYY-MM'. Omit for the current month.")] = None,
+    threshold: Annotated[Optional[int], Field(
+        default=None, ge=1,
+        description="Percent over the 3-month average to flag (default 50).")] = None,
+) -> str:
+    return _json(api_get("/api/analytics/anomalies",
+                         {"month": month, "threshold": threshold}))
+
+
 @mcp.tool(name="ledger_list_income_rules", title="List income rules",
           description=DESCRIPTIONS["ledger_list_income_rules"], annotations=_READ)
 def ledger_list_income_rules() -> str:

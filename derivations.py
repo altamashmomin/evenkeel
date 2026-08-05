@@ -259,6 +259,54 @@ def category_trend(db, category, months_back=6, anchor=None):
     return series
 
 
+def anomaly_flags(db, month=None, threshold_pct=50, min_delta_cents=2000):
+    """Categories spending unusually high THIS month vs their recent norm
+    (analytics Tier B #15): flag a category whose `month` spend is at least
+    `threshold_pct`% above its trailing 3-month average (the 3 months BEFORE
+    `month` — an EXCLUSIVE baseline, so it's 'vs recent norm', not a dampened
+    self-average). A passive 'heads-up', not an authority.
+
+    Two guards against noise: the baseline must be positive, and the absolute
+    jump must clear `min_delta_cents` (default $20) — so a tiny category going
+    $2→$8 (300%!) doesn't spam a flag. pct_over is integer, ties-even
+    (`round_ratio`), float-free.
+
+    Reads spending_summary, so category spend is refund-NETTED — EXEMPT in the
+    tripwire for the same bounded reason category_trend/spending_summary are (it
+    reads refund inflows on purpose; a refund can legitimately clear an anomaly).
+    `month` defaults to the latest data month (deterministic, clock-free, so
+    it's callable bare); the endpoint passes the viewed month. Integer cents;
+    biggest overage first."""
+    if month is None:
+        month = _latest_data_month(db)
+    if month is None:
+        return []
+    window = _month_window(month, 4)            # 3 baseline months + `month`
+    baseline_months, current_month = window[:3], window[3]
+    spend = {}                                  # category -> {ym: cents}
+    for m in window:
+        for c in spending_summary(db, m)[m]["by_category"]:
+            spend.setdefault(c["category"], {})[m] = c["amount_cents"]
+    out = []
+    for category, by_month in spend.items():
+        current = by_month.get(current_month, 0)
+        baseline = round_ratio(
+            sum(by_month.get(m, 0) for m in baseline_months), len(baseline_months))
+        delta = current - baseline
+        if baseline <= 0 or delta < min_delta_cents:
+            continue
+        pct_over = round_ratio(delta * 100, baseline)
+        if pct_over < threshold_pct:
+            continue
+        out.append({
+            "category": category, "month": current_month,
+            "current_cents": current, "baseline_cents": baseline,
+            "delta_cents": delta, "pct_over": pct_over,
+        })
+    out.sort(key=lambda a: a["pct_over"], reverse=True)
+    return out
+
+
 def bill_variance(db, period=None):
     """Defined bill amount vs what was actually paid, per active bill, for a
     period (analytics #12): each bill's defined amount, the actual amount of

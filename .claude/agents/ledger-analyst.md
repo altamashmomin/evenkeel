@@ -13,7 +13,7 @@ tools: >-
   mcp__ledger__ledger_income_summary, mcp__ledger__ledger_income_trend,
   mcp__ledger__ledger_savings_rate_trend, mcp__ledger__ledger_member_breakdown,
   mcp__ledger__ledger_bill_variance, mcp__ledger__ledger_recurring_charges,
-  mcp__ledger__ledger_cash_flow_forecast, mcp__ledger__ledger_goal_pace,
+  mcp__ledger__ledger_cash_flow_forecast, mcp__ledger__ledger_goal_pace, mcp__ledger__ledger_anomaly_flags,
   mcp__ledger__ledger_list_income_rules,
   mcp__ledger__ledger_unclassified_inflows, mcp__ledger__ledger_search_transactions,
   mcp__ledger__ledger_list_goals_and_bills, mcp__ledger__ledger_inventory,
