@@ -401,6 +401,36 @@ class ItemVerbTests(unittest.TestCase):
         self.add(name="Birthday candles", kind="oneoff")   # never a staple
         self.assertEqual([], self._unmatched("Birthday candles"))
 
+    # ---- stale_shopping_items derivation (list-rot detector) -----------------
+    def _stale(self, name):
+        return [s for s in derivations.stale_shopping_items(self.db)
+                if s["name"] == name]
+
+    def test_stale_surfaces_low_or_out_with_no_purchase_since(self):
+        item = self.add(name="Dish soap", status="out")
+        s = self._stale("Dish soap")
+        self.assertEqual(1, len(s))
+        self.assertEqual("out", s[0]["status"])
+        self.assertEqual(item["updated_at"][:10], s[0]["low_since"])
+
+    def test_stale_excludes_a_staple_bought_since_it_ran_low(self):
+        item = self.add(name="Coffee", status="out")
+        # A matching purchase on/after it ran low → a restock, not rot.
+        self._purchase("BLUE BOTTLE COFFEE", item["updated_at"][:10])
+        self.assertEqual([], self._stale("Coffee"))
+
+    def test_stale_excludes_stocked_staples(self):
+        self.add(name="Rice")   # stocked → not on the list at all
+        self.assertEqual([], self._stale("Rice"))
+
+    def test_stale_ignores_inflows(self):
+        # An inflow naming the item is NOT the missing restock — the item stays
+        # surfaced (the direction='out' filter in _matching_purchases).
+        item = self.add(name="Coffee", status="out")
+        self._purchase("COFFEE REFUND", item["updated_at"][:10],
+                       direction="in", income_type="refund")
+        self.assertEqual(1, len(self._stale("Coffee")))
+
 
 if __name__ == "__main__":
     unittest.main()

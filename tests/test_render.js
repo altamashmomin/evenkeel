@@ -541,6 +541,28 @@ check("unmatchedStaplesHTML is empty without a today (derivation is clock-free)"
   assert.strictEqual(html, "", "no card without a client date");
 });
 
+// ---- list-rot detector ("Still need these?") — step 5 sibling ----
+check("staleShoppingHTML surfaces a long-neglected low/out staple with a remove action", () => {
+  const html = R.staleShoppingHTML(
+    [{ item_id: 3, name: "Dish soap", status: "out", low_since: "2026-07-01" }],
+    "2026-08-04");   // out 34 days → past the 14-day grace
+  assert.ok(html.includes("Still need these?"), "card heading");
+  assert.ok(html.includes("out for 34 days"), "how long it's been neglected");
+  assert.ok(html.includes('data-item-remove="3"') && html.includes("Not anymore"),
+    "reuses the archive action");
+});
+check("staleShoppingHTML respects the grace period (no nag on a fresh low)", () => {
+  const html = R.staleShoppingHTML(
+    [{ item_id: 3, name: "Milk", status: "low", low_since: "2026-08-01" }],  // 3 days
+    "2026-08-04");
+  assert.strictEqual(html, "", "a recently-low item isn't nagged");
+});
+check("staleShoppingHTML is empty without a today (derivation is clock-free)", () => {
+  assert.strictEqual(R.staleShoppingHTML(
+    [{ item_id: 3, name: "Milk", status: "low", low_since: "2026-01-01" }], undefined),
+    "", "no card without a client date");
+});
+
 // ---- analytics frontend batch (Tier B cards) ----
 const money = (c) => ({ cents: c, display: (c < 0 ? "−$" : "$") + Math.abs(c / 100).toFixed(2) });
 
