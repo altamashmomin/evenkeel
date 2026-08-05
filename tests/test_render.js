@@ -450,12 +450,26 @@ check("restockForecastHTML surfaces stocked staples due soon, soonest first", ()
   assert.ok(html.includes("likely need in 8 days") && html.includes("likely need in 2 days"), "day counts");
   assert.ok(html.includes("about every 7 days"), "cadence shown");
   assert.ok(html.indexOf("Milk") < html.indexOf("Coffee"), "soonest-due (Milk) first");
+  assert.ok(!html.includes("data-mark-low"), "future rows are a heads-up — no action");
 });
-check("restockForecastHTML labels an overdue staple", () => {
+check("restockForecastHTML labels an overdue staple and offers 'Mark low'", () => {
   const html = R.restockForecastHTML(
     [{ item_id: 1, name: "Coffee", status: "stocked", interval_days: 14, predicted_date: "2026-08-01" }],
     "2026-08-04");
   assert.ok(html.includes("overdue by 3 days"), "overdue label");
+  assert.ok(html.includes('data-mark-low="1"'), "overdue row carries the mark-low action for its item");
+  assert.ok(html.includes("Mark low"), "action label");
+});
+check("restockForecastHTML offers 'Mark low' when due today, not before", () => {
+  const dueToday = R.restockForecastHTML(
+    [{ item_id: 5, name: "Eggs", status: "stocked", interval_days: 7, predicted_date: "2026-08-04" }],
+    "2026-08-04");
+  assert.ok(dueToday.includes("likely due today") && dueToday.includes('data-mark-low="5"'),
+    "due-today row is actionable");
+  const soon = R.restockForecastHTML(
+    [{ item_id: 6, name: "Eggs", status: "stocked", interval_days: 7, predicted_date: "2026-08-05" }],
+    "2026-08-04");
+  assert.ok(!soon.includes("data-mark-low"), "a row still one day out is only a heads-up");
 });
 check("restockForecastHTML hides far-future and non-stocked staples", () => {
   const html = R.restockForecastHTML([

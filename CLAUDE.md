@@ -1300,17 +1300,44 @@ verb, derivation, route, or money-path change → no balance gate applies**; sui
 414→**417** python + 65 render. **CORE-DESIGN step 7 (the assistant) is now fully
 settled — no open design questions remain.**
 
+Shipped alongside (Aug 5, 2026), via PR #5 (merged to `main` `14901b7`, DEPLOYED
+— GATE PASS zero-diff, no migration, backup `finance.db.bak-2026-08-05-130114`):
+`new_staple_suggestions` (pantry "Bought a lot — track it?") AND the
+**maintenance pin** `mcp>=1.2,<2` (`a9b7dd1`) — mcp 2.0 removed
+`mcp.server.fastmcp.FastMCP`, breaking a fresh install of `ledger_mcp.py`; the Pi
+was unaffected (its 1.x already satisfied `>=1.2`) but the pin protects rebuilds /
+`pip -U` / CI. `rework` reconciled to `main`'s tree afterward (merge `7f03984`,
+first parent = old rework tip so the push fast-forwarded; tree byte-identical to
+`main` — invariant restored).
+
+**Pantry predicted-low nudge — DONE, NOT YET DEPLOYED (Aug 5, 2026).** The
+INVENTORY-DESIGN step-5 payoff: `restock_forecast`'s "Coming up" card was
+read-only, so the prediction never *did* anything. Now an **overdue or due-today**
+stocked staple (predicted_date ≤ the client's today, computed at the view layer —
+the derivation stays clock-free) gets a one-tap **"Mark low"** button that flips it
+to `low` via the existing `set_item_status` verb/endpoint, dropping it into "Need
+to buy." Future "heads-up" rows keep their date badge, no action — the nudge only
+fires when the prediction says you're probably low *now*. Still a human-confirmed
+suggestion, never an auto-flip (INVENTORY-DESIGN discipline). **Frontend only** —
+`restockForecastHTML` (render.js) grows the button on `days <= 0` rows, one line
+of `data-mark-low` wiring in app.js reusing `setItemStatus`; no schema, verb,
+derivation, route, or money path → **no balance gate**. render seam 65→66 (overdue
+& due-today actionable, future/1-day-out not); full python suite 417 green. Visual
+pass in light AND dark via a throwaway harness rendering the real function against
+`style.css` (in-app Browser tool worked this session). Ships through the zero-gate
+frontend deploy path when Alta merges + runs `deploy.sh` + a per-device hard
+refresh.
+
 **IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates:
+- **Deploy the predicted-low nudge** (above) — Alta's manual merge + `deploy.sh
+  origin/main` + hard refresh (frontend, zero-gate).
 - **Analytics Tier C (budgets/envelopes)** — its own designed feature (a `budgets`
   migration + `set_budget` verb + `budget_status` derivation), NOT a quick add.
-- Further pantry inference (quantities, money tie-in) — each its own INVENTORY-
-  DESIGN step-5+ increment.
-- **Maintenance:** pin `mcp>=1.2,<2` in `requirements.txt` (or port `ledger_mcp.py`
-  to the mcp 2.0 API). `mcp>=1.2` now floats to 2.0.0, which removed
-  `mcp.server.fastmcp.FastMCP` → a *fresh* install breaks the MCP server. The Pi
-  is safe for now (`deploy.sh` runs `pip install -r`, not `-U`, so the installed
-  1.x stays), but a rebuild / `pip install -U` / CI clone would break it. Natural
-  `ledger-maintenance` job. Surfaced Aug 5, 2026.
+- More pantry inference (all brainstormed Aug 5, none built): broken-match detector
+  (a tracked staple with zero matching purchases → "set a match phrase?"), money
+  tie-in ("$X/mo at the coffee shop"), post-shopping review nudge, list-rot
+  detector (out/low for weeks, no purchase → "still need it?"). Each its own
+  INVENTORY-DESIGN step-5+ increment; quantities/co-purchase remain refused.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

@@ -534,8 +534,11 @@
      (ISO). The derivation is clock-free on purpose — "how soon / overdue" is a
      view concern, computed here against the real date. We surface only STOCKED
      staples due within the horizon or already overdue: low/out staples already
-     appear in "Need to buy", so a forecast for them would just double up. A
-     gentle heads-up, never an auto-add (suggest, don't assert). */
+     appear in "Need to buy", so a forecast for them would just double up.
+     Overdue (or due-today) rows carry a one-tap "Mark low" — the prediction
+     says you're probably low now, so acting on it drops the staple into "Need
+     to buy" (set_item_status → low). Future rows stay a heads-up (date badge,
+     no action). Always a suggestion the human confirms, never an auto-flip. */
   function restockForecastHTML(forecasts, todayISO, horizonDays) {
     if (!forecasts || !forecasts.length || !todayISO) return "";
     const horizon = horizonDays == null ? 14 : horizonDays;
@@ -550,13 +553,19 @@
       const when = days < 0 ? `overdue by ${-days} day${plur(days)}`
         : days === 0 ? "likely due today"
         : `likely need in ${days} day${plur(days)}`;
+      // days <= 0 → overdue or due today: the prediction says it's probably low
+      // now, so offer the action. days > 0 → still in the future: informational
+      // date badge only.
+      const trailing = days <= 0
+        ? `<button class="btn small primary" data-mark-low="${f.item_id}">Mark low</button>`
+        : `<span class="badge due">${esc(shortDate(f.predicted_date))}</span>`;
       return `<li>
         <span class="ic">${itemIcon({ name: f.name })}</span>
         <div class="grow">
           <div class="title">${esc(f.name)}</div>
           <div class="sub">${when} · about every ${f.interval_days} days</div>
         </div>
-        <span class="badge ${days < 0 ? "overdue" : "due"}">${esc(shortDate(f.predicted_date))}</span>
+        ${trailing}
       </li>`;
     }).join("");
     return `<div class="card forecast-card">
