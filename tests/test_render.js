@@ -510,6 +510,37 @@ check("newStapleSuggestionsHTML escapes the merchant name (no injection)", () =>
   assert.ok(html.includes("&lt;b&gt;x&lt;/b&gt;") && !html.includes("<b>x</b>"), "merchant escaped");
 });
 
+// ---- broken-match detector ("Check the match?") — step 5 sibling ----
+check("unmatchedStaplesHTML surfaces a long-tracked staple with a Fix-match action", () => {
+  const html = R.unmatchedStaplesHTML(
+    [{ item_id: 7, name: "Dish soap", restock_match: null, matched_by: "name",
+       tracked_since: "2026-07-01" }],
+    "2026-08-04");   // tracked 34 days → past the 21-day grace
+  assert.ok(html.includes("Check the match?"), "card heading");
+  assert.ok(html.includes('data-item-match="7"') && html.includes("Fix match"), "edit action for the item");
+  assert.ok(html.includes("nothing matched its name"), "name-match wording");
+});
+check("unmatchedStaplesHTML shows the override phrase when matched by phrase", () => {
+  const html = R.unmatchedStaplesHTML(
+    [{ item_id: 8, name: "Paper towels", restock_match: "costco", matched_by: "phrase",
+       tracked_since: "2026-06-01" }],
+    "2026-08-04");
+  assert.ok(html.includes("costco"), "phrase shown so the user sees what failed to match");
+});
+check("unmatchedStaplesHTML respects the grace period (no nag on a fresh staple)", () => {
+  const forecasts = [{ item_id: 9, name: "Rice", restock_match: null, matched_by: "name",
+    tracked_since: "2026-08-01" }];   // only 3 days tracked
+  assert.strictEqual(R.unmatchedStaplesHTML(forecasts, "2026-08-04"), "",
+    "a just-added staple isn't flagged before there's time to expect a purchase");
+});
+check("unmatchedStaplesHTML is empty without a today (derivation is clock-free)", () => {
+  const html = R.unmatchedStaplesHTML(
+    [{ item_id: 7, name: "Dish soap", restock_match: null, matched_by: "name",
+       tracked_since: "2026-01-01" }],
+    undefined);
+  assert.strictEqual(html, "", "no card without a client date");
+});
+
 // ---- analytics frontend batch (Tier B cards) ----
 const money = (c) => ({ cents: c, display: (c < 0 ? "−$" : "$") + Math.abs(c / 100).toFixed(2) });
 

@@ -1310,7 +1310,7 @@ was unaffected (its 1.x already satisfied `>=1.2`) but the pin protects rebuilds
 first parent = old rework tip so the push fast-forwarded; tree byte-identical to
 `main` — invariant restored).
 
-**Pantry predicted-low nudge — DONE, NOT YET DEPLOYED (Aug 5, 2026).** The
+**Pantry predicted-low nudge — DONE + DEPLOYED (Aug 5, 2026).** The
 INVENTORY-DESIGN step-5 payoff: `restock_forecast`'s "Coming up" card was
 read-only, so the prediction never *did* anything. Now an **overdue or due-today**
 stocked staple (predicted_date ≤ the client's today, computed at the view layer —
@@ -1324,20 +1324,46 @@ of `data-mark-low` wiring in app.js reusing `setItemStatus`; no schema, verb,
 derivation, route, or money path → **no balance gate**. render seam 65→66 (overdue
 & due-today actionable, future/1-day-out not); full python suite 417 green. Visual
 pass in light AND dark via a throwaway harness rendering the real function against
-`style.css` (in-app Browser tool worked this session). Ships through the zero-gate
-frontend deploy path when Alta merges + runs `deploy.sh` + a per-device hard
-refresh.
+`style.css` (in-app Browser tool worked this session). Deployed via `main`
+`47fb5b0` (`--no-ff` merge, first parent = prior main `14901b7`, tree == rework),
+`deploy.sh origin/main` → GATE PASS zero-diff, no migration; verified live
+(`data-mark-low` served from the Pi's `render.js`, `/api/status` 200).
+
+**Pantry broken-match detector — DONE, NOT YET DEPLOYED (Aug 5, 2026).** The
+brainstorm's highest-leverage inference: the match phrase (`restock_match`, or the
+item name when unset) is the linchpin of EVERY purchase inference — restock hints,
+forecast, and the predicted-low nudge all bottom out in `_matching_purchases` — so
+a staple with a wrong/too-specific phrase silently gets no hints forever and
+nobody would know. New read-time derivation `unmatched_staples(db)`: active
+staples whose phrase has matched ZERO purchases ever; each carries name,
+`restock_match`, `matched_by` (phrase|name), and `tracked_since` (created_at).
+**Clock-free** (a "tracked ≥21 days" grace lives at the view layer against the
+client date, so a just-added staple isn't nagged) and **outflows-only** via
+`_matching_purchases` (an inflow naming the item never counts as a match, so a
+broken staple stays surfaced) → tripwire-covered, no exemption; reads items +
+transactions, never touches money. `GET /api/inventory` gains `unmatched_staples`;
+rides `ledger_inventory` to both doors (MCP byte-equality test extended). Pantry
+UI: a muted "Check the match?" card (`unmatchedStaplesHTML`) listing each
+long-unmatched staple with a **"Fix match"** action reusing the existing
+`data-item-match` editor (no new app.js wiring). A REVIEW prompt, never an
+assertion the phrase is wrong — some staples are bought inside grocery runs and
+can't match by product (the step-5 merchant-not-product limit). No schema/
+migration, no money path → **zero-diff balance gate PASS** (`origin/main`→HEAD);
+suite 417→**422** python + 66→**70** render. Visual pass in light+dark via harness.
+**Not yet deployed** — frontend + read-endpoint, ships through the zero-gate
+frontend deploy path when Alta merges + runs `deploy.sh`; `ledger-mcp` picks up
+the extended `ledger_inventory` passthrough on its restart.
 
 **IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates:
-- **Deploy the predicted-low nudge** (above) — Alta's manual merge + `deploy.sh
+- **Deploy the broken-match detector** (above) — Alta's manual merge + `deploy.sh
   origin/main` + hard refresh (frontend, zero-gate).
 - **Analytics Tier C (budgets/envelopes)** — its own designed feature (a `budgets`
   migration + `set_budget` verb + `budget_status` derivation), NOT a quick add.
-- More pantry inference (all brainstormed Aug 5, none built): broken-match detector
-  (a tracked staple with zero matching purchases → "set a match phrase?"), money
-  tie-in ("$X/mo at the coffee shop"), post-shopping review nudge, list-rot
-  detector (out/low for weeks, no purchase → "still need it?"). Each its own
-  INVENTORY-DESIGN step-5+ increment; quantities/co-purchase remain refused.
+- More pantry inference (brainstormed Aug 5; predicted-low ✅ + broken-match ✅
+  built, these remain): money tie-in ("$X/mo at the coffee shop"), post-shopping
+  review nudge, list-rot detector (out/low for weeks, no purchase → "still need
+  it?"). Each its own INVENTORY-DESIGN step-5+ increment; quantities/co-purchase
+  remain refused.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

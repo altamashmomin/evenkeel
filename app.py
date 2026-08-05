@@ -23,7 +23,7 @@ from derivations import (anomaly_flags, bill_variance, cash_flow_forecast,
                          new_staple_suggestions,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
-                         spending_summary, top_merchants)
+                         spending_summary, top_merchants, unmatched_staples)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -625,6 +625,7 @@ def inventory_view():
         "restock_suggestions": suggestions,
         "restock_forecast": restock_forecast(db),
         "new_staple_suggestions": new_staples,
+        "unmatched_staples": unmatched_staples(db),
     })
 
 

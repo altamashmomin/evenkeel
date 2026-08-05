@@ -881,3 +881,44 @@ def new_staple_suggestions(db, min_purchases=3):
         })
     out.sort(key=lambda s: (s["purchases_seen"], s["last_purchase"]), reverse=True)
     return out
+
+
+def unmatched_staples(db):
+    """Broken-match detector (INVENTORY-DESIGN step 5 sibling): tracked staples
+    whose match phrase has NEVER matched a single purchase in the feed.
+
+    The match phrase (restock_match, or the item name when unset) is the linchpin
+    of every purchase inference — restock_suggestions, restock_forecast, and the
+    predicted-low nudge all bottom out in _matching_purchases — so a staple with a
+    wrong or too-specific phrase silently gets no hints, forever, and nobody would
+    know to look. This surfaces those staples so the human can fix (or clear) the
+    phrase, making the whole matching layer self-correcting.
+
+    A prompt to REVIEW, not an assertion the phrase is wrong: a staple can
+    legitimately have zero matches because it's bought inside grocery runs where
+    SimpleFIN sees the supermarket, not the product (the step-5 merchant-not-
+    product limit). The UI copy invites a look; the fix is optional.
+
+    Clock-free like restock_forecast: it reports each zero-match staple with the
+    date tracking began (created_at) and never reads a "today"; the "tracked long
+    enough to expect a match" grace period is a view-layer concern applied against
+    the client's date. Counting matching OUTFLOWS via _matching_purchases, it is
+    inflow-insensitive — an inflow whose description happens to contain the phrase
+    never counts as a match, so a broken staple stays surfaced — a property the
+    derivation tripwire covers with no exemption. Reads items + transactions;
+    never touches money. Oldest-tracked first (longest unmatched needs it most).
+    """
+    staples = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple'").fetchall()
+    out = []
+    for it in staples:
+        if _matching_purchases(db, it):     # any matching purchase ever → it works
+            continue
+        out.append({
+            "item_id": it["id"], "name": it["name"],
+            "restock_match": it["restock_match"],   # None → matching on the name
+            "matched_by": "phrase" if it["restock_match"] else "name",
+            "tracked_since": (it["created_at"] or "")[:10],
+        })
+    out.sort(key=lambda s: s["tracked_since"])
+    return out
