@@ -16,7 +16,8 @@ import actions
 import ask_loop
 from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (bill_variance, cash_flow_forecast, category_trend,
-                         compute_balance as derive_balance, income_summary,
+                         compute_balance as derive_balance, goal_pace,
+                         income_summary,
                          income_trend, low_stock, member_breakdown,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
@@ -919,6 +920,33 @@ def cash_flow_forecast_view():
         } for b in f["bills_remaining"]],
         "bills_remaining_total": money(f["bills_remaining_cents"]),
         "projected_net": money(f["projected_net_cents"]),
+    })
+
+
+@app.get("/api/analytics/goal-pace")
+@login_required
+def goal_pace_view():
+    """Per-goal completion-date projection at the lifetime-average contribution
+    rate (analytics Tier B #16), from the `goal_pace` derivation: net saved vs
+    target, a monthly rate, a projected finish date, and whether that beats the
+    goal's target_date (on_track / behind / projected / complete / no_pace).
+    `as_of` defaults to today. Money as {cents, display}; rate/projection null
+    when there's no net pace to extrapolate. Pure read."""
+    db = get_db()
+    as_of = request.args.get("as_of") or date.today().isoformat()
+    return jsonify({
+        "as_of": as_of,
+        "goals": [{
+            "goal_id": g["goal_id"], "name": g["name"],
+            "target": money(g["target_cents"]),
+            "saved": money(g["saved_cents"]),
+            "remaining": money(g["remaining_cents"]),
+            "target_date": g["target_date"],
+            "monthly_rate": None if g["monthly_rate_cents"] is None
+                            else money(g["monthly_rate_cents"]),
+            "projected_date": g["projected_date"],
+            "status": g["status"],
+        } for g in goal_pace(db, as_of)],
     })
 
 

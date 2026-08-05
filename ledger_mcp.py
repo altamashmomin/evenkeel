@@ -289,6 +289,16 @@ def ledger_cash_flow_forecast(
     return _json(api_get("/api/analytics/cash-flow-forecast", {"period": period}))
 
 
+@mcp.tool(name="ledger_goal_pace", title="Goal pace",
+          description=DESCRIPTIONS["ledger_goal_pace"], annotations=_READ)
+def ledger_goal_pace(
+    as_of: Annotated[Optional[str], Field(
+        default=None, pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="ISO date to project from. Omit for today.")] = None,
+) -> str:
+    return _json(api_get("/api/analytics/goal-pace", {"as_of": as_of}))
+
+
 @mcp.tool(name="ledger_list_income_rules", title="List income rules",
           description=DESCRIPTIONS["ledger_list_income_rules"], annotations=_READ)
 def ledger_list_income_rules() -> str:

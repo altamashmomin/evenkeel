@@ -183,6 +183,22 @@ READ_TOOLS = [
                                 {"period": a.get("period")}),
     },
     {
+        "name": "ledger_goal_pace",
+        "description":
+            "Per-goal completion projection at the LIFETIME-AVERAGE contribution "
+            "rate (net saved ÷ time since the first contribution): each goal's "
+            "saved vs target, a monthly rate, a projected finish date, and status "
+            "vs its target_date — complete / on_track / behind / projected (no "
+            "target) / no_pace (nothing to extrapolate yet). Answers 'when will "
+            "we hit the vacation goal?' / 'are we on pace?'. Money {cents, display}; "
+            "rate and projected_date are null when there's no net pace.",
+        "input_schema": _obj({
+            "as_of": {"type": "string",
+                      "description": "ISO date 'YYYY-MM-DD' to project from. Omit for today."},
+        }),
+        "fetch": lambda g, a: g("/api/analytics/goal-pace", {"as_of": a.get("as_of")}),
+    },
+    {
         "name": "ledger_list_income_rules",
         "description":
             "All income-classification rules in priority order (first match "
