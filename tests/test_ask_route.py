@@ -119,8 +119,8 @@ class AskRouteTests(unittest.TestCase):
         r = self.client().post("/api/ask", json={"message": "that was my paycheck"})
         self.assertEqual(200, r.status_code)
         self.assertEqual(["ledger_classify_inflow"], r.get_json()["tools_used"])
-        # the write tools were offered (14 read + 3 write), prompt grants tagging
-        self.assertEqual(17, len(mock.calls[0]["tools"]))
+        # the write tools were offered (15 read + 3 write), prompt grants tagging
+        self.assertEqual(18, len(mock.calls[0]["tools"]))
         self.assertIn("ledger_classify_inflow", mock.calls[0]["system"])
         # the row really flipped, logged as the session's person
         conn = sqlite3.connect(self.db_path); conn.row_factory = sqlite3.Row

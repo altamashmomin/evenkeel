@@ -273,6 +273,12 @@ def ledger_bill_variance(
     return _json(api_get("/api/analytics/bill-variance", {"period": period}))
 
 
+@mcp.tool(name="ledger_recurring_charges", title="Recurring charges",
+          description=DESCRIPTIONS["ledger_recurring_charges"], annotations=_READ)
+def ledger_recurring_charges() -> str:
+    return _json(api_get("/api/analytics/recurring"))
+
+
 @mcp.tool(name="ledger_list_income_rules", title="List income rules",
           description=DESCRIPTIONS["ledger_list_income_rules"], annotations=_READ)
 def ledger_list_income_rules() -> str:
