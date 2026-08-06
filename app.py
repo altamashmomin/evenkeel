@@ -15,8 +15,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import actions
 import ask_loop
 from actions import active_members, current_period, payer_share_pct, to_cents
-from derivations import (anomaly_flags, bill_variance, cash_flow_forecast,
-                         category_trend,
+from derivations import (anomaly_flags, bill_variance, budget_status,
+                         cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
                          income_summary, last_shopping_trip,
                          income_trend, low_stock, member_breakdown,
@@ -885,6 +885,29 @@ def spending_composition_view():
         "total": money(total),
         "by_category": by_category,
         "top_merchants": merchants,
+    })
+
+
+@app.get("/api/analytics/budget-status")
+@login_required
+def budget_status_view():
+    """Category budgets vs actual net spend for a period (Analytics Tier C),
+    from the `budget_status` derivation. Actual is refund-netted (spending_
+    summary). Money as {cents, display}; `pct`/`over` pass through. Pure read."""
+    db = get_db()
+    period = request.args.get("period") or current_period()
+    status = budget_status(db, period)
+    return jsonify({
+        "period": status["period"],
+        "budgets": [{
+            "category": b["category"],
+            "budgeted": money(b["budgeted_cents"]),
+            "actual": money(b["actual_cents"]),
+            "remaining": money(b["remaining_cents"]),
+            "over": b["over"],
+            "pct": b["pct"],
+        } for b in status["budgets"]],
+        "unbudgeted_spend": money(status["unbudgeted_spend_cents"]),
     })
 
 

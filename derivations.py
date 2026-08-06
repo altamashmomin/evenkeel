@@ -1036,3 +1036,40 @@ def last_shopping_trip(db):
         return None
     return {"date": trip["txn_date"][:10], "merchant": trip["description"],
             "category": trip["category"]}
+
+
+def budget_status(db, period):
+    """Category budgets vs actual net spend for a period — Analytics Tier C
+    (BUDGETS-DESIGN). For each ACTIVE budget: the monthly limit, the actual net
+    spend in that category this period (from spending_summary — refund-netted, so
+    a return lowers the actual), remaining (limit − actual), whether it's over,
+    and the percent used. Plus `unbudgeted_spend_cents`: the total net spend in
+    categories that have NO budget, so nothing hides.
+
+    Reads spending_summary (which nets income_type='refund' inflows), so it is
+    EXEMPT in the derivation tripwire exactly like category_trend — the exemption
+    is bounded to that refund netting; it computes no other inflow-sensitive
+    number. Nothing derived is stored; money stays integer cents (dollars at the
+    JSON edge). Over-budget first, then alphabetical. `period` (YYYY-MM) is
+    required — every real caller passes the viewed analytics month.
+    """
+    month_summary = spending_summary(db, month=period).get(period, {"by_category": []})
+    spend = {c["category"]: c["amount_cents"] for c in month_summary["by_category"]}
+    budgeted = db.execute(
+        "SELECT category, amount_cents FROM budgets WHERE active = 1").fetchall()
+    out = []
+    for b in budgeted:
+        limit, actual = b["amount_cents"], spend.get(b["category"], 0)
+        out.append({
+            "category": b["category"],
+            "budgeted_cents": limit,
+            "actual_cents": actual,
+            "remaining_cents": limit - actual,
+            "over": actual > limit,
+            "pct": round_ratio(actual * 100, limit) if limit else None,
+        })
+    out.sort(key=lambda s: (0 if s["over"] else 1, s["category"]))
+    budgeted_cats = {b["category"] for b in budgeted}
+    unbudgeted = sum(t for c, t in spend.items() if c not in budgeted_cats)
+    return {"period": period, "budgets": out,
+            "unbudgeted_spend_cents": unbudgeted}

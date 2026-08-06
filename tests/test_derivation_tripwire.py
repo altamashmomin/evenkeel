@@ -64,6 +64,11 @@ EXEMPT = {
                      "through spending_summary — so category spend is refund-"
                      "NETTED (same bounded exemption as category_trend); a "
                      "refund can legitimately clear an anomaly.",
+    "budget_status": "category budgets vs actual net spend, read through "
+                     "spending_summary — so 'actual' is refund-NETTED (same "
+                     "bounded exemption as category_trend); a refund can "
+                     "legitimately bring a category back under budget. Takes a "
+                     "`period` arg, so it isn't a bare db-aggregate either.",
 }
 
 

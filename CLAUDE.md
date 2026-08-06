@@ -1463,9 +1463,22 @@ zero-gate reads/frontend.
   **isolated zero-diff gate PASS** (`bc8fddb`→HEAD); suite 433→**443**. Still not
   deployed (deploy with a later inc, `#010 --live`).
 
-**Next:** budgets inc 3 (`budget_status` derivation + `GET /api/analytics/budget-
-status`), then inc 4 (Analytics UI). Alternative if paused: nothing else
-substantial is open.
+- **Inc 3 done (Aug 5, 2026).** Derivation `budget_status(db, period)`: for each
+  ACTIVE budget, `budgeted`/`actual`/`remaining`/`over`/`pct` where **actual is
+  refund-netted** (reads `spending_summary`), plus `unbudgeted_spend_cents` (net
+  spend in categories with no budget, so nothing hides); over-budget sorts first.
+  EXEMPT in the tripwire like `category_trend` (reads refund inflows via
+  spending_summary — bounded exemption; also takes a `period` arg). `GET
+  /api/analytics/budget-status` (period default `current_period()`, money `{cents,
+  display}` at the edge, `pct`/`over` pass through). `test_budget_status` (4:
+  refund netting, over-budget, unbudgeted, over-first sort) + `test_budget_status_
+  route` (2). No new schema, no money-path change → **isolated zero-diff gate PASS**
+  (`e085bf2`→HEAD); suite 443→**449**. Still not deployed (deploy with inc 4,
+  `#010 --live`).
+
+**Next:** budgets inc 4 (Analytics UI — the Budgets card: progress bars, red
+over-budget, inline set/edit), then one batched `deploy.sh` runs `#010 --live` for
+the whole feature. Alternative if paused: nothing else substantial is open.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
