@@ -681,4 +681,25 @@ check("goalPaceHTML maps status to a chip and shows the projection", () => {
   assert.ok(R.goalPaceHTML({ goals: [] }).includes("No goals yet"), "empty state");
 });
 
+// Wiring guard: app.js pulls Render helpers off window.Render in ONE destructuring
+// block and then calls them by BARE name. A helper added to render.js + called in
+// app.js but forgotten in that block is undefined at runtime ("Can't find variable")
+// — exactly what took out the Analytics tab when the budgets card shipped. This
+// fails the build instead of production.
+check("app.js destructures every Render helper it calls by bare name", () => {
+  const fs = require("fs"), path = require("path");
+  const app = fs.readFileSync(path.join(__dirname, "../static/app.js"), "utf8");
+  const block = app.match(/const\s*\{([^}]*)\}\s*=\s*window\.Render/);
+  assert.ok(block, "found the `= window.Render` destructuring block");
+  const imported = new Set(block[1].split(",").map((s) => s.trim()).filter(Boolean));
+  for (const name of Object.keys(R)) {
+    // bare call `name(` — not `.name(` (a method) and not `xname(` (a longer word)
+    const calledBare = new RegExp("(^|[^.\\w])" + name + "\\s*\\(").test(app);
+    if (calledBare) {
+      assert.ok(imported.has(name),
+        `app.js calls ${name}() but never destructures it from window.Render`);
+    }
+  }
+});
+
 console.log(`render tests passed (${passed} checks)`);

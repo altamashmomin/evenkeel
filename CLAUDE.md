@@ -1584,6 +1584,23 @@ Optional remaining: inc 4 (verb-side first-pass structural validation from
 coherence-check the CORE-DESIGN action-registry table). Neither is needed for the
 drift-prevention payoff, which is fully banked.
 
+**Batched deploy of the whole `rework` stack — main advanced (Aug 6, 2026).**
+`main` → `d100cac` (`--no-ff` merge, first parent = prior main `e5b50bb`, tree ==
+rework): budgets (Tier C, migration #010), mobile UI fixes, action-schema inc 1–3.
+Full gate PASS — enumerated #010 diff only (`budgets` None→0 + `schema_version`
+9→10), balance/monthly unchanged to the cent. Deployed by Alta (`#010 --live`).
+
+**HOTFIX (Aug 6, 2026) — Analytics tab was blank post-deploy** ("Can't find
+variable: budgetStatusHTML"). Root cause: budgets inc 4 added `budgetStatusHTML`
+to `render.js` + called it (bare name) in `renderAnalytics`, but never added it to
+app.js's `const { … } = window.Render` destructuring — so it was undefined at
+runtime and `renderAnalytics` threw, blanking the whole tab. The node seam missed
+it (it calls `R.budgetStatusHTML` directly, not through app.js's import). Fixed by
+adding it to the destructuring, AND added a **build guard** in `test_render.js`
+that statically asserts every Render helper app.js calls by bare name is
+destructured from `window.Render` (verified it bites — fails with the exact
+missing name). Frontend-only, zero-gate; render seam 80→**81**.
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 

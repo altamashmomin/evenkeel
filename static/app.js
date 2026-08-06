@@ -8,7 +8,7 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 // they can be unit-tested in plain node; app.js pulls them off the global.
 const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         vsLastMonth, incomeCardHTML, incomeTrendChartHTML, spendingCompositionHTML,
-        memberBreakdownHTML, billVarianceHTML, savingsRateTrendHTML,
+        memberBreakdownHTML, billVarianceHTML, budgetStatusHTML, savingsRateTrendHTML,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
         askThreadHTML, inventoryHTML } = window.Render;
