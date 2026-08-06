@@ -1382,6 +1382,64 @@ def archive_item(db, actor, item_id):
     return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
 
 
+def set_budget(db, actor, data):
+    """Set (or change) a category's monthly spending limit — Analytics Tier C
+    (BUDGETS-DESIGN). Upserts ONE row per category: a new category inserts, an
+    existing one has its amount replaced, and a previously removed one
+    reactivates (ON CONFLICT(category) DO UPDATE, active=1). A budget is a
+    category limit, not a transaction — it never touches money.
+
+    validate — category non-empty; amount positive (integer cents via to_cents).
+    edit — one transaction: the upsert + an audit row carrying before/after.
+    Returns the budget row.
+    """
+    with action_transaction(db):
+        category = (data.get("category") or "").strip()[:60]
+        if not category:
+            raise ActionError("category is required")
+        try:
+            cents = to_cents(data.get("amount"))
+        except (ValueError, TypeError):
+            raise ActionError("invalid amount")
+        if cents <= 0:
+            raise ActionError("amount must be positive")
+        before = db.execute(
+            "SELECT * FROM budgets WHERE category = ?", (category,)).fetchone()
+        now = _now()
+        db.execute(
+            "INSERT INTO budgets (category, amount_cents, created_at, updated_at, active) "
+            "VALUES (?, ?, ?, ?, 1) "
+            "ON CONFLICT(category) DO UPDATE SET "
+            "amount_cents = excluded.amount_cents, active = 1, updated_at = excluded.updated_at",
+            (category, cents, now, now))
+        row = db.execute(
+            "SELECT * FROM budgets WHERE category = ?", (category,)).fetchone()
+        _write_audit(db, actor, "set_budget", f"budget:{row['id']}",
+                     {"before": (dict(before) if before else None), "after": dict(row)})
+    return row
+
+
+def remove_budget(db, actor, budget_id):
+    """Remove a category's budget — a soft delete (active=0), matching
+    delete_bill/archive_item's bounded posture; the audit history is untouched.
+    Never touches money.
+
+    validate — the budget exists and is active (NotFound otherwise).
+    edit — one transaction: active=0 + updated_at + an audit row (before-image).
+    Returns the updated row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM budgets WHERE id = ?", (budget_id,)).fetchone()
+        if existing is None or not existing["active"]:
+            raise NotFound("not found")
+        db.execute("UPDATE budgets SET active = 0, updated_at = ? WHERE id = ?",
+                   (_now(), budget_id))
+        _write_audit(db, actor, "remove_budget", f"budget:{budget_id}",
+                     {"before": dict(existing)})
+    return db.execute("SELECT * FROM budgets WHERE id = ?", (budget_id,)).fetchone()
+
+
 def set_item_match(db, actor, item_id, restock_match):
     """Set or clear a staple's restock-match phrase — the OPTIONAL override that
     ties a purchase's description to this item for restock suggestions

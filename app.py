@@ -686,6 +686,48 @@ def delete_inventory_item(item_id):
     return jsonify({"ok": True})
 
 
+def budget_to_json(row):
+    """A budget row for the edge: its monthly limit as dollars {cents, display}."""
+    return {"id": row["id"], "category": row["category"],
+            "amount": {"cents": row["amount_cents"],
+                       "display": money_display(row["amount_cents"])}}
+
+
+@app.get("/api/budgets")
+@login_required
+def list_budgets():
+    """Active category budgets — the set/edit surface's source (Analytics Tier C)."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM budgets WHERE active = 1 ORDER BY category").fetchall()
+    return jsonify([budget_to_json(r) for r in rows])
+
+
+@app.post("/api/budgets")
+@login_required
+def set_budget_route():
+    """Thin caller: set_budget upserts one category's monthly spending limit."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.set_budget(db, ui_actor(db), data)
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(budget_to_json(row)), 201
+
+
+@app.delete("/api/budgets/<int:budget_id>")
+@login_required
+def remove_budget_route(budget_id):
+    """Thin caller: remove_budget soft-deletes (active=0)."""
+    db = get_db()
+    try:
+        actions.remove_budget(db, ui_actor(db), budget_id)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    return jsonify({"ok": True})
+
+
 @app.get("/api/income/summary")
 @login_required
 def income_summary_view():

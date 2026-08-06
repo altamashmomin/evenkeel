@@ -1452,9 +1452,20 @@ zero-gate reads/frontend.
   transaction, never touches money); suite 433 green. NOT deployed (deploy comes
   with a later inc, `#010 --live`).
 
-**Next:** budgets inc 2 (`set_budget`/`remove_budget` verbs + thin routes), then
-inc 3 (`budget_status` + endpoint), then inc 4 (Analytics UI). Alternative if
-paused: nothing else substantial is open.
+- **Inc 2 done (Aug 5, 2026).** Verbs `set_budget`/`remove_budget` in `actions.py`
+  (validate → edit → audit, the standard contract): `set_budget` upserts one row
+  per category (`INSERT … ON CONFLICT(category) DO UPDATE`, reactivating a removed
+  one), `remove_budget` soft-deletes (`active=0`, NotFound on missing/already-
+  inactive). Thin routes `GET`/`POST /api/budgets` + `DELETE /api/budgets/<id>`
+  (`login_required`, write scope for bearer), money `{cents, display}` at the edge
+  via `budget_to_json`. `test_budget_verbs` (5) + `test_budget_routes` (5, incl.
+  bearer write-scope gating). No new schema (rides inc 1's v10), no money path →
+  **isolated zero-diff gate PASS** (`bc8fddb`→HEAD); suite 433→**443**. Still not
+  deployed (deploy with a later inc, `#010 --live`).
+
+**Next:** budgets inc 3 (`budget_status` derivation + `GET /api/analytics/budget-
+status`), then inc 4 (Analytics UI). Alternative if paused: nothing else
+substantial is open.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
