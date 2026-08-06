@@ -18,7 +18,9 @@
 # What it does, in order:
 #   1. sanity-check the repo + a clean working tree
 #   2. git fetch (tags included)
-#   3. back up finance.db -> finance.db.bak-<timestamp>
+#   3. back up finance.db -> finance.db.bak-<timestamp>, then prune old backups
+#      down to the newest N (DEPLOY_KEEP_BACKUPS, default 10) so re-runs don't
+#      bloat the SD card — best-effort, never aborts the deploy
 #   4. DRY-RUN gate on the backup copy (verify_live_migration.py) — abort if it
 #      moves money or errors; the live DB is still untouched here
 #   5. stop the service, checkout <new_ref>, pip install, migrate --live
@@ -72,6 +74,50 @@ echo "-> backing up finance.db -> $BACKUP"
 "$PY" -c "import sqlite3,sys; sqlite3.connect('finance.db').execute('VACUUM INTO ?', [sys.argv[1]])" "$BACKUP" \
     || die "backup (VACUUM INTO) failed — aborting before any change"
 [ -s "$BACKUP" ] || die "backup is empty — aborting before any change"
+
+# --- 3b. prune old backups (keep newest N; best-effort, never blocks) ---------
+# deploy.sh writes a backup on EVERY run — including gate-failed and same-day
+# no-op re-runs — so without pruning, .bak files pile up and eventually trip the
+# Pi Ops guardian's backup-count alert. Prune here, right after the new backup
+# is written and verified, so the very runs that cause the bloat self-limit.
+# Non-fatal by design: housekeeping must never abort a deploy, so the whole
+# block is guarded and the top-level call swallows any error.
+#   - keeps the newest N (N = DEPLOY_KEEP_BACKUPS from .env, default 10)
+#   - the just-written $BACKUP is newest, so it is ALWAYS kept (this run's own
+#     rollback point can never be deleted)
+#   - only *.bak-* here; the off-Pi "golden" backup lives elsewhere, unreachable
+#   - deletes nothing until the new backup PROVES restorable via integrity_check
+#     (mirrors the guardian's integrity-before-trust discipline)
+# `|| true` because this key is OPTIONAL: when .env lacks it (the default), the
+# grep fails and, under `set -euo pipefail`, an unguarded assignment would abort
+# the whole deploy. Fall through to the default instead.
+KEEP="$(grep -E '^DEPLOY_KEEP_BACKUPS=' .env 2>/dev/null | cut -d= -f2)" || true
+KEEP="${KEEP:-10}"
+prune_backups() {
+    shopt -s nullglob
+    local baks=() f
+    for f in finance.db.bak-*; do            # lexical order == chronological (ts in name)
+        case "$f" in *-wal|*-shm|*-journal) continue;; esac   # never a sidecar
+        baks+=("$f")
+    done
+    shopt -u nullglob
+    local n=${#baks[@]}
+    (( n > KEEP )) || { echo "   $n backup(s) <= keep limit ($KEEP) — nothing to prune"; return 0; }
+    # immutable=1 so reading the backup never spawns -wal/-shm beside it.
+    local res
+    res="$("$PY" -c 'import sqlite3,sys; print(sqlite3.connect("file:%s?immutable=1"%sys.argv[1],uri=True).execute("PRAGMA integrity_check").fetchone()[0])' "$BACKUP" 2>/dev/null | head -1)"
+    if [ "$res" != "ok" ]; then
+        echo "   WARNING — new backup did not pass integrity_check ('${res:-unreadable}'); keeping ALL backups this run"
+        return 0
+    fi
+    local del=$(( n - KEEP )) i               # baks[] ascending → head is oldest
+    echo "   pruning $del old backup(s), keeping newest $KEEP of $n"
+    for (( i=0; i<del; i++ )); do             # $BACKUP is newest → in kept tail, never here
+        rm -f -- "${baks[$i]}" && echo "   pruned: ${baks[$i]}" \
+            || echo "   WARNING — could not remove ${baks[$i]}"
+    done
+}
+prune_backups || echo "   WARNING — backup prune step failed (non-fatal; deploy continues)"
 
 # --- 4. dry-run gate on the copy (live DB still untouched) --------------------
 echo "-> dry-run gate: proving no money moves ($OLD_REF -> $NEW_REF)"
