@@ -1516,6 +1516,24 @@ iPhone 14 Pro; frontend-only, no gate). Three fixes, all in `static/`:
   suite 449. (Same picker-on-open pattern may affect other date-first dialogs
   (bill/pay/contrib) — not reported, the same one-line blur fixes them if wanted.)
 
+**Declarative action parameters — SCOPED, not started (Aug 5, 2026).** Ontology
+convergence #2, designed in `docs/ACTION-SCHEMA-DESIGN.md`. The problem: a write
+action's parameter contract is hand-maintained in 3–4 places (e.g. `classify_
+inflow`'s income-type vocabulary lives in `INCOME_TYPES` frozenset AND
+`agent_write_tools`' `REAL_INCOME_TYPES` enum AND `ledger_mcp`'s Field-description
+prose), so adding an item status / income type silently leaves the agent tools'
+enums stale — nothing binds them. Design (decided with Alta): **full spec, write
+verbs only** — a `PARAM_SPECS` registry in `actions.py` (enums *reference* the
+existing constants, no copies) that GENERATES the Ask + MCP write-tool schemas,
+extending the same shared-source pattern that already binds `agent_read_tools.
+DESCRIPTIONS` across both doors. Structural shape only; semantic validation stays
+in the verb. Consolidation, not new capability → **no schema/migration/gate**.
+Build order: (1) `PARAM_SPECS` + byte-equal test vs today's schemas; (2)
+`agent_write_tools` generates from it; (3) `ledger_mcp` consumes it + drift test
+extended; (4–5 optional) verb-side first-pass validation (must preserve the
+parity-pinned error strings) + generated CORE-DESIGN registry table. Not started —
+a candidate whenever wanted.
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 
