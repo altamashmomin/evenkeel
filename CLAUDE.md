@@ -1476,9 +1476,26 @@ zero-gate reads/frontend.
   (`e085bf2`→HEAD); suite 443→**449**. Still not deployed (deploy with inc 4,
   `#010 --live`).
 
-**Next:** budgets inc 4 (Analytics UI — the Budgets card: progress bars, red
-over-budget, inline set/edit), then one batched `deploy.sh` runs `#010 --live` for
-the whole feature. Alternative if paused: nothing else substantial is open.
+- **Inc 4 done (Aug 5, 2026) — feature CODE-COMPLETE.** The Analytics-tab Budgets
+  card: `budgetStatusHTML(data, categories)` (render.js) — each budget a progress
+  bar (green under, red over via `.cat-bar i.over`, capped at 100% width) with
+  "actual of limit · pct%" and a remaining/over badge, ✎ edit (prompt) + ✕ remove;
+  an "Unbudgeted spend" line so nothing hides; a set-a-budget form (category
+  datalist from `/api/categories` + amount). `renderAnalytics` fans in
+  `/api/analytics/budget-status` + `/api/budgets` (ids) + `/api/categories`,
+  stashes `window._budgetStatus`/`window._budgets` (index-addressed actions, no
+  user content in attributes); `setBudget`/`editBudget`/`removeBudget` in app.js
+  wired in `wireMain`. One CSS gotcha fixed: the bar is stacked (not in a flex
+  row), so `.budget-bar` gives it explicit block/full width. Frontend only → no
+  gate; render seam 78→**80**, python suite 449. Visual pass light+dark via
+  harness (caught the collapsed-bar bug).
+
+**BUDGETS FEATURE IS CODE-COMPLETE (inc 1–4).** Ready for ONE batched deploy that
+ships `#010 --live` + the verbs + derivation + UI together: advance `main` to
+rework, `deploy.sh origin/main` runs its dry-run gate (PASSES — money-neutral —
+and prints the `#010` structural diff: `budgets` None→0 + `schema_version` 9→10,
+eyeball against notes/010), applies `#010 --live`, restarts. First `--live`
+migration since #009. Alternative if paused: nothing else substantial is open.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

@@ -428,6 +428,10 @@ main {
 .cat-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--bg); overflow: hidden; }
 .cat-bar i { display: block; height: 100%; border-radius: 999px;
   background: linear-gradient(90deg, #5AA983, var(--ok)); }
+.cat-bar i.over { background: var(--danger); }   /* over-budget fill (Analytics Tier C) */
+/* Budget bar sits stacked under its label (not in a flex row), so give it an
+   explicit block/full width instead of the cat-row `flex:1`. */
+.budget-bar { display: block; width: 100%; margin-top: 7px; }
 .cat-row .amt { width: 88px; text-align: right; font-size: 13px; }
 
 /* ---------- income card (savings ring) ---------- */

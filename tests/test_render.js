@@ -281,6 +281,33 @@ check("billVariance flags over/under/unpaid", () => {
   assert.ok(html.includes("unpaid"), "unpaid bill");
 });
 
+check("budgetStatusHTML bars under/over budget with actions + unbudgeted line", () => {
+  const html = R.budgetStatusHTML({
+    period: "2026-06",
+    budgets: [
+      { category: "Groceries", budgeted: M(50000), actual: M(25000),
+        remaining: M(25000), over: false, pct: 50 },
+      { category: "Dining", budgeted: M(10000), actual: M(15000),
+        remaining: M(-5000), over: true, pct: 150 },
+    ],
+    unbudgeted_spend: M(8000),
+  }, ["Groceries", "Dining", "Gas"]);
+  assert.ok(html.includes("Budgets"), "heading");
+  assert.ok(html.includes("$250.00 of $500.00 · 50%"), "actual of limit + pct");
+  assert.ok(html.includes("width:50%"), "under-budget bar = pct");
+  assert.ok(html.includes('class="over" style="width:100%"'), "over-budget bar capped + red class");
+  assert.ok(html.includes("$250.00 left") && html.includes("$50.00 over"), "remaining / over badges");
+  assert.ok(html.includes("Unbudgeted spend: $80.00"), "unbudgeted line");
+  assert.ok(html.includes('data-budget-edit="0"') && html.includes('data-budget-remove="1"'), "index-addressed actions");
+  assert.ok(html.includes('id="budget-add"') && html.includes('<option value="Gas">'), "add form + category datalist");
+});
+check("budgetStatusHTML shows an empty state but still offers the add form", () => {
+  const html = R.budgetStatusHTML(
+    { period: "2026-06", budgets: [], unbudgeted_spend: M(0) }, ["Gas"]);
+  assert.ok(html.includes("No budgets yet"), "empty state");
+  assert.ok(html.includes('id="budget-add"'), "add form always present");
+});
+
 check("savingsRateTrend headlines latest rolling rate, strips months", () => {
   const html = R.savingsRateTrendHTML({ series: [
     { month: "2026-05", savings_rate: 0.2, rolling_savings_rate: 0.2 },
