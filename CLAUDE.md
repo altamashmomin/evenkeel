@@ -1429,15 +1429,32 @@ python + 75→**78** render. Visual pass light+dark via harness. **DEPLOYED (Aug
 migration; verified live (`postShoppingHTML` + "check off anything you restocked"
 served, prior cards intact).
 
-**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** All four
-brainstormed pantry inferences are built AND DEPLOYED (predicted-low ✅ +
-broken-match ✅ + list-rot ✅ + money-tie-in ✅ + post-shopping ✅) — **the pantry
-inference track is complete.** Candidates:
-- **Analytics Tier C (budgets/envelopes)** — the biggest remaining candidate and
-  its own designed feature: a `budgets` migration + `set_budget` verb +
-  `budget_status` derivation + UI + an enumerated-diff gate. NOT a quick add.
-- Further pantry: quantities and co-purchase remain deliberately refused
-  (INVENTORY-DESIGN); the pantry inference track is essentially complete.
+The pantry inference track is complete (predicted-low ✅ + broken-match ✅ +
+list-rot ✅ + money-tie-in ✅ + post-shopping ✅, all deployed).
+
+**ANALYTICS TIER C — BUDGETS, underway (Aug 5, 2026).** Category spending limits,
+designed in `docs/BUDGETS-DESIGN.md` (governs, checked against CORE-DESIGN).
+Settled with Alta: **simple monthly budgets** (fresh limit each month, NOT
+rollover envelopes), an **Analytics-tab card** (not a dedicated view), per-category
+limits, any category budgetable (picker defaults to `DEFAULT_CATEGORIES`),
+display-only (no alerts v1), show an "unbudgeted spend" line, refunds net against
+actuals via `spending_summary`. Build order (one migration/verb per merge): **#010
+migration → `set_budget`/`remove_budget` verbs → `budget_status` derivation +
+endpoint → Analytics UI.** First schema-touching feature since #009 — inc 1
+carries an enumerated-diff gate + a `--live` migration on deploy; the rest are
+zero-gate reads/frontend.
+- **Inc 1 done (Aug 5, 2026).** Migration #010 creates the empty `budgets` table
+  (schema_version 9→10): `category UNIQUE` + `amount_cents` (monthly limit) +
+  soft-delete, mirroring #008's additive posture. `budgets` into `GOVERNED_TABLES`;
+  `set_budget`/`remove_budget` rows added to CORE-DESIGN's registry first (verbs in
+  inc 2); `REQUIRED_SCHEMA_VERSION` 9→10. **Enumerated-diff gate PASS** (notes/010:
+  `budgets`=0 + `schema_version` bump, nothing else — a budget is not a
+  transaction, never touches money); suite 433 green. NOT deployed (deploy comes
+  with a later inc, `#010 --live`).
+
+**Next:** budgets inc 2 (`set_budget`/`remove_budget` verbs + thin routes), then
+inc 3 (`budget_status` + endpoint), then inc 4 (Analytics UI). Alternative if
+paused: nothing else substantial is open.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
