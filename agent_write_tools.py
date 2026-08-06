@@ -17,16 +17,8 @@ is the shared ledger_inventory read tool, not here.
 """
 from typing import Callable
 
-# The real income types a human can assign — 'unclassified' is the *absence* of
-# a tag, never a target, so it isn't offered.
-REAL_INCOME_TYPES = ["paycheck", "reimbursement", "refund",
-                     "transfer", "gift", "other"]
-
-
-def _obj(props=None, required=None):
-    return {"type": "object", "properties": props or {},
-            "required": required or [], "additionalProperties": False}
-
+import actions   # the single source for each write verb's parameter schema
+                 # (ACTION-SCHEMA-DESIGN): input_schema = actions.param_schema(verb)
 
 WRITE_TOOLS = [
     {
@@ -43,16 +35,7 @@ WRITE_TOOLS = [
             "are kept out of income. NEVER guess the type — if you're not sure, "
             "ask. You cannot move money, record a settle-up, or edit or delete "
             "anything here; for those, tell them to use the app.",
-        "input_schema": _obj({
-            "transaction_id": {
-                "type": "integer",
-                "description": "The money-in row's id (from a search or the "
-                               "unclassified-inflows queue)."},
-            "income_type": {
-                "type": "string", "enum": REAL_INCOME_TYPES,
-                "description": "What kind of income it is, per the person's "
-                               "own words."},
-        }, required=["transaction_id", "income_type"]),
+        "input_schema": actions.param_schema("classify_inflow"),
         "execute": lambda caller, a: caller(
             "PUT", f"/api/transactions/{a['transaction_id']}/classify",
             {"income_type": a.get("income_type")}),
@@ -69,18 +52,7 @@ WRITE_TOOLS = [
             "that as status. Logged; there's no undo here (removing a tracked "
             "item happens in the app). This is groceries/supplies — it never "
             "touches money.",
-        "input_schema": _obj({
-            "name": {"type": "string",
-                     "description": "The item, e.g. 'Coffee'."},
-            "kind": {"type": "string", "enum": ["staple", "oneoff"],
-                     "description": "'staple' to track ongoing, 'oneoff' for a "
-                                    "one-time buy. Defaults to 'staple'."},
-            "status": {"type": "string", "enum": ["stocked", "low", "out"],
-                       "description": "Only if they said so. Defaults: a staple "
-                                      "starts 'stocked', a one-off starts 'out'."},
-            "note": {"type": "string",
-                     "description": "Optional detail, e.g. a brand or which store."},
-        }, required=["name"]),
+        "input_schema": actions.param_schema("add_item"),
         "execute": lambda caller, a: caller("POST", "/api/inventory", {
             k: a[k] for k in ("name", "kind", "status", "note") if a.get(k)}),
     },
@@ -92,12 +64,7 @@ WRITE_TOOLS = [
             "coffee'). Find the item's id first with ledger_inventory. Marking a "
             "ONE-OFF need 'stocked' means it was bought, so it drops off the "
             "shopping list. Reversible (set it again) and logged.",
-        "input_schema": _obj({
-            "item_id": {"type": "integer",
-                        "description": "The item's id, from ledger_inventory."},
-            "status": {"type": "string", "enum": ["stocked", "low", "out"],
-                       "description": "The new status."},
-        }, required=["item_id", "status"]),
+        "input_schema": actions.param_schema("set_item_status"),
         "execute": lambda caller, a: caller(
             "PUT", f"/api/inventory/{a['item_id']}", {"status": a.get("status")}),
     },

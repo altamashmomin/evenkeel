@@ -1548,9 +1548,21 @@ parity-pinned error strings) + generated CORE-DESIGN registry table.
   bound (until inc 2). No schema/route/money change → no balance gate; suite
   449→**453** python + 80 render.
 
-**Next:** inc 2 — `agent_write_tools` builds each tool's `input_schema` from
-`param_schema(verb)` (delete the hand-written blocks + its `REAL_INCOME_TYPES`
-copy), equality test. Then inc 3 (`ledger_mcp` consumes it + drift test extended).
+- **Inc 2 done (Aug 5, 2026).** `agent_write_tools` now GENERATES each tool's
+  `input_schema` from `actions.param_schema(verb)` — the hand-written schema
+  blocks + the `_obj` helper + the `REAL_INCOME_TYPES` copy are deleted (128→94
+  lines). The served schemas are byte-identical to before (inc 1 pinned
+  `param_schema` == the old hand-written; the ask-write/loop/route tests confirm
+  end-to-end). The single-source is now real: the income-type/kind/status
+  vocabulary lives ONLY in `actions.py`. `test_action_schema` updated (the
+  byte-equal test became "tools consume PARAM_SPECS"; the income-binding test
+  became an unclassified-excluded check). No schema/route/money change → no gate;
+  suite **453** python + 80 render.
+
+**Next:** inc 3 — `ledger_mcp` write tools consume `param_schema` (today their
+schemas come from FastMCP type-hint introspection), + extend the shared-source
+drift test from descriptions to parameters. Then inc 4–5 optional (verb-side
+first-pass validation preserving parity-pinned messages; generated registry table).
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
