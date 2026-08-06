@@ -1401,21 +1401,42 @@ Honest limit (step 5): merchant-level — the whole coffee shop, not one cup; a
 grocery-hidden staple shows nothing. No schema/migration; reports money but the
 gate's balance/monthly/rowcount snapshot is untouched → **zero-diff balance gate
 PASS** (`origin/main`→HEAD, 23 values); suite 426→**430** python + 73→**75**
-render. Visual pass light+dark via harness. **Not yet deployed** — frontend +
-read-endpoint, zero-gate deploy path when Alta merges + runs `deploy.sh`.
+render. Visual pass light+dark via harness. **DEPLOYED (Aug 5, 2026)** via `main`
+`a63f6d1` (`--no-ff` merge, first parent = prior main `ed38edd`, tree == rework),
+`deploy.sh origin/main` → GATE PASS zero-diff, no migration; verified live
+(`stapleSpendHTML` + "What your staples cost" served, prior cards intact).
 
-**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates
-(session plan: work the remaining pantry inferences easiest→hardest, then Tier C):
-- **Deploy the money tie-in** (above) — Alta's manual merge + `deploy.sh
+**Pantry post-shopping review nudge — DONE, NOT YET DEPLOYED (Aug 5, 2026).** The
+last of the four brainstormed pantry inferences, and the one that leans hardest
+INTO the merchant-not-product limit: the feed can't say WHAT you bought inside a
+grocery run, so instead of guessing which staples you restocked, it prompts you
+to review. New read-time derivation `last_shopping_trip(db)`: the most recent
+outflow in a shopping category (`SHOPPING_CATEGORIES = Groceries, Household`),
+`{date, merchant, category}` or None. **Clock-free** (returns only the trip date)
+and **outflows-only**, settlements excluded (like `top_merchants`) → an inflow
+never counts as a trip, tripwire-covered, no exemption; reads transactions, never
+touches money. `GET /api/inventory` gains `last_shopping_trip`; rides
+`ledger_inventory` to both doors (MCP key-set test extended). Pantry UI: a gentle
+green nudge (`postShoppingHTML`) above "Need to buy" — "You shopped yesterday · 🛒
+FRESH MART — check off anything you restocked below" — shown ONLY when the trip is
+within a **3-day window** (view-layer) AND the shopping list is non-empty, so it
+self-clears once the list is emptied or the trip ages out. No action of its own
+(it points at the Need-to-buy Got-it buttons — no duplication). No schema/
+migration, no money path → **zero-diff balance gate PASS**; suite 430→**433**
+python + 75→**78** render. Visual pass light+dark via harness. **Not yet deployed**
+— frontend + read-endpoint, zero-gate deploy path when Alta merges + runs
+`deploy.sh`.
+
+**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** All four
+brainstormed pantry inferences are now built (predicted-low ✅ + broken-match ✅ +
+list-rot ✅ + money-tie-in ✅ + post-shopping ✅). Candidates:
+- **Deploy the post-shopping nudge** (above) — Alta's manual merge + `deploy.sh
   origin/main` + hard refresh (frontend, zero-gate).
-- More pantry inference (brainstormed Aug 5; predicted-low ✅ + broken-match ✅ +
-  list-rot ✅ + money-tie-in ✅ built): **post-shopping review nudge** is the last
-  one remaining — after a grocery-category purchase, "you shopped — anything to
-  check off?". Its own INVENTORY-DESIGN step-5+ increment; quantities/co-purchase
-  remain refused.
-- **Analytics Tier C (budgets/envelopes)** — its own designed feature (a `budgets`
-  migration + `set_budget` verb + `budget_status` derivation), NOT a quick add;
-  the largest of the remaining candidates.
+- **Analytics Tier C (budgets/envelopes)** — the biggest remaining candidate and
+  its own designed feature: a `budgets` migration + `set_budget` verb +
+  `budget_status` derivation + UI + an enumerated-diff gate. NOT a quick add.
+- Further pantry: quantities and co-purchase remain deliberately refused
+  (INVENTORY-DESIGN); the pantry inference track is essentially complete.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

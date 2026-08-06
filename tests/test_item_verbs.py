@@ -462,6 +462,33 @@ class ItemVerbTests(unittest.TestCase):
                        direction="in", income_type="refund")
         self.assertEqual(3000, self._spend("Coffee")[0]["total_cents"])
 
+    # ---- last_shopping_trip derivation (post-shopping review nudge) ----------
+    def test_last_shopping_trip_returns_most_recent_grocery_outflow(self):
+        # _purchase inserts a Groceries outflow; dated later than the seed's.
+        self._purchase("FRESH MART", "2026-08-04")
+        trip = derivations.last_shopping_trip(self.db)
+        self.assertEqual("2026-08-04", trip["date"])
+        self.assertEqual("FRESH MART", trip["merchant"])
+        self.assertEqual("Groceries", trip["category"])
+
+    def test_last_shopping_trip_ignores_inflows(self):
+        self._purchase("FRESH MART", "2026-08-04")                 # outflow
+        self._purchase("GROCERY REFUND", "2026-08-10",             # newer, inflow
+                       direction="in", income_type="refund")
+        self.assertEqual("FRESH MART",
+                         derivations.last_shopping_trip(self.db)["merchant"])
+
+    def test_last_shopping_trip_ignores_settlements(self):
+        self._purchase("FRESH MART", "2026-08-04")
+        # A newer settlement in a shopping category must not become "the trip".
+        self.db.execute(
+            "INSERT INTO transactions (txn_date, amount_cents, description, "
+            "category, paid_by, is_shared, source, direction) VALUES "
+            "('2026-08-11', 5000, 'Settle Up', 'Groceries', 1, 0, 'settlement', 'out')")
+        self.db.commit()
+        self.assertEqual("FRESH MART",
+                         derivations.last_shopping_trip(self.db)["merchant"])
+
 
 if __name__ == "__main__":
     unittest.main()

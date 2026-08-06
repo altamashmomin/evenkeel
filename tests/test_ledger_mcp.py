@@ -184,7 +184,7 @@ class LedgerMcpReadTierTests(unittest.TestCase):
         self.assertEqual(
             {"items", "shopping", "low_count", "restock_suggestions",
              "restock_forecast", "new_staple_suggestions", "unmatched_staples",
-             "stale_shopping_items", "staple_spend"},
+             "stale_shopping_items", "staple_spend", "last_shopping_trip"},
             set(body))
 
     # -- money shape ----------------------------------------------------------

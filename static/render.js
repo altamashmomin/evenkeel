@@ -701,6 +701,28 @@
       </div>`;
   }
 
+  /* ===== "You shopped — check your list" — post-shopping review nudge =====
+     Pure function of last_shopping_trip ({date, merchant, category} | null), the
+     shopping list, and the client's today. Leans into the merchant-not-product
+     limit: the feed can't say WHAT you bought inside a grocery run, so rather
+     than guess which staples you restocked, it prompts a human to review. Shows
+     ONLY for a recent trip (within windowDays, default 3) when there's a non-
+     empty list to check off — so it clears itself once the list is emptied or the
+     trip ages out. No action of its own: it points at the "Need to buy" card
+     right below (whose Got-it buttons do the checking off). The derivation is
+     clock-free; "recent" is decided here (no today → no nudge). */
+  function postShoppingHTML(trip, shopping, todayISO, windowDays) {
+    if (!trip || !todayISO || !shopping || !shopping.length) return "";
+    const window = windowDays == null ? 3 : windowDays;
+    const days = daysBetween(trip.date, todayISO);
+    if (days < 0 || days > window) return "";   // future, or aged out
+    const when = days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+    return `<div class="card restock-card">
+        <p class="eyebrow">You shopped ${when}</p>
+        <p class="match-hint" style="margin:2px">🛒 ${esc(trip.merchant)} — check off anything you restocked below.</p>
+      </div>`;
+  }
+
   /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 + step 5 =====
      Pure function of the /api/inventory JSON:
        { items: [staples, urgent-first], shopping: [staples low/out + oneoffs],
@@ -724,6 +746,7 @@
     const matchCard = unmatchedStaplesHTML(data.unmatched_staples, todayISO);
     const staleCard = staleShoppingHTML(data.stale_shopping_items, todayISO);
     const spendCard = stapleSpendHTML(data.staple_spend);
+    const tripCard = postShoppingHTML(data.last_shopping_trip, shopping, todayISO);
 
     const restockCard = suggestions.length
       ? `<div class="card restock-card">
@@ -786,6 +809,7 @@
         ${data.low_count > 0 ? `<span class="badge due">${data.low_count} running low</span>` : ""}
       </div>
       ${restockCard}
+      ${tripCard}
       <div class="card">
         <p class="eyebrow">Need to buy</p>
         ${shopRows}
@@ -811,7 +835,8 @@
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
-           unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML, inventoryHTML,
+           unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
+           postShoppingHTML, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML,
