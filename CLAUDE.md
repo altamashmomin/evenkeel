@@ -1423,15 +1423,16 @@ within a **3-day window** (view-layer) AND the shopping list is non-empty, so it
 self-clears once the list is emptied or the trip ages out. No action of its own
 (it points at the Need-to-buy Got-it buttons — no duplication). No schema/
 migration, no money path → **zero-diff balance gate PASS**; suite 430→**433**
-python + 75→**78** render. Visual pass light+dark via harness. **Not yet deployed**
-— frontend + read-endpoint, zero-gate deploy path when Alta merges + runs
-`deploy.sh`.
+python + 75→**78** render. Visual pass light+dark via harness. **DEPLOYED (Aug 5,
+2026)** via `main` `e5b50bb` (`--no-ff` merge, first parent = prior main
+`a63f6d1`, tree == rework), `deploy.sh origin/main` → GATE PASS zero-diff, no
+migration; verified live (`postShoppingHTML` + "check off anything you restocked"
+served, prior cards intact).
 
 **IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** All four
-brainstormed pantry inferences are now built (predicted-low ✅ + broken-match ✅ +
-list-rot ✅ + money-tie-in ✅ + post-shopping ✅). Candidates:
-- **Deploy the post-shopping nudge** (above) — Alta's manual merge + `deploy.sh
-  origin/main` + hard refresh (frontend, zero-gate).
+brainstormed pantry inferences are built AND DEPLOYED (predicted-low ✅ +
+broken-match ✅ + list-rot ✅ + money-tie-in ✅ + post-shopping ✅) — **the pantry
+inference track is complete.** Candidates:
 - **Analytics Tier C (budgets/envelopes)** — the biggest remaining candidate and
   its own designed feature: a `budgets` migration + `set_budget` verb +
   `budget_status` derivation + UI + an enumerated-diff gate. NOT a quick add.
