@@ -18,7 +18,7 @@ from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (anomaly_flags, bill_variance, cash_flow_forecast,
                          category_trend,
                          compute_balance as derive_balance, goal_pace,
-                         income_summary,
+                         income_summary, last_shopping_trip,
                          income_trend, low_stock, member_breakdown,
                          new_staple_suggestions,
                          recurring_charges, restock_forecast, restock_suggestions,
@@ -634,6 +634,7 @@ def inventory_view():
         "unmatched_staples": unmatched_staples(db),
         "stale_shopping_items": stale_shopping_items(db),
         "staple_spend": spend,
+        "last_shopping_trip": last_shopping_trip(db),
     })
 
 

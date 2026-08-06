@@ -1002,3 +1002,37 @@ def staple_spend(db, min_purchases=3):
         })
     out.sort(key=lambda s: s["monthly_cents"], reverse=True)   # priciest first
     return out
+
+
+# The transaction categories that count as a "shopping trip" for the pantry —
+# the pantry-supply subset of app.DEFAULT_CATEGORIES. Kept here (not imported
+# from app) so the derivation layer has no route dependency.
+SHOPPING_CATEGORIES = ("Groceries", "Household")
+
+
+def last_shopping_trip(db):
+    """The most recent grocery/household outflow — the trigger for the post-
+    shopping review nudge (INVENTORY-DESIGN step 5 sibling). A deliberate lean
+    INTO the merchant-not-product limit: the feed can't say WHAT you bought inside
+    a supermarket run, so instead of guessing which staples you restocked, the UI
+    uses this to prompt "you shopped — check your list". Returns
+    {date, merchant, category} or None.
+
+    Clock-free: it returns only the trip's date; "recent enough to prompt" and "is
+    there anything on the list to check off" are view-layer concerns — the
+    frontend shows the nudge only for a recent trip when the shopping list is
+    non-empty, so it clears itself once the list is emptied or the trip ages out.
+    OUTFLOWS ONLY, settlements excluded (like top_merchants / new_staple_
+    suggestions), so an inflow never counts as a shopping trip — tripwire-covered,
+    no exemption. Reads transactions; never touches money.
+    """
+    placeholders = ",".join("?" for _ in SHOPPING_CATEGORIES)
+    trip = db.execute(
+        f"SELECT txn_date, description, category FROM transactions "
+        f"WHERE direction = 'out' AND source != 'settlement' "
+        f"AND category IN ({placeholders}) "
+        f"ORDER BY txn_date DESC, id DESC LIMIT 1", SHOPPING_CATEGORIES).fetchone()
+    if trip is None:
+        return None
+    return {"date": trip["txn_date"][:10], "merchant": trip["description"],
+            "category": trip["category"]}

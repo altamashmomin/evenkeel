@@ -579,6 +579,27 @@ check("stapleSpendHTML is empty when nothing qualifies", () => {
   assert.strictEqual(R.stapleSpendHTML(undefined), "", "no card when field absent");
 });
 
+// ---- post-shopping review nudge ("You shopped …") — step 5 sibling ----
+check("postShoppingHTML nudges after a recent trip when the list is non-empty", () => {
+  const html = R.postShoppingHTML(
+    { date: "2026-08-03", merchant: "Fresh Mart", category: "Groceries" },
+    [{ id: 1, name: "Milk" }], "2026-08-04");   // 1 day ago
+  assert.ok(html.includes("You shopped yesterday"), "recency phrasing");
+  assert.ok(html.includes("Fresh Mart"), "merchant named");
+});
+check("postShoppingHTML says 'today' for a same-day trip", () => {
+  assert.ok(R.postShoppingHTML(
+    { date: "2026-08-04", merchant: "Fresh Mart", category: "Groceries" },
+    [{ id: 1 }], "2026-08-04").includes("You shopped today"), "same-day phrasing");
+});
+check("postShoppingHTML stays quiet when there's nothing to prompt", () => {
+  const trip = { date: "2026-08-03", merchant: "Fresh Mart", category: "Groceries" };
+  assert.strictEqual(R.postShoppingHTML(trip, [], "2026-08-04"), "", "empty list → no nudge");
+  assert.strictEqual(R.postShoppingHTML(trip, [{ id: 1 }], "2026-08-20"), "", "trip aged out → no nudge");
+  assert.strictEqual(R.postShoppingHTML(null, [{ id: 1 }], "2026-08-04"), "", "no trip → no nudge");
+  assert.strictEqual(R.postShoppingHTML(trip, [{ id: 1 }], undefined), "", "no today → no nudge");
+});
+
 // ---- analytics frontend batch (Tier B cards) ----
 const money = (c) => ({ cents: c, display: (c < 0 ? "−$" : "$") + Math.abs(c / 100).toFixed(2) });
 
