@@ -1531,8 +1531,26 @@ in the verb. Consolidation, not new capability → **no schema/migration/gate**.
 Build order: (1) `PARAM_SPECS` + byte-equal test vs today's schemas; (2)
 `agent_write_tools` generates from it; (3) `ledger_mcp` consumes it + drift test
 extended; (4–5 optional) verb-side first-pass validation (must preserve the
-parity-pinned error strings) + generated CORE-DESIGN registry table. Not started —
-a candidate whenever wanted.
+parity-pinned error strings) + generated CORE-DESIGN registry table.
+- **Inc 1 done (Aug 5, 2026).** `PARAM_SPECS` + `param_schema(verb)` +
+  `Param` dataclass in `actions.py` — the single source for the three agent-exposed
+  write verbs' parameter schemas (`classify_inflow`, `add_item`, `set_item_status`).
+  Enums reference NEW ordered vocabulary tuples (`REAL_INCOME_TYPE_ORDER`,
+  `ITEM_KIND_ORDER`, `ITEM_STATUS_ORDER`) that the membership frozensets now
+  DERIVE from (`INCOME_TYPES`/`ITEM_KINDS`/`ITEM_STATUSES` = `frozenset(order)`),
+  so offered-choices ↔ validated-vocabulary can't drift, and the order (a
+  presentation choice) stays human-controlled. **Nothing consumes PARAM_SPECS yet**
+  (inc 2/3 do) → zero behavior change; the constant refactor is value-identical
+  (full suite proves it). `tests/test_action_schema.py` (4): `param_schema(verb)`
+  **byte-equal** to today's hand-written `agent_write_tools` `input_schema` (tooth
+  verified — perturbing the hand-written schema fails it), enum-order ↔ frozenset
+  membership bound, `REAL_INCOME_TYPE_ORDER` ↔ `agent_write_tools.REAL_INCOME_TYPES`
+  bound (until inc 2). No schema/route/money change → no balance gate; suite
+  449→**453** python + 80 render.
+
+**Next:** inc 2 — `agent_write_tools` builds each tool's `input_schema` from
+`param_schema(verb)` (delete the hand-written blocks + its `REAL_INCOME_TYPES`
+copy), equality test. Then inc 3 (`ledger_mcp` consumes it + drift test extended).
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

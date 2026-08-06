@@ -25,6 +25,7 @@ import hashlib
 import json
 import secrets
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -748,8 +749,13 @@ def withdraw_from_goal(db, actor, goal_id, member_id, amount_cents, note=None):
         db, actor, "withdraw_from_goal", goal_id, member_id, amount_cents, note)
 
 
-INCOME_TYPES = frozenset(
-    {"paycheck", "reimbursement", "refund", "transfer", "gift", "other", "unclassified"})
+# Ordered for the agent-tool enums (a presentation choice); the frozenset used for
+# membership checks derives from it, so the offered vocabulary and the validated
+# vocabulary can't drift. 'unclassified' is the ABSENCE of a tag — a valid stored
+# value but never an assignable choice, so it stays out of the offered order.
+REAL_INCOME_TYPE_ORDER = ("paycheck", "reimbursement", "refund",
+                          "transfer", "gift", "other")
+INCOME_TYPES = frozenset(REAL_INCOME_TYPE_ORDER) | {"unclassified"}
 
 
 def classify_inflow(db, actor, txn_id, income_type):
@@ -1293,8 +1299,12 @@ def find_active_api_token(db, token):
 
 # ─────────────────────── inventory (INVENTORY-DESIGN, the pantry) ─────────
 
-ITEM_KINDS = frozenset({"staple", "oneoff"})
-ITEM_STATUSES = frozenset({"stocked", "low", "out"})
+# Ordered for the agent-tool enums; the frozensets (membership) derive from the
+# order, so the offered and validated vocabularies stay one source.
+ITEM_KIND_ORDER = ("staple", "oneoff")
+ITEM_KINDS = frozenset(ITEM_KIND_ORDER)
+ITEM_STATUS_ORDER = ("stocked", "low", "out")     # stocked → low → out (severity)
+ITEM_STATUSES = frozenset(ITEM_STATUS_ORDER)
 
 
 def add_item(db, actor, data):
@@ -1462,3 +1472,69 @@ def set_item_match(db, actor, item_id, restock_match):
         _write_audit(db, actor, "set_item_match", f"item:{item_id}",
                      {"before": existing["restock_match"], "after": phrase})
     return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+
+
+# ─────────────────── declarative action parameters (ACTION-SCHEMA-DESIGN) ──────
+# The single source for each agent-exposed write verb's PARAMETER schema. Enums
+# reference the ordered vocabulary tuples the frozensets also derive from, so the
+# offered choices, the verb's validation, and the agent tool schema are one
+# source — a new item status or income type can't leave the tools' enums stale.
+# STRUCTURAL shape only (name/type/required/enum); semantic validation stays in
+# the verb. agent_write_tools + ledger_mcp GENERATE their tool schemas from this
+# (build order steps 2–3); a test pins param_schema() byte-equal to today's
+# hand-written schemas so those steps are zero-change.
+
+@dataclass(frozen=True)
+class Param:
+    """One agent-facing parameter of a write action: JSON type, whether it's
+    required, an optional ordered enum (a verb vocabulary constant, never a copy),
+    and the prose the agent reads."""
+    name: str
+    type: str                 # "string" | "integer" — JSON Schema types
+    description: str
+    required: bool = True
+    enum: tuple = None        # ordered choices; references a verb constant
+
+
+PARAM_SPECS = {
+    "classify_inflow": [
+        Param("transaction_id", "integer",
+              "The money-in row's id (from a search or the unclassified-inflows "
+              "queue)."),
+        Param("income_type", "string",
+              "What kind of income it is, per the person's own words.",
+              enum=REAL_INCOME_TYPE_ORDER),
+    ],
+    "add_item": [
+        Param("name", "string", "The item, e.g. 'Coffee'."),
+        Param("kind", "string",
+              "'staple' to track ongoing, 'oneoff' for a one-time buy. Defaults "
+              "to 'staple'.", required=False, enum=ITEM_KIND_ORDER),
+        Param("status", "string",
+              "Only if they said so. Defaults: a staple starts 'stocked', a "
+              "one-off starts 'out'.", required=False, enum=ITEM_STATUS_ORDER),
+        Param("note", "string",
+              "Optional detail, e.g. a brand or which store.", required=False),
+    ],
+    "set_item_status": [
+        Param("item_id", "integer", "The item's id, from ledger_inventory."),
+        Param("status", "string", "The new status.", enum=ITEM_STATUS_ORDER),
+    ],
+}
+
+
+def param_schema(verb):
+    """The JSON-Schema input object for a write verb, generated from PARAM_SPECS —
+    the single source both agent tool surfaces consume. Structural shape only; the
+    verb still owns semantic validation."""
+    props, required = {}, []
+    for p in PARAM_SPECS[verb]:
+        prop = {"type": p.type}
+        if p.enum is not None:
+            prop["enum"] = list(p.enum)
+        prop["description"] = p.description
+        props[p.name] = prop
+        if p.required:
+            required.append(p.name)
+    return {"type": "object", "properties": props, "required": required,
+            "additionalProperties": False}
