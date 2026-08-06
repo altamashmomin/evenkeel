@@ -1559,10 +1559,30 @@ parity-pinned error strings) + generated CORE-DESIGN registry table.
   became an unclassified-excluded check). No schema/route/money change → no gate;
   suite **453** python + 80 render.
 
-**Next:** inc 3 — `ledger_mcp` write tools consume `param_schema` (today their
-schemas come from FastMCP type-hint introspection), + extend the shared-source
-drift test from descriptions to parameters. Then inc 4–5 optional (verb-side
-first-pass validation preserving parity-pinned messages; generated registry table).
+- **Inc 3 done (Aug 5, 2026).** The MCP door: `ledger_mcp`'s write tools carried
+  the income vocabulary in prose twice (`classify_inflow`'s `income_type`,
+  `propose_income_rule`'s `set_type` — "One of: paycheck, …"). FastMCP builds its
+  schemas from the function signature (not a schema you can hand it), so rather
+  than force a whole-`param_schema` consume, the actual drift risk — the
+  VOCABULARY — is now sourced from `actions.REAL_INCOME_TYPE_ORDER` via Pydantic
+  `Field(json_schema_extra={"enum": …})`, and the type-list is dropped from the
+  prose. Bonus: the MCP schema now ENFORCES the enum (prose never did — the verb
+  was the only guard). Drift test in `test_agent_read_tools` (parallel to the
+  read-tier descriptions drift test) asserts both tools' generated income enums
+  equal the shared constant. No money/schema/route change → no gate; suite
+  453→**454**. **The three vocabulary copies (verb constant + Ask enum + MCP
+  prose×2) are now one source in `actions.py`, across BOTH doors.** Honest limit:
+  FastMCP's signature-introspection means the parameter STRUCTURE (names/
+  descriptions) still lives in the MCP signatures — descriptions legitimately
+  differ per door (as the read tier already does); only the drift-prone vocabulary
+  is unified.
+
+**Action-schema build order steps 1–3 are DONE — the vocabulary is single-sourced
+across the verb, the Ask door, and the MCP door, drift-tested at every seam.**
+Optional remaining: inc 4 (verb-side first-pass structural validation from
+`PARAM_SPECS`, must preserve the parity-pinned error strings) + inc 5 (generate/
+coherence-check the CORE-DESIGN action-registry table). Neither is needed for the
+drift-prevention payoff, which is fully banked.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
