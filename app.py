@@ -23,8 +23,8 @@ from derivations import (anomaly_flags, bill_variance, cash_flow_forecast,
                          new_staple_suggestions,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
-                         spending_summary, stale_shopping_items, top_merchants,
-                         unmatched_staples)
+                         spending_summary, stale_shopping_items, staple_spend,
+                         top_merchants, unmatched_staples)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -619,6 +619,11 @@ def inventory_view():
     for s in new_staples:
         cents = s.pop("total_spent_cents")
         s["total_spent"] = {"cents": cents, "display": money_display(cents)}
+    spend = staple_spend(db)
+    for s in spend:
+        for key in ("total", "monthly"):
+            cents = s.pop(f"{key}_cents")
+            s[key] = {"cents": cents, "display": money_display(cents)}
     return jsonify({
         "items": [item_to_json(r) for r in staples],
         "shopping": [item_to_json(r) for r in shopping_list(db)],
@@ -628,6 +633,7 @@ def inventory_view():
         "new_staple_suggestions": new_staples,
         "unmatched_staples": unmatched_staples(db),
         "stale_shopping_items": stale_shopping_items(db),
+        "staple_spend": spend,
     })
 
 

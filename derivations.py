@@ -955,3 +955,50 @@ def stale_shopping_items(db):
         })
     out.sort(key=lambda s: (s["low_since"], s["name"]))   # oldest-neglected first
     return out
+
+
+def staple_spend(db, min_purchases=3):
+    """Money tie-in (INVENTORY-DESIGN step 5's named deferred future): what each
+    tracked staple costs, from its matching purchases — "~$42/mo on coffee". The
+    read-only cost view over the same _matching_purchases every restock inference
+    uses, so "coffee" here means exactly what it means everywhere else in the
+    pantry.
+
+    A staple qualifies with >= min_purchases (default 3) matching purchases on
+    DISTINCT days — the conservative bar the forecast/new-staple derivations
+    share, so a single buy never fabricates a "monthly rate". monthly_cents =
+    total / months_spanned (inclusive calendar months first→last), float-free via
+    round_ratio. Clock-free: total and span come from the purchase history, never
+    a "today".
+
+    OUTFLOWS ONLY via _matching_purchases — an inflow never inflates a staple's
+    cost — so it stays an inflow-insensitive aggregate the tripwire covers with no
+    exemption. Reads items + transactions; it REPORTS money but never MOVES it
+    (integer cents, computed on read — the money invariants hold). Most-expensive
+    (by monthly rate) first.
+
+    Honest caveat inherited from step 5: SimpleFIN gives the MERCHANT, not the
+    product — a staple bought inside grocery runs shows nothing, and a merchant-
+    named staple's cost is the whole merchant, not one item.
+    """
+    staples = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple'").fetchall()
+    out = []
+    for it in staples:
+        rows = _matching_purchases(db, it)
+        days = sorted({r["txn_date"][:10] for r in rows})
+        if len(days) < min_purchases:
+            continue
+        total = sum(r["amount_cents"] for r in rows)
+        first, last = date.fromisoformat(days[0]), date.fromisoformat(days[-1])
+        months = (last.year - first.year) * 12 + (last.month - first.month) + 1
+        out.append({
+            "item_id": it["id"], "name": it["name"],
+            "purchases_seen": len(days),
+            "total_cents": total,
+            "monthly_cents": round_ratio(total, months),
+            "months_spanned": months,
+            "first_purchase": days[0], "last_purchase": days[-1],
+        })
+    out.sort(key=lambda s: s["monthly_cents"], reverse=True)   # priciest first
+    return out
