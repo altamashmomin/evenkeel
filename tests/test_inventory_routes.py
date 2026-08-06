@@ -59,7 +59,7 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual(
             {"items", "shopping", "low_count", "restock_suggestions",
              "restock_forecast", "new_staple_suggestions", "unmatched_staples",
-             "stale_shopping_items"},
+             "stale_shopping_items", "staple_spend"},
             set(view))
         self.assertEqual(1, view["low_count"])                 # the low staple
         names_on_list = {i["name"] for i in view["shopping"]}
@@ -102,6 +102,24 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual("phrase", sugg[0]["matched_by"])
         # purchase amount is dollars at the JSON edge
         self.assertEqual({"cents": 4200, "display": "$42.00"}, sugg[0]["purchase"]["amount"])
+
+    def test_staple_spend_money_is_dollars_at_the_edge(self):
+        c = self.client()
+        item = c.post("/api/inventory", json={"name": "Coffee"}).get_json()
+        conn = sqlite3.connect(self.db_path)
+        for day, amt in (("2026-01-10", 1000), ("2026-02-10", 2000),
+                         ("2026-03-10", 3000)):
+            conn.execute(
+                "INSERT INTO transactions (txn_date, amount_cents, description, "
+                "category, paid_by, is_shared, source, direction) "
+                "VALUES (?, ?, 'BLUE BOTTLE COFFEE', 'Dining', 1, 0, 'simplefin', 'out')",
+                (day, amt))
+        conn.commit(); conn.close()
+        mine = [s for s in c.get("/api/inventory").get_json()["staple_spend"]
+                if s["name"] == "Coffee"]
+        self.assertEqual(1, len(mine))
+        self.assertEqual({"cents": 6000, "display": "$60.00"}, mine[0]["total"])
+        self.assertEqual({"cents": 2000, "display": "$20.00"}, mine[0]["monthly"])
 
     def test_requires_auth_and_write_scope(self):
         anon = self.app_module.app.test_client()

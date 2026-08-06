@@ -672,6 +672,35 @@
       </div>`;
   }
 
+  /* ===== "What your staples cost" — money tie-in (step 5's named future) =====
+     Pure function of staple_spend[] (each { item_id, name, purchases_seen,
+     months_spanned, total:{cents,display}, monthly:{cents,display} }, priciest
+     first). Surfaces what a tracked staple costs from its matching purchases —
+     "~$42/mo on coffee". Read-only insight; no action, no client date needed
+     (the derivation already gates on >= 3 purchases). Money strings come from
+     the server verbatim ({cents,display}) — the pantry reports money, never
+     moves it. Honest limit: merchant-level, so it's the whole coffee shop, not
+     one cup, and a grocery-hidden staple shows nothing. */
+  function stapleSpendHTML(spend) {
+    if (!spend || !spend.length) return "";
+    const li = spend.map((s) => {
+      const monthly = s.monthly ? esc(s.monthly.display) : "";
+      const total = s.total ? esc(s.total.display) : "";
+      return `<li>
+        <span class="ic">${itemIcon({ name: s.name })}</span>
+        <div class="grow">
+          <div class="title">${esc(s.name)}</div>
+          <div class="sub">${total} over ${s.months_spanned} mo · ${s.purchases_seen}×</div>
+        </div>
+        <span class="badge due">~${monthly}/mo</span>
+      </li>`;
+    }).join("");
+    return `<div class="card suggest-card">
+        <p class="eyebrow">What your staples cost</p>
+        <ul class="list">${li}</ul>
+      </div>`;
+  }
+
   /* ===== inventory ("the pantry") — INVENTORY-DESIGN inc 3 + step 5 =====
      Pure function of the /api/inventory JSON:
        { items: [staples, urgent-first], shopping: [staples low/out + oneoffs],
@@ -694,6 +723,7 @@
     const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions);
     const matchCard = unmatchedStaplesHTML(data.unmatched_staples, todayISO);
     const staleCard = staleShoppingHTML(data.stale_shopping_items, todayISO);
+    const spendCard = stapleSpendHTML(data.staple_spend);
 
     const restockCard = suggestions.length
       ? `<div class="card restock-card">
@@ -774,13 +804,14 @@
           <button class="btn small primary" type="submit">Add</button>
         </form>
       </div>
+      ${spendCard}
       ${trackCard}
       ${matchCard}`;
   }
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
-           unmatchedStaplesHTML, staleShoppingHTML, inventoryHTML,
+           unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            savingsRateTrendHTML, categoryTrendHTML,

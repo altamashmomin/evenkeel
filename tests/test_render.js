@@ -563,6 +563,22 @@ check("staleShoppingHTML is empty without a today (derivation is clock-free)", (
     "", "no card without a client date");
 });
 
+// ---- money tie-in ("What your staples cost") — step 5's named future ----
+check("stapleSpendHTML shows the monthly rate and total verbatim", () => {
+  const html = R.stapleSpendHTML([
+    { item_id: 1, name: "Coffee", purchases_seen: 3, months_spanned: 3,
+      total: { cents: 6000, display: "$60.00" },
+      monthly: { cents: 2000, display: "$20.00" } },
+  ]);
+  assert.ok(html.includes("What your staples cost"), "card heading");
+  assert.ok(html.includes("~$20.00/mo"), "monthly rate badge");
+  assert.ok(html.includes("$60.00 over 3 mo · 3×"), "total + span + count");
+});
+check("stapleSpendHTML is empty when nothing qualifies", () => {
+  assert.strictEqual(R.stapleSpendHTML([]), "", "no card at zero rows");
+  assert.strictEqual(R.stapleSpendHTML(undefined), "", "no card when field absent");
+});
+
 // ---- analytics frontend batch (Tier B cards) ----
 const money = (c) => ({ cents: c, display: (c < 0 ? "−$" : "$") + Math.abs(c / 100).toFixed(2) });
 

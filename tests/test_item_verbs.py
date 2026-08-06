@@ -431,6 +431,37 @@ class ItemVerbTests(unittest.TestCase):
                        direction="in", income_type="refund")
         self.assertEqual(1, len(self._stale("Coffee")))
 
+    # ---- staple_spend derivation (money tie-in) ------------------------------
+    def _spend(self, name):
+        return [x for x in derivations.staple_spend(self.db) if x["name"] == name]
+
+    def test_staple_spend_monthly_rate_from_matching_purchases(self):
+        self.add(name="Coffee")
+        for day, amt in (("2026-01-10", 1000), ("2026-02-10", 2000),
+                         ("2026-03-10", 3000)):
+            self._outflow("BLUE BOTTLE COFFEE", day, amt)   # contains 'coffee'
+        s = self._spend("Coffee")
+        self.assertEqual(1, len(s))
+        self.assertEqual(6000, s[0]["total_cents"])
+        self.assertEqual(3, s[0]["months_spanned"])       # Jan→Mar inclusive
+        self.assertEqual(2000, s[0]["monthly_cents"])     # 6000 / 3
+        self.assertEqual(3, s[0]["purchases_seen"])
+
+    def test_staple_spend_needs_three_distinct_days(self):
+        self.add(name="Rice")
+        for day in ("2026-01-01", "2026-02-01"):   # only 2 → below the bar
+            self._outflow("RICE", day, 500)
+        self.assertEqual([], self._spend("Rice"))
+
+    def test_staple_spend_ignores_inflows(self):
+        # An inflow naming the staple must NOT inflate its cost (outflows only).
+        self.add(name="Coffee")
+        for day in ("2026-01-10", "2026-02-10", "2026-03-10"):
+            self._outflow("BLUE BOTTLE COFFEE", day, 1000)
+        self._purchase("COFFEE REFUND", "2026-03-15",
+                       direction="in", income_type="refund")
+        self.assertEqual(3000, self._spend("Coffee")[0]["total_cents"])
+
 
 if __name__ == "__main__":
     unittest.main()

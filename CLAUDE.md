@@ -1377,17 +1377,42 @@ test extended). Pantry UI: a "Still need these?" card (`staleShoppingHTML`) belo
 action reusing the existing `data-item-remove` archive (no new app.js wiring;
 still-need-it → leave it, it stays on the list). No schema/migration, no money
 path → **zero-diff balance gate PASS**; suite 422→**426** python + 70→**73**
+render. Visual pass light+dark via harness. **DEPLOYED (Aug 5, 2026)** via `main`
+`ed38edd` (`--no-ff` merge, first parent = prior main `16d575d`, tree == rework),
+`deploy.sh origin/main` → GATE PASS zero-diff, no migration (no propagation race
+this time); verified live (`staleShoppingHTML` + "Still need these?" served,
+prior cards intact).
+
+**Pantry money tie-in — DONE, NOT YET DEPLOYED (Aug 5, 2026).** INVENTORY-DESIGN
+step 5's explicitly-named deferred future ("$40/mo on coffee"). New read-time
+derivation `staple_spend(db, min_purchases=3)`: for each tracked staple with ≥3
+matching purchases on distinct days, `total_cents` + `monthly_cents` (total ÷
+inclusive calendar months first→last, float-free via `round_ratio`) — what the
+habit costs, over the SAME `_matching_purchases` every restock inference uses.
+**Clock-free** (total + span are history-derived, no "today") and **outflows-only**
+(an inflow never inflates a staple's cost) → tripwire-covered, no exemption; it
+REPORTS money but never MOVES it (integer cents, computed on read — the money
+invariants hold). `GET /api/inventory` gains `staple_spend` with `total`/`monthly`
+as `{cents, display}` at the edge; rides `ledger_inventory` to both doors (MCP
+byte-equality test extended). Pantry UI: a "What your staples cost" card
+(`stapleSpendHTML`, priciest-first) below Staples — "Coffee · $60 over 3 mo · 3×"
+with a `~$20.00/mo` badge; informational, no action, no client date needed.
+Honest limit (step 5): merchant-level — the whole coffee shop, not one cup; a
+grocery-hidden staple shows nothing. No schema/migration; reports money but the
+gate's balance/monthly/rowcount snapshot is untouched → **zero-diff balance gate
+PASS** (`origin/main`→HEAD, 23 values); suite 426→**430** python + 73→**75**
 render. Visual pass light+dark via harness. **Not yet deployed** — frontend +
-read-endpoint, zero-gate frontend deploy path when Alta merges + runs `deploy.sh`.
+read-endpoint, zero-gate deploy path when Alta merges + runs `deploy.sh`.
 
 **IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** Candidates
 (session plan: work the remaining pantry inferences easiest→hardest, then Tier C):
-- **Deploy the list-rot detector** (above) — Alta's manual merge + `deploy.sh
+- **Deploy the money tie-in** (above) — Alta's manual merge + `deploy.sh
   origin/main` + hard refresh (frontend, zero-gate).
 - More pantry inference (brainstormed Aug 5; predicted-low ✅ + broken-match ✅ +
-  list-rot ✅ built, these remain): money tie-in ("$X/mo at the coffee shop") —
-  next up; then post-shopping review nudge. Each its own INVENTORY-DESIGN step-5+
-  increment; quantities/co-purchase remain refused.
+  list-rot ✅ + money-tie-in ✅ built): **post-shopping review nudge** is the last
+  one remaining — after a grocery-category purchase, "you shopped — anything to
+  check off?". Its own INVENTORY-DESIGN step-5+ increment; quantities/co-purchase
+  remain refused.
 - **Analytics Tier C (budgets/envelopes)** — its own designed feature (a `budgets`
   migration + `set_budget` verb + `budget_status` derivation), NOT a quick add;
   the largest of the remaining candidates.
