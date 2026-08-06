@@ -870,6 +870,10 @@ function openTxnDialog(txn) {
   $("#txn-split").classList.toggle("hidden", !formTxn.is_shared.checked);
   updateSplitHint();
   dlgTxn.showModal();
+  // showModal() auto-focuses the first field (the date input), and iOS pops its
+  // date picker on focus — so the calendar appeared the instant you tapped Add.
+  // Drop that focus; the user opens the picker by tapping the date field itself.
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
 }
 
 formTxn.is_shared.addEventListener("change", () =>

@@ -1497,6 +1497,25 @@ and prints the `#010` structural diff: `budgets` None→0 + `schema_version` 9�
 eyeball against notes/010), applies `#010 --live`, restarts. First `--live`
 migration since #009. Alternative if paused: nothing else substantial is open.
 
+**Mobile UI fixes — DONE, NOT YET DEPLOYED (Aug 5, 2026)** (reported by Alta on an
+iPhone 14 Pro; frontend-only, no gate). Three fixes, all in `static/`:
+- **Ask tab zoomed in on open.** `.ask-bar input` was `font-size:15px`; iOS Safari
+  auto-zooms a focused input under 16px, and the Ask tab auto-focuses its input on
+  open (app.js `$("#ask-input").focus()`), so opening the tab zoomed the page.
+  Bumped to `16px` (the iOS threshold) — the standard fix.
+- **Add-expense calendar popped on open.** `openTxnDialog` did `showModal()`, which
+  auto-focuses the first field (the date input), and iOS shows its date picker on
+  focus — so tapping the ⊕ FAB opened the calendar immediately. Now it blurs the
+  auto-focused element after `showModal()`; the user opens the picker by tapping
+  the date field.
+- **Date/amount overlap in the add dialog.** `.row2` is a `1fr 1fr` grid; a native
+  date input's min-content (calendar icon + spinners) is wide and, with grid
+  items' default `min-width:auto`, overflowed its column into the amount field on
+  a phone. Added `.row2 > label, .row2 input { min-width: 0 }` so they shrink.
+  All three visually verified at 375px in light+dark harnesses. render seam 80,
+  suite 449. (Same picker-on-open pattern may affect other date-first dialogs
+  (bill/pay/contrib) — not reported, the same one-line blur fixes them if wanted.)
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 

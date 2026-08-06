@@ -135,6 +135,10 @@ input[type="checkbox"] {
 }
 .check { display: flex; align-items: center; margin-top: 16px; color: var(--text); font-size: 15px; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* Grid items default to min-width:auto (= min-content); a native date input's
+   min-content is wide (calendar icon + spinners), which overflowed its 1fr
+   column and collided with the amount field on a phone. Let them shrink. */
+.row2 > label, .row2 input { min-width: 0; }
 .form-error { color: var(--danger); font-size: 13px; min-height: 1em; margin: 10px 0 0; }
 .split-hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
 #split-readout { color: var(--brass); font-family: var(--mono); }
@@ -592,7 +596,9 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .ask-bar { display: flex; gap: 8px; align-items: center; }
 .ask-bar input { flex: 1 1 0; min-width: 0; padding: 12px 14px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--bg); color: var(--text);
-  font-size: 15px; font-family: inherit; }
+  /* 16px, not smaller: iOS Safari auto-zooms a focused input under 16px, and the
+     Ask tab auto-focuses this on open — which showed as the page zooming in. */
+  font-size: 16px; font-family: inherit; }
 .ask-bar input:focus { outline: 2px solid var(--brass); }
 /* out-specify `form > .btn.primary { width: 100% }` — ask-bar is a form */
 .ask-bar .btn.primary { flex: 0 0 auto; width: auto; }
