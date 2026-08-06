@@ -517,7 +517,8 @@ async function renderAnalytics() {
   // month-prev/next (wired in wireMain) shift the whole window. Every card
   // reads a Tier A endpoint — no math here, the server computed it all.
   const m = state.month;
-  const [trend, comp, members, bills, savings, forecast, anomalies, recurring, goals] =
+  const [trend, comp, members, bills, savings, forecast, anomalies, recurring, goals,
+         budgetStatus, budgetList, categories] =
     await Promise.all([
       api(`/api/income/trend?anchor=${m}&months_back=6`),
       api(`/api/analytics/spending-composition?month=${m}`),
@@ -528,7 +529,14 @@ async function renderAnalytics() {
       api(`/api/analytics/anomalies?month=${m}`),
       api(`/api/analytics/recurring`),           // not month-scoped
       api(`/api/analytics/goal-pace`),           // projects from today
+      api(`/api/analytics/budget-status?period=${m}`),
+      api(`/api/budgets`),                       // ids, for the remove handler
+      api(`/api/categories`),                    // the add form's picker
     ]);
+  // Stashed for the budget action handlers: the shown rows (index-addressed) and
+  // the id-carrying list (category→id for remove). Same pattern as window._inv.
+  window._budgetStatus = budgetStatus.budgets || [];
+  window._budgets = budgetList || [];
   // Drill into the biggest category this month — a trend without a picker.
   let catCard = "";
   const top = (comp.by_category || [])[0];
@@ -548,12 +556,42 @@ async function renderAnalytics() {
     ${cashFlowForecastHTML(forecast)}
     ${savingsRateTrendHTML(savings)}
     ${spendingCompositionHTML(comp)}
+    ${budgetStatusHTML(budgetStatus, categories)}
     ${anomaliesHTML(anomalies)}
     ${catCard}
     ${recurringChargesHTML(recurring)}
     ${memberBreakdownHTML(members)}
     ${billVarianceHTML(bills)}
     ${goalPaceHTML(goals)}`;
+}
+
+// Budgets (Analytics Tier C): set/edit upserts one category's monthly limit;
+// remove soft-deletes. The action buttons carry the array index into the shown
+// rows; edit/remove read the row out of window._budgetStatus (and map
+// category→id via window._budgets for the delete). All re-render on success.
+async function setBudget(category, amount) {
+  category = (category || "").trim();
+  if (!category || amount === "" || amount == null) return;
+  await api("/api/budgets", { method: "POST", body: { category, amount } });
+  render();
+}
+async function editBudget(idx) {
+  const row = (window._budgetStatus || [])[idx];
+  if (!row) return;
+  const cur = row.budgeted && row.budgeted.cents != null ? row.budgeted.cents / 100 : "";
+  const next = prompt(`Monthly limit for ${row.category}`, cur);
+  if (next === null) return;                       // cancelled
+  await api("/api/budgets", { method: "POST", body: { category: row.category, amount: next } });
+  render();
+}
+async function removeBudget(idx) {
+  const row = (window._budgetStatus || [])[idx];
+  if (!row) return;
+  const b = (window._budgets || []).find((x) => x.category === row.category);
+  if (!b) return;
+  if (!confirm(`Remove the ${row.category} budget?`)) return;
+  await api(`/api/budgets/${b.id}`, { method: "DELETE" });
+  render();
 }
 
 /* ================= inventory ("the pantry") ================= */
@@ -674,6 +712,16 @@ function wireMain() {
     }));
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
+  // Budgets (Analytics Tier C): edit/remove by row index; add via the small form.
+  $$("[data-budget-edit]").forEach((el) =>
+    el.addEventListener("click", () => editBudget(+el.dataset.budgetEdit)));
+  $$("[data-budget-remove]").forEach((el) =>
+    el.addEventListener("click", () => removeBudget(+el.dataset.budgetRemove)));
+  $("#budget-add")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    setBudget($("input[name=category]", e.target).value,
+              $("input[name=amount]", e.target).value);
+  });
   $$("[data-txn]").forEach((el) =>
     el.addEventListener("click", () => {
       const t = findTxn(+el.dataset.txn);
@@ -822,6 +870,10 @@ function openTxnDialog(txn) {
   $("#txn-split").classList.toggle("hidden", !formTxn.is_shared.checked);
   updateSplitHint();
   dlgTxn.showModal();
+  // showModal() auto-focuses the first field (the date input), and iOS pops its
+  // date picker on focus — so the calendar appeared the instant you tapped Add.
+  // Drop that focus; the user opens the picker by tapping the date field itself.
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
 }
 
 formTxn.is_shared.addEventListener("change", () =>

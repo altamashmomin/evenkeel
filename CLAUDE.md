@@ -1423,20 +1423,166 @@ within a **3-day window** (view-layer) AND the shopping list is non-empty, so it
 self-clears once the list is emptied or the trip ages out. No action of its own
 (it points at the Need-to-buy Got-it buttons — no duplication). No schema/
 migration, no money path → **zero-diff balance gate PASS**; suite 430→**433**
-python + 75→**78** render. Visual pass light+dark via harness. **Not yet deployed**
-— frontend + read-endpoint, zero-gate deploy path when Alta merges + runs
-`deploy.sh`.
+python + 75→**78** render. Visual pass light+dark via harness. **DEPLOYED (Aug 5,
+2026)** via `main` `e5b50bb` (`--no-ff` merge, first parent = prior main
+`a63f6d1`, tree == rework), `deploy.sh origin/main` → GATE PASS zero-diff, no
+migration; verified live (`postShoppingHTML` + "check off anything you restocked"
+served, prior cards intact).
 
-**IMMEDIATE NEXT TASK — pick the next increment (Alta's call).** All four
-brainstormed pantry inferences are now built (predicted-low ✅ + broken-match ✅ +
-list-rot ✅ + money-tie-in ✅ + post-shopping ✅). Candidates:
-- **Deploy the post-shopping nudge** (above) — Alta's manual merge + `deploy.sh
-  origin/main` + hard refresh (frontend, zero-gate).
-- **Analytics Tier C (budgets/envelopes)** — the biggest remaining candidate and
-  its own designed feature: a `budgets` migration + `set_budget` verb +
-  `budget_status` derivation + UI + an enumerated-diff gate. NOT a quick add.
-- Further pantry: quantities and co-purchase remain deliberately refused
-  (INVENTORY-DESIGN); the pantry inference track is essentially complete.
+The pantry inference track is complete (predicted-low ✅ + broken-match ✅ +
+list-rot ✅ + money-tie-in ✅ + post-shopping ✅, all deployed).
+
+**ANALYTICS TIER C — BUDGETS, underway (Aug 5, 2026).** Category spending limits,
+designed in `docs/BUDGETS-DESIGN.md` (governs, checked against CORE-DESIGN).
+Settled with Alta: **simple monthly budgets** (fresh limit each month, NOT
+rollover envelopes), an **Analytics-tab card** (not a dedicated view), per-category
+limits, any category budgetable (picker defaults to `DEFAULT_CATEGORIES`),
+display-only (no alerts v1), show an "unbudgeted spend" line, refunds net against
+actuals via `spending_summary`. Build order (one migration/verb per merge): **#010
+migration → `set_budget`/`remove_budget` verbs → `budget_status` derivation +
+endpoint → Analytics UI.** First schema-touching feature since #009 — inc 1
+carries an enumerated-diff gate + a `--live` migration on deploy; the rest are
+zero-gate reads/frontend.
+- **Inc 1 done (Aug 5, 2026).** Migration #010 creates the empty `budgets` table
+  (schema_version 9→10): `category UNIQUE` + `amount_cents` (monthly limit) +
+  soft-delete, mirroring #008's additive posture. `budgets` into `GOVERNED_TABLES`;
+  `set_budget`/`remove_budget` rows added to CORE-DESIGN's registry first (verbs in
+  inc 2); `REQUIRED_SCHEMA_VERSION` 9→10. **Enumerated-diff gate PASS** (notes/010:
+  `budgets`=0 + `schema_version` bump, nothing else — a budget is not a
+  transaction, never touches money); suite 433 green. NOT deployed (deploy comes
+  with a later inc, `#010 --live`).
+
+- **Inc 2 done (Aug 5, 2026).** Verbs `set_budget`/`remove_budget` in `actions.py`
+  (validate → edit → audit, the standard contract): `set_budget` upserts one row
+  per category (`INSERT … ON CONFLICT(category) DO UPDATE`, reactivating a removed
+  one), `remove_budget` soft-deletes (`active=0`, NotFound on missing/already-
+  inactive). Thin routes `GET`/`POST /api/budgets` + `DELETE /api/budgets/<id>`
+  (`login_required`, write scope for bearer), money `{cents, display}` at the edge
+  via `budget_to_json`. `test_budget_verbs` (5) + `test_budget_routes` (5, incl.
+  bearer write-scope gating). No new schema (rides inc 1's v10), no money path →
+  **isolated zero-diff gate PASS** (`bc8fddb`→HEAD); suite 433→**443**. Still not
+  deployed (deploy with a later inc, `#010 --live`).
+
+- **Inc 3 done (Aug 5, 2026).** Derivation `budget_status(db, period)`: for each
+  ACTIVE budget, `budgeted`/`actual`/`remaining`/`over`/`pct` where **actual is
+  refund-netted** (reads `spending_summary`), plus `unbudgeted_spend_cents` (net
+  spend in categories with no budget, so nothing hides); over-budget sorts first.
+  EXEMPT in the tripwire like `category_trend` (reads refund inflows via
+  spending_summary — bounded exemption; also takes a `period` arg). `GET
+  /api/analytics/budget-status` (period default `current_period()`, money `{cents,
+  display}` at the edge, `pct`/`over` pass through). `test_budget_status` (4:
+  refund netting, over-budget, unbudgeted, over-first sort) + `test_budget_status_
+  route` (2). No new schema, no money-path change → **isolated zero-diff gate PASS**
+  (`e085bf2`→HEAD); suite 443→**449**. Still not deployed (deploy with inc 4,
+  `#010 --live`).
+
+- **Inc 4 done (Aug 5, 2026) — feature CODE-COMPLETE.** The Analytics-tab Budgets
+  card: `budgetStatusHTML(data, categories)` (render.js) — each budget a progress
+  bar (green under, red over via `.cat-bar i.over`, capped at 100% width) with
+  "actual of limit · pct%" and a remaining/over badge, ✎ edit (prompt) + ✕ remove;
+  an "Unbudgeted spend" line so nothing hides; a set-a-budget form (category
+  datalist from `/api/categories` + amount). `renderAnalytics` fans in
+  `/api/analytics/budget-status` + `/api/budgets` (ids) + `/api/categories`,
+  stashes `window._budgetStatus`/`window._budgets` (index-addressed actions, no
+  user content in attributes); `setBudget`/`editBudget`/`removeBudget` in app.js
+  wired in `wireMain`. One CSS gotcha fixed: the bar is stacked (not in a flex
+  row), so `.budget-bar` gives it explicit block/full width. Frontend only → no
+  gate; render seam 78→**80**, python suite 449. Visual pass light+dark via
+  harness (caught the collapsed-bar bug).
+
+**BUDGETS FEATURE IS CODE-COMPLETE (inc 1–4).** Ready for ONE batched deploy that
+ships `#010 --live` + the verbs + derivation + UI together: advance `main` to
+rework, `deploy.sh origin/main` runs its dry-run gate (PASSES — money-neutral —
+and prints the `#010` structural diff: `budgets` None→0 + `schema_version` 9→10,
+eyeball against notes/010), applies `#010 --live`, restarts. First `--live`
+migration since #009. Alternative if paused: nothing else substantial is open.
+
+**Mobile UI fixes — DONE, NOT YET DEPLOYED (Aug 5, 2026)** (reported by Alta on an
+iPhone 14 Pro; frontend-only, no gate). Three fixes, all in `static/`:
+- **Ask tab zoomed in on open.** `.ask-bar input` was `font-size:15px`; iOS Safari
+  auto-zooms a focused input under 16px, and the Ask tab auto-focuses its input on
+  open (app.js `$("#ask-input").focus()`), so opening the tab zoomed the page.
+  Bumped to `16px` (the iOS threshold) — the standard fix.
+- **Add-expense calendar popped on open.** `openTxnDialog` did `showModal()`, which
+  auto-focuses the first field (the date input), and iOS shows its date picker on
+  focus — so tapping the ⊕ FAB opened the calendar immediately. Now it blurs the
+  auto-focused element after `showModal()`; the user opens the picker by tapping
+  the date field.
+- **Date/amount overlap in the add dialog.** `.row2` is a `1fr 1fr` grid; a native
+  date input's min-content (calendar icon + spinners) is wide and, with grid
+  items' default `min-width:auto`, overflowed its column into the amount field on
+  a phone. Added `.row2 > label, .row2 input { min-width: 0 }` so they shrink.
+  All three visually verified at 375px in light+dark harnesses. render seam 80,
+  suite 449. (Same picker-on-open pattern may affect other date-first dialogs
+  (bill/pay/contrib) — not reported, the same one-line blur fixes them if wanted.)
+
+**Declarative action parameters — SCOPED, not started (Aug 5, 2026).** Ontology
+convergence #2, designed in `docs/ACTION-SCHEMA-DESIGN.md`. The problem: a write
+action's parameter contract is hand-maintained in 3–4 places (e.g. `classify_
+inflow`'s income-type vocabulary lives in `INCOME_TYPES` frozenset AND
+`agent_write_tools`' `REAL_INCOME_TYPES` enum AND `ledger_mcp`'s Field-description
+prose), so adding an item status / income type silently leaves the agent tools'
+enums stale — nothing binds them. Design (decided with Alta): **full spec, write
+verbs only** — a `PARAM_SPECS` registry in `actions.py` (enums *reference* the
+existing constants, no copies) that GENERATES the Ask + MCP write-tool schemas,
+extending the same shared-source pattern that already binds `agent_read_tools.
+DESCRIPTIONS` across both doors. Structural shape only; semantic validation stays
+in the verb. Consolidation, not new capability → **no schema/migration/gate**.
+Build order: (1) `PARAM_SPECS` + byte-equal test vs today's schemas; (2)
+`agent_write_tools` generates from it; (3) `ledger_mcp` consumes it + drift test
+extended; (4–5 optional) verb-side first-pass validation (must preserve the
+parity-pinned error strings) + generated CORE-DESIGN registry table.
+- **Inc 1 done (Aug 5, 2026).** `PARAM_SPECS` + `param_schema(verb)` +
+  `Param` dataclass in `actions.py` — the single source for the three agent-exposed
+  write verbs' parameter schemas (`classify_inflow`, `add_item`, `set_item_status`).
+  Enums reference NEW ordered vocabulary tuples (`REAL_INCOME_TYPE_ORDER`,
+  `ITEM_KIND_ORDER`, `ITEM_STATUS_ORDER`) that the membership frozensets now
+  DERIVE from (`INCOME_TYPES`/`ITEM_KINDS`/`ITEM_STATUSES` = `frozenset(order)`),
+  so offered-choices ↔ validated-vocabulary can't drift, and the order (a
+  presentation choice) stays human-controlled. **Nothing consumes PARAM_SPECS yet**
+  (inc 2/3 do) → zero behavior change; the constant refactor is value-identical
+  (full suite proves it). `tests/test_action_schema.py` (4): `param_schema(verb)`
+  **byte-equal** to today's hand-written `agent_write_tools` `input_schema` (tooth
+  verified — perturbing the hand-written schema fails it), enum-order ↔ frozenset
+  membership bound, `REAL_INCOME_TYPE_ORDER` ↔ `agent_write_tools.REAL_INCOME_TYPES`
+  bound (until inc 2). No schema/route/money change → no balance gate; suite
+  449→**453** python + 80 render.
+
+- **Inc 2 done (Aug 5, 2026).** `agent_write_tools` now GENERATES each tool's
+  `input_schema` from `actions.param_schema(verb)` — the hand-written schema
+  blocks + the `_obj` helper + the `REAL_INCOME_TYPES` copy are deleted (128→94
+  lines). The served schemas are byte-identical to before (inc 1 pinned
+  `param_schema` == the old hand-written; the ask-write/loop/route tests confirm
+  end-to-end). The single-source is now real: the income-type/kind/status
+  vocabulary lives ONLY in `actions.py`. `test_action_schema` updated (the
+  byte-equal test became "tools consume PARAM_SPECS"; the income-binding test
+  became an unclassified-excluded check). No schema/route/money change → no gate;
+  suite **453** python + 80 render.
+
+- **Inc 3 done (Aug 5, 2026).** The MCP door: `ledger_mcp`'s write tools carried
+  the income vocabulary in prose twice (`classify_inflow`'s `income_type`,
+  `propose_income_rule`'s `set_type` — "One of: paycheck, …"). FastMCP builds its
+  schemas from the function signature (not a schema you can hand it), so rather
+  than force a whole-`param_schema` consume, the actual drift risk — the
+  VOCABULARY — is now sourced from `actions.REAL_INCOME_TYPE_ORDER` via Pydantic
+  `Field(json_schema_extra={"enum": …})`, and the type-list is dropped from the
+  prose. Bonus: the MCP schema now ENFORCES the enum (prose never did — the verb
+  was the only guard). Drift test in `test_agent_read_tools` (parallel to the
+  read-tier descriptions drift test) asserts both tools' generated income enums
+  equal the shared constant. No money/schema/route change → no gate; suite
+  453→**454**. **The three vocabulary copies (verb constant + Ask enum + MCP
+  prose×2) are now one source in `actions.py`, across BOTH doors.** Honest limit:
+  FastMCP's signature-introspection means the parameter STRUCTURE (names/
+  descriptions) still lives in the MCP signatures — descriptions legitimately
+  differ per door (as the read tier already does); only the drift-prone vocabulary
+  is unified.
+
+**Action-schema build order steps 1–3 are DONE — the vocabulary is single-sourced
+across the verb, the Ask door, and the MCP door, drift-tested at every seam.**
+Optional remaining: inc 4 (verb-side first-pass structural validation from
+`PARAM_SPECS`, must preserve the parity-pinned error strings) + inc 5 (generate/
+coherence-check the CORE-DESIGN action-registry table). Neither is needed for the
+drift-prevention payoff, which is fully banked.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

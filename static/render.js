@@ -352,6 +352,50 @@
       <ul class="list">${rows}</ul></div>`;
   }
 
+  /* ===== "Budgets" — category limits vs actual net spend (Analytics Tier C) =====
+     Pure function of /api/analytics/budget-status ({ period, budgets:[{category,
+     budgeted, actual, remaining, over, pct}], unbudgeted_spend }) + the category
+     list (the add form's datalist). Each budget is a progress bar (green under,
+     red over — capped at 100% width) with "actual of limit · pct%" and a
+     remaining/over badge; ✎ edits the amount, ✕ removes. An "Unbudgeted spend"
+     line so nothing hides, and a small set-a-budget form. budget_status is
+     category-keyed (no id); the action buttons carry the ARRAY INDEX and the
+     handlers read the row out of window._budgetStatus (and resolve category→id
+     for remove via window._budgets), so no user content lands in an attribute. */
+  function budgetStatusHTML(data, categories) {
+    const budgets = (data && data.budgets) || [];
+    const opts = (categories || []).map((c) => `<option value="${esc(c)}">`).join("");
+    const rows = budgets.map((b, i) => {
+      const pct = b.pct == null ? 0 : b.pct;
+      const badge = b.over
+        ? `<span class="badge overdue">${fmt(Math.abs(b.remaining.cents) / 100)} over</span>`
+        : `<span class="badge paid">${amt(b.remaining)} left</span>`;
+      return `<li class="cat-row">
+        <div class="grow">
+          <div class="title">${esc(b.category)}</div>
+          <div class="sub">${amt(b.actual)} of ${amt(b.budgeted)}${b.pct == null ? "" : ` · ${b.pct}%`}</div>
+          <span class="cat-bar budget-bar"><i class="${b.over ? "over" : ""}" style="width:${Math.min(pct, 100)}%"></i></span>
+        </div>
+        ${badge}
+        <button class="item-x" data-budget-edit="${i}" aria-label="Edit ${esc(b.category)} budget">✎</button>
+        <button class="item-x" data-budget-remove="${i}" aria-label="Remove ${esc(b.category)} budget">✕</button>
+      </li>`;
+    }).join("");
+    const unbudgeted = data && data.unbudgeted_spend && data.unbudgeted_spend.cents
+      ? `<p class="sub" style="margin:8px 2px 0">Unbudgeted spend: ${amt(data.unbudgeted_spend)}</p>` : "";
+    const body = budgets.length
+      ? `<ul class="list">${rows}</ul>${unbudgeted}`
+      : `<p class="empty">No budgets yet — set a monthly limit for a category.</p>`;
+    return `<div class="card"><p class="eyebrow">Budgets</p>${body}
+        <form class="inv-add" id="budget-add" autocomplete="off">
+          <input name="category" list="budget-cats" maxlength="60" placeholder="Category">
+          <input name="amount" type="number" min="0" step="0.01" placeholder="Monthly $">
+          <button class="btn small primary" type="submit">Set</button>
+        </form>
+        <datalist id="budget-cats">${opts}</datalist>
+      </div>`;
+  }
+
   // Savings-rate trend (#9): the trailing 3-month rolling rate per month, as a
   // strip of month cells (ratios, not money), with the latest as the headline.
   function savingsRateTrendHTML(data) {
@@ -839,6 +883,7 @@
            postShoppingHTML, inventoryHTML,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
+           budgetStatusHTML,
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
            askThreadHTML };

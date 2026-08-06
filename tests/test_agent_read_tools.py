@@ -101,6 +101,20 @@ class AgentReadToolsTests(unittest.TestCase):
         self.assertEqual(art.DESCRIPTIONS, read_desc,
                          "the two doors must share one copy of the read-tool docs")
 
+    def test_write_tool_income_enum_is_sourced_from_actions(self):
+        # ACTION-SCHEMA-DESIGN inc 3: the MCP write tools' income-type vocabulary
+        # comes from actions.REAL_INCOME_TYPE_ORDER (injected via json_schema_extra),
+        # not a re-listed prose copy — so it can't drift from actions.INCOME_TYPES.
+        import asyncio
+        import actions
+        import ledger_mcp
+        by_name = {t.name: t for t in asyncio.run(ledger_mcp.mcp.list_tools())}
+        want = list(actions.REAL_INCOME_TYPE_ORDER)
+        self.assertEqual(want, by_name["ledger_classify_inflow"]
+                         .inputSchema["properties"]["income_type"]["enum"])
+        self.assertEqual(want, by_name["ledger_propose_income_rule"]
+                         .inputSchema["properties"]["set_type"]["enum"])
+
     def test_anthropic_tools_schema_and_caching(self):
         tools = art.anthropic_tools()
         self.assertEqual(18, len(tools))

@@ -36,7 +36,14 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 from typing import Annotated, Optional
 
+import actions                             # the single source for write-verb vocab
 from agent_read_tools import DESCRIPTIONS  # the shared, single-source tool docs
+
+# The income-type vocabulary, sourced ONCE from the verb layer (ACTION-SCHEMA-
+# DESIGN) rather than re-listed in each tool's prose. Injected into the FastMCP-
+# generated schema via Field(json_schema_extra=…), so the enum can't drift from
+# actions.INCOME_TYPES.
+_INCOME_TYPE_ENUM = list(actions.REAL_INCOME_TYPE_ORDER)
 
 API_BASE = os.environ.get("LEDGER_API_BASE", "http://127.0.0.1:8080")
 
@@ -416,8 +423,8 @@ def ledger_classify_inflow(
         description="The inflow's transaction id (from a search or the "
                     "unclassified-inflows queue).")],
     income_type: Annotated[str, Field(
-        description="One of: paycheck, reimbursement, refund, transfer, gift, "
-                    "other.")],
+        description="What kind of income it is, per the person's own words.",
+        json_schema_extra={"enum": _INCOME_TYPE_ENUM})],
 ) -> str:
     return _json(api_write(
         "PUT", f"/api/transactions/{transaction_id}/classify",
@@ -467,8 +474,8 @@ def ledger_set_rule_enabled(
     annotations=_PROPOSE)
 def ledger_propose_income_rule(
     set_type: Annotated[str, Field(
-        description="Type to assign on a match: paycheck, reimbursement, "
-                    "refund, transfer, gift, other.")],
+        description="The income type to assign when this rule matches.",
+        json_schema_extra={"enum": _INCOME_TYPE_ENUM})],
     match_desc: Annotated[Optional[str], Field(
         default=None, max_length=200,
         description="Case-insensitive substring of the description, e.g. 'ADP "

@@ -239,6 +239,8 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `rename_item` / `set_item_note` | UI | item exists | Small edits; audit records before/after |
 | `set_item_match` | UI | staple exists & active | Sets/clears the OPTIONAL restock-match phrase (purchase-feed suggestions, INVENTORY-DESIGN step 5); blank clears it → detection falls back to the item name; audit before/after. Never touches money |
 | `archive_item` | UI, MCP | item exists | Soft delete (`active=0`), matching `delete_goal`/`delete_bill`'s bounded posture; history untouched |
+| `set_budget` | UI | category non-empty; amount positive (integer cents) | Analytics Tier C (BUDGETS-DESIGN). Upserts one category's monthly spending limit (`INSERT … ON CONFLICT(category) DO UPDATE`, reactivating a removed one); audit records before/after. A budget is a category limit, not a transaction — never touches money |
+| `remove_budget` | UI | budget exists | Soft delete (`active=0`), matching `delete_bill`/`archive_item`'s bounded posture; the audit history is untouched. Never touches money |
 
 The table grows as features land (scenario verbs arrive with the
 scenarios build), but growth means *adding rows here first* — a write

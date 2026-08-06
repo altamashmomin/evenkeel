@@ -1,0 +1,7 @@
+{
+  "note": "Migration #010 (budgets table -- Analytics Tier C, category spending limits). One new empty table and its schema_version record -- nothing else. A budget is a category limit, not a transaction, and never touches money, so the who-owes-whom balance and every monthly total are identical; they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.budgets", "old": null, "new": 0},
+    {"path": "row_counts.schema_version", "old": 9, "new": 10}
+  ]
+}
