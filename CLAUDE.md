@@ -1742,10 +1742,15 @@ the fresh `render.js?v=…`. Per-device hard refresh picks it up.
 **Pi deploy footgun hit + fixed this deploy (Aug 7, 2026) — READ before the next
 Pi deploy.** The Pi's git model: deploys run `deploy/deploy.sh origin/main`, whose
 `git checkout origin/main` leaves **HEAD detached** at the deployed commit; the
-Pi's local **`main` branch is NOT advanced by deploys**. This session, the
-Mac-side merge command (`git checkout main && git merge --no-ff rework && git push
-… && git checkout rework`) was mistakenly run **on the Pi**. Its `git checkout
-main` reverted the whole working tree to the Pi's stale local `main` — which was
+Pi's local **`main` branch is NOT advanced by deploys**. The merge commit
+`544f7bc` itself was made **correctly, on the Mac** (Alta ran it there — that's
+why its first parent is `b8fa7e0` and its tree == rework; the Pi's stale
+`main`@`e8f27d6` could never have produced that topology). The damage came from
+running the **same** Mac-side merge command (`git checkout main && git merge
+--no-ff rework && git push … && git checkout rework`) a **second time on the Pi**
+— in a separate chat that lacked this Mac-vs-Pi context. On the Pi its `git merge`
+step did nothing useful (stale `main`), but its leading `git checkout main`
+reverted the whole working tree to the Pi's stale local `main` — which was
 pinned all the way back at **`e8f27d6` (schema v3, July)** — so on-disk `app.py`
 became v3 (`REQUIRED_SCHEMA_VERSION=3`), `deploy.sh` vanished (didn't exist at
 v3), and the app kept serving only because gunicorn still held the v10 code in
