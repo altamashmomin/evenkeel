@@ -1673,6 +1673,41 @@ and the FRESH-START RESET (all deployed the same day).**
   removal) → `de02dc7` (reset verb), each `--no-ff`, tree == rework, GATE PASS
   zero-diff, no migration. Suite **480** python + **90** render.
 
+**Aug 6, 2026 — ops/backup/sync hardening batch (deployed `main` `b8fa7e0`).**
+Post-reset operational work; all off-Pi tooling / read-frontend, no schema/verb/
+money path, zero-diff gates.
+- **Ops panel on the Agents tab** — read-only in-app views: Pi guardian health
+  badge + report (`GET /api/ops/health` reads `ops-status.txt`), recent audit
+  activity (`GET /api/ops/audit`), both `login_required`, shared. An on-demand
+  "Sync now" button + `POST /api/ops/sync` + a `record_sync_run` verb were built
+  then DELETED after the SimpleFIN research (below) — kept the two read views.
+- **SimpleFIN reality check (web-verified):** the Bridge refreshes bank data
+  only ~once/24h and expects ≤~24 `/accounts` req/day; exceeding DISABLES the
+  token. So: (a) no on-demand sync button (redundant + footgun); (b) `simplefin_
+  sync.py` gained a **min-interval budget guard** (`SYNC_MIN_INTERVAL_S`, default
+  1800s; clean no-op skip; `--force` for setup; `.last-sync` stamp by the db,
+  gitignored so it can't dirty the Pi tree); (c) sync is now **twice daily
+  (06:30 + 18:00)** — catches the daily refresh whenever it lands, 2 of 24, far
+  above the guard interval. Hourly was rejected (same snapshot 24×, sits on the
+  token-disabling ceiling).
+- **Nightly backup** (`NIGHTLY-BACKUP-DESIGN.md`): `deploy/nightly-backup.sh` +
+  `pifinance-nightly-backup.{service,timer}` @ 03:00 — a SEPARATE pool
+  (`finance.db.nightly-*`, keep-newest `NIGHTLY_KEEP_BACKUPS`=14) so deploy
+  bursts can't evict data snapshots; integrity-gated prune, read-only vs the db.
+  Guardian gained a nightly check block AND **retired its deploy-pool age check**
+  (a non-signal once nightlies exist). `*.db.nightly-*` + `.last-sync` gitignored.
+- **Operator cheatsheet** — `deploy/CHEATSHEET.md` (full reference) +
+  `deploy/pi-welcome.sh` (curated SSH-login greeting, wired via `~/.bashrc`,
+  self-updating from the repo).
+- **Ontology manifest** stayed at inc 1 (code-only `manifest()`); `GET
+  /api/ontology` (inc 2) still not built.
+- Suite **484** python + **92** render. **Manual Pi steps still pending** (NOT
+  done by `deploy.sh`): install the nightly-backup systemd units + re-install the
+  changed sync timer (sed-copy + daemon-reload), and the one-time `~/.bashrc`
+  greeting wiring. Then tomorrow: **golden-backup refresh** (July-26 copy is
+  pre-reset — dangerous) + **reconnect banks** (`--claim` per bank, then
+  `simplefin_sync.py --force`).
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 
