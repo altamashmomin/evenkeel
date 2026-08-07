@@ -887,12 +887,13 @@
     return "r";
   }
 
-  // A chip that explains itself: the term is glossed on hover (desktop) /
-  // long-press (mobile) via title, and the Key card lists them all for touch.
+  // A chip that explains itself: the term is glossed via a fast CSS tooltip
+  // (data-tip -> ::after, ~80ms, unlike the native title's ~0.5s delay), and
+  // the collapsible Key lists them all for touch.
   function agentChip(val, gloss, cls) {
     if (!val) return "";
     const g = gloss[val];
-    const t = g ? ` title="${esc(g)}"` : "";
+    const t = g ? ` data-tip="${esc(g)}"` : "";
     const explains = g ? " explains" : "";
     return `<span class="agent-chip${cls ? " " + cls : ""}${explains}"${t}>${esc(val)}</span>`;
   }
@@ -912,7 +913,7 @@
           <span class="agent-ic">${esc(ag.icon)}</span>
           <div class="agent-id">
             <div class="agent-name">${esc(ag.name)}</div>
-            <div class="agent-kind${kindGloss ? " explains" : ""}"${kindGloss ? ` title="${esc(kindGloss)}"` : ""}>${esc(ag.kind)}</div>
+            <div class="agent-kind${kindGloss ? " explains" : ""}"${kindGloss ? ` data-tip="${esc(kindGloss)}"` : ""}>${esc(ag.kind)}</div>
           </div>
           <span class="agent-pip ${agentTone(ag.access)}" title="${esc(ag.access)}"></span>
         </div>
@@ -922,17 +923,17 @@
   }
 
   // The "What the labels mean" key — every pill's plain-language meaning, from
-  // the catalog's own glossary (single source), so touch users get an
-  // explanation the hover tooltips can't give them.
+  // the catalog's own glossary (single source). Collapsed by default: each
+  // dimension is a native <details>, click the header to reveal its terms.
   function agentKeyHTML(glossary) {
     if (!glossary || !glossary.length) return "";
     const groups = glossary.map((grp) => `
-      <div class="key-group">
-        <div class="key-h">${esc(grp.label)}</div>
+      <details class="key-group">
+        <summary class="key-h">${esc(grp.label)}</summary>
         <dl class="key-list">${grp.terms.map((t) => `
           <div class="key-row"><dt>${esc(t.term)}</dt><dd>${esc(t.gloss)}</dd></div>`).join("")}
         </dl>
-      </div>`).join("");
+      </details>`).join("");
     return `
       <div class="card agent-key">
         <p class="eyebrow">What the labels mean</p>
@@ -951,10 +952,10 @@
     const sections = groups
       .filter((g) => g.agents && g.agents.length)
       .map((g) => `
-        <section class="agent-group">
-          <p class="eyebrow">${esc(g.label)}</p>
+        <details class="agent-group">
+          <summary class="group-h"><span class="group-name">${esc(g.label)}</span><span class="group-count">${g.agents.length}</span></summary>
           <div class="agent-grid">${g.agents.map((ag) => agentTile(ag, gloss)).join("")}</div>
-        </section>`).join("");
+        </details>`).join("");
     const note = data && data.live_status
       ? ""
       : `<p class="agent-note">Catalog view — what each one is and can do. Live health is coming.</p>`;

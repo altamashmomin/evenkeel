@@ -680,13 +680,35 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .agents-head { margin-bottom: 4px; }
 .agents-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
 .agent-note { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-.agent-group { margin-top: 22px; }
-.agent-group .eyebrow { margin-bottom: 10px; }
+/* Each group is collapsible too — the tab opens as a directory of headers you
+   drill into; a count shows what's inside without expanding. */
+details.agent-group {
+  margin-top: 12px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+summary.group-h {
+  cursor: pointer; list-style: none; user-select: none;
+  display: flex; align-items: center; gap: 10px; padding: 15px 16px;
+  font-size: 13px; font-weight: 700; color: var(--text);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+summary.group-h::-webkit-details-marker { display: none; }
+.group-count {
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 9px; letter-spacing: 0;
+}
+summary.group-h::after {
+  content: "⌄"; margin-left: auto; font-size: 16px; line-height: 1;
+  color: var(--muted); transition: transform 0.15s ease;
+}
+details.agent-group[open] summary.group-h::after { transform: rotate(180deg); }
 .agent-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
+details.agent-group > .agent-grid { padding: 0 14px 15px; }
 .agent-tile {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -731,19 +753,43 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   background: color-mix(in srgb, var(--brass) 14%, transparent);
   border-color: transparent;
 }
-/* A chip that has an explanation: help cursor + a faint dotted underline so
-   it reads as "there's more here" (the Key below spells it out for touch). */
-.agent-chip.explains { cursor: help; text-decoration: underline dotted var(--line); text-underline-offset: 3px; }
-.agent-kind.explains { cursor: help; }
+/* A glossed label: normal cursor, a faint dotted underline as the "there's
+   more here" hint, and a fast CSS tooltip (data-tip -> ::after, ~80ms) rather
+   than the slow native title. The Key below spells them all out for touch. */
+.agent-chip.explains { text-decoration: underline dotted var(--line); text-underline-offset: 3px; }
+.agents-view [data-tip] { position: relative; cursor: default; }
+.agents-view [data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 6;
+  width: max-content; max-width: 230px;
+  background: var(--text); color: var(--surface);
+  padding: 6px 9px; border-radius: 9px;
+  font-size: 12px; font-weight: 400; line-height: 1.35; letter-spacing: 0;
+  text-transform: none; text-decoration: none; white-space: normal;
+  box-shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.45);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity 0.08s ease;
+}
+.agents-view [data-tip]:hover::after { opacity: 1; visibility: visible; }
 
 .agent-key { margin-top: 26px; }
-.agent-key .eyebrow { margin-bottom: 12px; }
-.key-group + .key-group { margin-top: 14px; }
-.key-h {
+.agent-key .eyebrow { margin-bottom: 6px; }
+/* Collapsible Key: each dimension a native <details>, collapsed by default. */
+details.key-group { border-top: 1px solid var(--line); }
+details.key-group:first-of-type { border-top: 0; }
+summary.key-h {
+  cursor: pointer; list-style: none; user-select: none;
+  display: flex; align-items: center; padding: 11px 0;
   font-size: 12px; font-weight: 700; color: var(--text);
-  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: 0.06em;
 }
-.key-list { margin: 0; display: flex; flex-direction: column; gap: 5px; }
+summary.key-h::-webkit-details-marker { display: none; }
+summary.key-h::after {
+  content: "⌄"; margin-left: auto; font-size: 15px; line-height: 1;
+  color: var(--muted); transition: transform 0.15s ease;
+}
+details.key-group[open] summary.key-h::after { transform: rotate(180deg); }
+.key-list { margin: 0 0 12px; display: flex; flex-direction: column; gap: 5px; }
 .key-row {
   display: grid; grid-template-columns: 168px 1fr; gap: 12px; align-items: baseline;
 }
