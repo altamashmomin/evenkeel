@@ -102,6 +102,40 @@ class GateTests(unittest.TestCase):
         diffs = gate.diff_snapshots(self.new_snapshot, changed)
         self.assertTrue(any(diff["path"].startswith("monthly_totals.") for diff in diffs))
 
+    def test_category_reassignment_is_caught_by_by_category(self):
+        # #12: moving spend between categories leaves the monthly TOTAL
+        # unchanged, so the old snapshot (monthly_totals only) missed it
+        # entirely. The by_category section now catches it.
+        perturbed = self.tmp_path / "recat.db"
+        shutil.copy2(self.new_db, perturbed)
+        conn = sqlite3.connect(perturbed)
+        try:
+            conn.execute(
+                "UPDATE transactions SET category='GateProbeCategory' "
+                "WHERE id=(SELECT MIN(id) FROM transactions "
+                "WHERE direction='out' AND source!='settlement')")
+            conn.commit()
+        finally:
+            conn.close()
+        changed = gate.code_snapshot(str(REPO), str(perturbed))
+        # The monthly total is unchanged (net-neutral within its month) ...
+        self.assertEqual(
+            self.new_snapshot["monthly_totals"], changed["monthly_totals"])
+        # ... yet the gate now catches the move via by_category.
+        diffs = gate.diff_snapshots(self.new_snapshot, changed)
+        self.assertTrue(
+            any(d["path"].startswith("by_category.") for d in diffs),
+            "category reassignment slipped past the gate — by_category missed it")
+
+    def test_legacy_baseline_still_gates_cleanly_despite_optional_sections(self):
+        # The v1.0 legacy snapshot has no income/by_category; those optional
+        # sections must be SKIPPED (not reported as spurious diffs) so the
+        # baseline path compares only on balance/monthly_totals/row_counts.
+        diffs = gate.diff_snapshots(self.old_snapshot, self.new_snapshot)
+        paths = {d["path"].split(".", 1)[0] for d in diffs}
+        self.assertNotIn("by_category", paths)
+        self.assertNotIn("income", paths)
+
     def test_derivation_regression_changes_gate_snapshot(self):
         broken_code = self.tmp_path / "broken-code"
         broken_code.mkdir(exist_ok=True)

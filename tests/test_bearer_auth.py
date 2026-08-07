@@ -87,6 +87,25 @@ class BearerAuthTests(unittest.TestCase):
         self.assertEqual(401, self.client().get(
             "/api/household_snapshot").status_code)
 
+    def test_pay_bill_works_under_a_bearer_token(self):
+        # Regression (CODE-REVIEW-2026-08-07 finding 4): pay_bill read
+        # session["user_id"] directly, but @login_required also accepts a
+        # bearer token (no session) — so a write token hit KeyError -> 500.
+        token = self.mint(scopes="read,write", label="claude-code")
+        resp = self.client().post("/api/bills/1/pay", json={},
+                                  headers=self.bearer(token))
+        self.assertEqual(201, resp.status_code,
+                         f"bearer pay_bill should succeed, got {resp.status_code}")
+
+    def test_contribute_to_goal_works_under_a_bearer_token(self):
+        # Same regression class as pay_bill, for the goal-contribution route.
+        token = self.mint(scopes="read,write", label="claude-code")
+        resp = self.client().post("/api/goals/1/contribute",
+                                  json={"amount": 25},
+                                  headers=self.bearer(token))
+        self.assertEqual(201, resp.status_code,
+                         f"bearer contribute should succeed, got {resp.status_code}")
+
     def test_write_token_is_attributed_as_mcp_label_in_audit(self):
         token = self.mint(scopes="read,write", label="claude-code")
         resp = self.client().post("/api/transactions",

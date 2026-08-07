@@ -69,13 +69,19 @@ class Invariant1NoRawWritesTests(unittest.TestCase):
         violations = []
         for path in production_py_files():
             rel = path.relative_to(REPO)
-            for i, line in enumerate(path.read_text().splitlines(), 1):
-                for table in WRITE_RE.findall(line):
-                    if table.lower() not in GOVERNED_TABLES:
-                        continue
-                    if (rel.name, table.lower()) in KNOWN_EXCEPTIONS:
-                        continue
-                    violations.append(f"{rel}:{i}: raw write to '{table}' — {line.strip()}")
+            text = path.read_text()
+            # Full-text scan (not line-by-line) so SQL whose table name is
+            # wrapped onto the next line can't slip through (#11). Line number
+            # recovered from the match offset for a useful message.
+            for m in WRITE_RE.finditer(text):
+                table = m.group(1).lower()
+                if table not in GOVERNED_TABLES:
+                    continue
+                if (rel.name, table) in KNOWN_EXCEPTIONS:
+                    continue
+                line_no = text.count("\n", 0, m.start()) + 1
+                snippet = text[m.start():m.start() + 60].splitlines()[0]
+                violations.append(f"{rel}:{line_no}: raw write to '{table}' — {snippet}")
         self.assertEqual(
             [], violations,
             "\nRaw SQL write(s) to a registry-governed table outside "

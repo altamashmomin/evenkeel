@@ -36,7 +36,8 @@ def fail(msg):
 
 
 def check_safe_name(path, live=False):
-    if os.path.basename(path) == "finance.db" and not live:
+    # Case-insensitive + symlink-resolving (CODE-REVIEW-2026-08-07 #10).
+    if os.path.basename(os.path.realpath(path)).lower() == "finance.db" and not live:
         fail("refusing to touch finance.db — the live database. Local work runs "
              "against a copy (CLAUDE.md rule 6); Pi deployment passes an explicit "
              "--live flag after taking a fresh backup")

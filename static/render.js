@@ -21,12 +21,17 @@
     return v < 0 ? "−" + body : body;
   };
 
-  // Escape &, <, > for safe interpolation into HTML text — the exact
-  // subset the old document.createElement/textContent trick produced, now
-  // a pure string function so it runs in node too.
+  // Escape &, <, >, and BOTH quote forms for safe interpolation into HTML —
+  // text nodes AND double-quoted attributes. esc()-ed values land in aria-label
+  // attributes (pantry/budget buttons), so a bare " would break out and inject
+  // an event handler; escaping quotes closes that (CODE-REVIEW-2026-08-07 P0).
+  // &quot;/&#39; render as "/' in text and decode correctly through dataset, so
+  // there's no display regression. Ampersand first, so the entities we add
+  // aren't themselves re-escaped.
   function esc(s) {
     return (s == null ? "" : String(s))
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
   function ord(n) {

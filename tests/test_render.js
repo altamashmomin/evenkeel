@@ -21,8 +21,30 @@ check("esc handles null/undefined", () => {
   assert.strictEqual(R.esc(null), "");
   assert.strictEqual(R.esc(undefined), "");
 });
-check("esc leaves quotes alone (matches prior behavior)", () => {
-  assert.strictEqual(R.esc('he said "hi"'), 'he said "hi"');
+check("esc escapes quotes too (safe in attribute position)", () => {
+  // Both quote forms must be escaped: esc()-ed values are interpolated into
+  // double-quoted HTML attributes (aria-labels on pantry/budget buttons), so a
+  // bare " would break out of the attribute and inject a handler. See the
+  // CODE-REVIEW-2026-08-07 P0 XSS finding.
+  assert.strictEqual(R.esc('a"b'), "a&quot;b");
+  assert.strictEqual(R.esc("a'b"), "a&#39;b");
+  const out = R.esc('x" onmouseover="alert(1)');
+  assert.ok(!/"/.test(out), "no bare double-quote survives esc");
+});
+check("esc'd item name cannot break out of an aria-label attribute", () => {
+  // Render the REAL shipped inventoryHTML with a hostile item name and assert
+  // the payload cannot escape the aria-label into a live event handler.
+  const evil = 'Milk" onmouseover=alert(document.cookie) x="';
+  const html = R.inventoryHTML({
+    items: [{ id: 1, name: evil, kind: "staple", status: "low", active: 1 }],
+    shopping: [], low_count: 1, restock_suggestions: [], restock_forecast: [],
+    new_staple_suggestions: [], unmatched_staples: [], stale_shopping_items: [],
+    staple_spend: [], last_shopping_trip: null,
+  });
+  // The breakout signature is a BARE quote closing the attribute followed by a
+  // handler. A neutralized payload keeps the text but as inert &quot; entities.
+  assert.ok(!/"\s+onmouseover=/.test(html),
+    "hostile item name broke out of the attribute into a live handler");
 });
 
 // ---- fmt: US currency, two decimals, thousands separators ----
@@ -811,6 +833,51 @@ check("app.js destructures every Render helper it calls by bare name", () => {
         `app.js calls ${name}() but never destructures it from window.Render`);
     }
   }
+});
+
+check("app.js: every bare call resolves — no call to a name that exists nowhere", () => {
+  // The INVERSE of the guard above (CODE-REVIEW-2026-08-07 #9). That one asks
+  // "is every Render export that app.js calls destructured?" — it CANNOT see a
+  // bare call to a name that exists nowhere (a typo like catEmojiX(, or a helper
+  // renamed in render.js), which is exactly what blanked a tab in production.
+  // Here we resolve every bare call site against locals (decls + params + catch
+  // bindings), the Render destructuring block, and a small globals allowlist;
+  // anything left over is an unresolved call that would throw at runtime.
+  const fs = require("fs"), path = require("path");
+  const app = fs.readFileSync(path.join(__dirname, "../static/app.js"), "utf8");
+  const stripped = app
+    .replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+    .replace(/`(?:\\.|[^`\\])*`/g, " ").replace(/"(?:\\.|[^"\\])*"/g, " ")
+    .replace(/'(?:\\.|[^'\\])*'/g, " ");
+  const KEYWORDS = new Set(["if", "for", "while", "switch", "catch", "return",
+    "typeof", "await", "async", "function", "new", "delete", "void", "in", "of",
+    "do", "else", "throw", "yield", "case"]);
+  const GLOBALS = new Set(["Date", "Error", "Set", "Map", "Promise", "fetch",
+    "confirm", "prompt", "alert", "matchMedia", "JSON", "Object", "Array",
+    "Number", "String", "Math", "parseInt", "parseFloat", "isNaN", "setTimeout",
+    "setInterval", "requestAnimationFrame", "structuredClone", "Boolean",
+    "RegExp", "Symbol", "WeakMap", "console", "document", "window", "localStorage"]);
+  const defined = new Set();
+  for (const m of app.matchAll(/function\s+([a-zA-Z_$][\w$]*)/g)) defined.add(m[1]);
+  for (const m of app.matchAll(/(?:const|let|var)\s+([a-zA-Z_$][\w$]*)/g)) defined.add(m[1]);
+  const sigs = [...app.matchAll(/function\s*[a-zA-Z_$\w]*\s*\(([^)]*)\)/g),
+                ...app.matchAll(/\(([^)]*)\)\s*=>/g),
+                ...app.matchAll(/catch\s*\(([^)]*)\)/g)];
+  for (const m of sigs)
+    for (const p of m[1].split(",").map((s) =>
+        s.trim().replace(/[.]{3}/, "").split(/[=:]/)[0].trim()).filter(Boolean))
+      if (/^[a-zA-Z_$][\w$]*$/.test(p)) defined.add(p);
+  const block = app.match(/const\s*\{([^}]*)\}\s*=\s*window\.Render/);
+  const imported = new Set(block[1].split(",").map((s) => s.trim()).filter(Boolean));
+  const unresolved = [];
+  for (const m of stripped.matchAll(/(^|[^.\w])([a-zA-Z_$][\w$]*)\s*\(/g)) {
+    const n = m[2];
+    if (KEYWORDS.has(n) || GLOBALS.has(n) || defined.has(n) || imported.has(n)) continue;
+    if (!unresolved.includes(n)) unresolved.push(n);
+  }
+  assert.deepStrictEqual(unresolved, [],
+    `app.js calls name(s) that resolve to nothing (typo, deleted/renamed helper, `
+    + `or a missing window.Render import): ${unresolved.join(", ")}`);
 });
 
 console.log(`render tests passed (${passed} checks)`);

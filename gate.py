@@ -36,7 +36,8 @@ def fail(msg):
 
 
 def check_db_path(path):
-    if os.path.basename(path) == "finance.db":
+    # Case-insensitive + symlink-resolving (CODE-REVIEW-2026-08-07 #10).
+    if os.path.basename(os.path.realpath(path)).lower() == "finance.db":
         fail("refusing to touch finance.db — run against a copy (CLAUDE.md rule 6)")
     if not os.path.isfile(path):
         fail(f"database not found: {path}")
@@ -70,6 +71,15 @@ def load_module(path, name):
     return module
 
 
+# Sections emitted only by the modern (derivations) snapshot, not the v1.0
+# legacy one. diff_snapshots compares an optional section only when BOTH sides
+# have it, so a v1.0-baseline gate (legacy old, modern new) still compares
+# cleanly on balance/monthly_totals/row_counts while a modern-vs-modern gate
+# also gets per-category and income coverage (CODE-REVIEW-2026-08-07 #12).
+OPTIONAL_SECTIONS = ("by_category", "income")
+_INCOME_FIELDS = ("true_income_cents", "gross_inflows_cents", "net_cash_flow_cents")
+
+
 def canonical_new_snapshot(code_dir, db_path):
     derivations = load_module(
         os.path.join(code_dir, "derivations.py"), "ledger_gate_derivations")
@@ -78,6 +88,21 @@ def canonical_new_snapshot(code_dir, db_path):
     try:
         balance = derivations.compute_balance(conn)
         spending = derivations.spending_summary(conn)
+        # Per-category net spend per month — catches a category reassignment
+        # that leaves the monthly TOTAL unchanged (which the old snapshot missed).
+        by_category = {
+            month: {row["category"]: row["amount_cents"]
+                    for row in values.get("by_category", [])}
+            for month, values in spending.items()}
+        # Income money fields per month — catches an income misclassification
+        # (e.g. a paycheck silently reclassified) that the balance/spend totals
+        # don't move. Guarded so a ref whose derivations predate income_summary
+        # simply omits the section (then it's skipped in the compare).
+        income = {}
+        if hasattr(derivations, "income_summary"):
+            for month in spending:
+                summary = derivations.income_summary(conn, month)
+                income[month] = {f: summary[f] for f in _INCOME_FIELDS}
     finally:
         conn.close()
     if balance["state"] == "owing":
@@ -88,12 +113,16 @@ def canonical_new_snapshot(code_dir, db_path):
         }
     else:
         balance_snapshot = {"cents": 0, "ower_id": None, "owed_id": None}
-    return {
+    snapshot = {
         "balance": balance_snapshot,
         "monthly_totals": {
             month: values["total_cents"] for month, values in spending.items()
         },
+        "by_category": by_category,
     }
+    if income:
+        snapshot["income"] = income
+    return snapshot
 
 
 def import_legacy_app(code_dir, db_path):
@@ -200,11 +229,18 @@ def flatten(snapshot):
 
 def diff_snapshots(old, new):
     old_flat, new_flat = flatten(old), flatten(new)
-    return [
-        {"path": path, "old": old_flat.get(path), "new": new_flat.get(path)}
-        for path in sorted(set(old_flat) | set(new_flat))
-        if old_flat.get(path) != new_flat.get(path)
-    ]
+    diffs = []
+    for path in sorted(set(old_flat) | set(new_flat)):
+        section = path.split(".", 1)[0]
+        # An optional section absent from one side (e.g. the v1.0 legacy
+        # snapshot has no income/by_category) is not a regression signal —
+        # compare it only when BOTH snapshots carry it.
+        if section in OPTIONAL_SECTIONS and (section not in old or section not in new):
+            continue
+        if old_flat.get(path) != new_flat.get(path):
+            diffs.append({"path": path, "old": old_flat.get(path),
+                          "new": new_flat.get(path)})
+    return diffs
 
 
 def canonical(diffs):
