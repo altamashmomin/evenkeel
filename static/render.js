@@ -968,10 +968,6 @@
           <dl class="key-list">${entries || ""}</dl>
           ${entries ? "" : `<p class="agent-note">Nothing logged yet.</p>`}
         </details>
-        <div class="ops-row">
-          <button class="btn primary" id="btn-ops-sync" type="button">Sync banks now</button>
-          <span class="ops-sync-result" id="ops-sync-result"></span>
-        </div>
       </div>`;
   }
 

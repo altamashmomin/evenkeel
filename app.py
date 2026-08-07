@@ -6,8 +6,6 @@ import functools
 import os
 import secrets
 import sqlite3
-import subprocess
-import sys
 from datetime import date, datetime
 
 from dotenv import load_dotenv
@@ -296,38 +294,15 @@ def agents():
 
 
 # ------------------------------------------------- ops panel (Agents tab)
-# The in-app operations controls: run a sync now, read the Pi guardian's
-# latest report, browse recent audit activity. Shared like every other tab
-# (the household's call) — nothing here bypasses a verb's checks.
+# In-app operations VIEWS: the Pi guardian's latest report and recent audit
+# activity — read-only, shared like every other tab. (An on-demand "sync now"
+# was considered and dropped: the 06:30 timer already surfaces data under
+# Activity, and SimpleFIN only refreshes ~daily + disables tokens past ~24
+# requests/day, so a one-tap button was redundant risk. Sync stays scheduled;
+# its budget guard lives in simplefin_sync.py.)
 
 OPS_STATUS_FILE = os.environ.get(
     "OPS_STATUS_FILE", os.path.expanduser("~/pifinance-ops/ops-status.txt"))
-SYNC_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "simplefin_sync.py")
-
-
-@app.post("/api/ops/sync")
-@session_required
-def ops_sync():
-    """Run a SimpleFIN sync NOW — the same script the 06:30 timer runs, as a
-    subprocess (never a second insert path; its writes go through
-    record_transaction exactly like the timer's). Session-only: a bearer
-    token must not be able to trigger paid/banking side effects. The trigger
-    itself is audited via record_sync_run."""
-    try:
-        proc = subprocess.run(
-            [sys.executable, SYNC_SCRIPT], capture_output=True, text=True,
-            timeout=90, cwd=os.path.dirname(SYNC_SCRIPT))
-        exit_code = proc.returncode
-        # the script's last line is its summary ("done: N outflows …" or an
-        # "error: …" reason) — relay that, not the whole transcript
-        lines = [l for l in (proc.stdout + proc.stderr).strip().splitlines() if l]
-        summary = lines[-1] if lines else "(no output)"
-    except subprocess.TimeoutExpired:
-        exit_code, summary = -1, "sync timed out after 90s"
-    db = get_db()
-    actions.record_sync_run(db, ui_actor(db), exit_code, summary)
-    return jsonify({"ok": exit_code == 0, "summary": summary})
 
 
 @app.get("/api/ops/health")
