@@ -998,7 +998,18 @@
       </div>`;
   }
 
+  // The "More" bottom sheet: every tab as a tile, so all tabs are reachable
+  // from any page (the mobile bar only pins Home/Activity/Ask + Add). `items`
+  // is [[key, label, glyph], ...]; the active tab is highlighted.
+  function moreSheetHTML(items, active) {
+    const tiles = items.map(([key, label, glyph]) =>
+      `<button class="more-tile${key === active ? " on" : ""}" data-tab="${esc(key)}" type="button">` +
+      `<span class="g">${glyph}</span><span class="l">${esc(label)}</span></button>`).join("");
+    return `<p class="sheet-title">All tabs</p><div class="more-grid">${tiles}</div>`;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
+           moreSheetHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,

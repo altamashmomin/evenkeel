@@ -490,15 +490,32 @@ main {
   color: var(--muted); margin: 6px 0 0; }
 .contrib-log { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
 
-/* Home shortcuts to Bills + Analytics (they're off the 5-slot mobile nav). */
-.home-links { display: flex; gap: 10px; margin: 2px 0 8px; }
-.home-link {
-  flex: 1; padding: 13px 10px; border-radius: var(--radius);
-  background: var(--surface); border: 1px solid var(--line); color: var(--text);
-  font-family: var(--mono); font-weight: 700; font-size: 13px; cursor: pointer;
-  box-shadow: 0 6px 16px -10px rgba(40, 60, 45, 0.4);
+/* ---------- "More" bottom sheet (all tabs from any page) ---------- */
+dialog.sheet {
+  width: min(520px, 100vw); max-width: 100vw;
+  margin: auto auto 0;                    /* centered horizontally, pinned bottom */
+  border-radius: 24px 24px 0 0; border-bottom: none;
+  padding: 14px 16px calc(18px + env(safe-area-inset-bottom));
 }
-.home-link:active { transform: translateY(1px); }
+dialog.sheet[open] { animation: sheet-up 0.22s ease; }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+.sheet-title {
+  margin: 2px 0 12px; text-align: center; font-family: var(--mono);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--muted);
+}
+.more-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.more-tile {
+  display: grid; place-items: center; gap: 6px; padding: 14px 4px;
+  border-radius: 16px; background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--muted); font-family: var(--mono); cursor: pointer;
+}
+.more-tile:active { transform: translateY(1px); }
+.more-tile .g { font-size: 22px; line-height: 1; }
+.more-tile .l { font-size: 11px; font-weight: 700; }
+.more-tile.on {
+  color: var(--ok); border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, var(--surface-2));
+}
 
 /* ---------- month switcher ---------- */
 .monthbar {

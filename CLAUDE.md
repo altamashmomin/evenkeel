@@ -1708,6 +1708,32 @@ money path, zero-diff gates.
   pre-reset — dangerous) + **reconnect banks** (`--claim` per bank, then
   `simplefin_sync.py --force`).
 
+**Mobile nav redesign + Ask-tab keyboard fix — DONE, NOT YET DEPLOYED (Aug 6,
+2026).** Two mobile complaints from Alta, one frontend-only increment. (1) The
+5-slot mobile bottom bar only reached Home/Activity/Goals/Ask + Add — the other
+four tabs (Bills/Analytics/Pantry/Agents) were reachable ONLY via Home shortcut
+pills, so from any non-Home page you couldn't get to them. Redesigned to a
+**pinned bar + "More" sheet** (Alta's pick from three options; pinned tabs =
+Home/Activity/Ask, also Alta's call): bar is now **🏡 Home · 📋 Activity · [＋] ·
+💬 Ask · ☰ More**, and **More** opens a rounded Garden bottom sheet
+(`<dialog id="dlg-more" class="sheet">` + `moreSheetHTML` in render.js) listing
+**all 8 tabs** as a 4×2 tile grid — so every tab is reachable from every page.
+The active tab is highlighted in the sheet, and the **More button itself lights
+green** when the current tab lives inside the sheet ("you are here"). Dropped the
+now-redundant Home shortcut pills (+ their dead `.home-links` CSS). `MORE_TABS`
+is derived from `TABS`, so a future 9th tab shows up in the sheet automatically.
+(2) The Ask tab auto-focused its input on every render, popping the iOS keyboard
+and hiding the example-question chips on open — now it focuses **only once a
+conversation exists** (keeps the keyboard up for follow-ups) and NOT on the empty
+tab. Frontend only — no schema/verb/derivation/route/money path → **no balance
+gate**; render seam 92→**94** (moreSheetHTML: tile-per-tab + single active
+highlight + no-false-highlight), python suite 484 green. Visually verified in the
+in-app Browser (worked this session) via a throwaway harness rendering the REAL
+`render.js` + `style.css` at 375px: bar layout, sheet open/close, tile→tab
+switch, and the More "you are here" highlight all confirmed in **light AND dark**.
+Ships through the zero-gate frontend deploy path when Alta merges + runs
+`deploy.sh` (needs a per-device hard refresh, though cache-busting handles it).
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 
