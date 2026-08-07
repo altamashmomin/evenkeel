@@ -6,14 +6,15 @@ same Flask write ROUTE the SPA uses (one write path, CORE-DESIGN invariant 2),
 executed in-process under the caller's own session — so the write is attributed
 to the person (`ui:<name>`), validated by the verb, logged, and reversible.
 
-Tools exposed: classify_inflow (tag an inflow) and the household-pantry pair
-add_item / set_item_status — the pantry is groceries/supplies, never money, so
-it needs no two-phase choreography (INVENTORY-DESIGN: direct writes like
-classify). Rules (create_income_rule / apply_rules, two-phase) are a later
-increment; settle-up, transaction edit or delete, item removal, and money
-movement deliberately have NO tool here — ACL by omission (AGENT-DESIGN
-invariant 3). The pantry READ ('what do we need?', and finding an item's id)
-is the shared ledger_inventory read tool, not here.
+Tools exposed: classify_inflow (tag an inflow) and the household-pantry set —
+add_item, set_item_status, archive_item (remove), set_item_match — the pantry
+is groceries/supplies, never money, so it needs no two-phase choreography and
+gets broad conversational control (INVENTORY-DESIGN: direct writes like
+classify; even 'remove' is a reversible soft-delete). Rules (create_income_rule
+/ apply_rules, two-phase) are a later increment; settle-up, transaction edit or
+delete, and money movement deliberately have NO tool here — the money line held
+on purpose (AGENT-DESIGN invariant 3). The pantry READ ('what do we need?', and
+finding an item's id) is the shared ledger_inventory read tool, not here.
 """
 from typing import Callable
 
@@ -67,6 +68,30 @@ WRITE_TOOLS = [
         "input_schema": actions.param_schema("set_item_status"),
         "execute": lambda caller, a: caller(
             "PUT", f"/api/inventory/{a['item_id']}", {"status": a.get("status")}),
+    },
+    {
+        "name": "ledger_archive_item",
+        "description":
+            "Remove an item from the pantry — stop tracking a staple they no "
+            "longer want to watch, or drop a one-off need. Find the item's id "
+            "first with ledger_inventory. It's a reversible soft-delete (the item "
+            "just stops showing up) and logged. Pantry only — never money.",
+        "input_schema": actions.param_schema("archive_item"),
+        "execute": lambda caller, a: caller(
+            "DELETE", f"/api/inventory/{a['item_id']}", None),
+    },
+    {
+        "name": "ledger_set_item_match",
+        "description":
+            "Teach Ledger how a staple shows up on the bank feed, so it can spot "
+            "when they've restocked it. Pass a purchase phrase (e.g. 'chewy' for "
+            "dog food, 'trader joe' for a store), or an empty string to clear it. "
+            "Find the item's id with ledger_inventory first. Logged and "
+            "reversible; pantry only.",
+        "input_schema": actions.param_schema("set_item_match"),
+        "execute": lambda caller, a: caller(
+            "PUT", f"/api/inventory/{a['item_id']}",
+            {"restock_match": a.get("restock_match", "")}),
     },
 ]
 

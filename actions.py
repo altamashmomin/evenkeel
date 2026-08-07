@@ -1534,6 +1534,15 @@ PARAM_SPECS = {
         Param("item_id", "integer", "The item's id, from ledger_inventory."),
         Param("status", "string", "The new status.", enum=ITEM_STATUS_ORDER),
     ],
+    "archive_item": [
+        Param("item_id", "integer", "The item's id, from ledger_inventory."),
+    ],
+    "set_item_match": [
+        Param("item_id", "integer", "The item's id, from ledger_inventory."),
+        Param("restock_match", "string",
+              "The purchase description to match this staple against (e.g. "
+              "'chewy' for dog food), or an empty string to clear the match."),
+    ],
 }
 
 

@@ -154,6 +154,18 @@ READ_TOOLS = [
                                 {"period": a.get("period")}),
     },
     {
+        "name": "ledger_budget_status",
+        "description":
+            "How spending compares to each category budget this period: per "
+            "active budget, budgeted vs actual (refund-netted) vs remaining, "
+            "over/under, and pct used; plus unbudgeted_spend (spend in "
+            "categories with no budget). Over-budget budgets sort first. Money "
+            "as {cents, display}.",
+        "input_schema": _obj({"period": _MONTH}),
+        "fetch": lambda g, a: g("/api/analytics/budget-status",
+                                {"period": a.get("period")}),
+    },
+    {
         "name": "ledger_recurring_charges",
         "description":
             "Likely recurring charges / subscriptions: outflows that repeat at a "

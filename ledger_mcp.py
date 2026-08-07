@@ -280,6 +280,16 @@ def ledger_bill_variance(
     return _json(api_get("/api/analytics/bill-variance", {"period": period}))
 
 
+@mcp.tool(name="ledger_budget_status", title="Budget status",
+          description=DESCRIPTIONS["ledger_budget_status"], annotations=_READ)
+def ledger_budget_status(
+    period: Annotated[Optional[str], Field(
+        default=None, pattern=r"^\d{4}-\d{2}$",
+        description="ISO month 'YYYY-MM'. Omit for the current month.")] = None,
+) -> str:
+    return _json(api_get("/api/analytics/budget-status", {"period": period}))
+
+
 @mcp.tool(name="ledger_recurring_charges", title="Recurring charges",
           description=DESCRIPTIONS["ledger_recurring_charges"], annotations=_READ)
 def ledger_recurring_charges() -> str:
