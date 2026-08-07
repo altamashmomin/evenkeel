@@ -241,6 +241,7 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `archive_item` | UI, MCP | item exists | Soft delete (`active=0`), matching `delete_goal`/`delete_bill`'s bounded posture; history untouched |
 | `set_budget` | UI | category non-empty; amount positive (integer cents) | Analytics Tier C (BUDGETS-DESIGN). Upserts one category's monthly spending limit (`INSERT … ON CONFLICT(category) DO UPDATE`, reactivating a removed one); audit records before/after. A budget is a category limit, not a transaction — never touches money |
 | `remove_budget` | UI | budget exists | Soft delete (`active=0`), matching `delete_bill`/`archive_item`'s bounded posture; the audit history is untouched. Never touches money |
+| `reset_money` | CLI only (Pi maintenance) | confirm phrase must equal `reset all money rows` exactly | The fresh-start wipe (Aug 2026): clears `transactions`, `splits`, `links`, `bill_payments`, `goal_contributions`, `pending_actions` and zeroes `income_rules.hit_count`, in one transaction, keeping every configured structure (members, bills, goals, budgets, rules, items, tokens) untouched. Deliberately has NO route — unreachable from the UI, MCP, or Ask; run by hand on the Pi against a fresh backup. `audit_log` is kept, and the reset writes its own audit row carrying per-table before-counts |
 
 The table grows as features land (scenario verbs arrive with the
 scenarios build), but growth means *adding rows here first* — a write
