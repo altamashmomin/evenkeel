@@ -1371,10 +1371,14 @@ def add_item(db, actor, data):
         # restock_suggestions derivation falls back to the item name.
         restock_match = (data.get("restock_match") or "").strip()[:200] or None
         now = _now()
+        # A stocked add IS a "just full" moment, so it anchors the manual restock
+        # cadence (restock_forecast counts N days from last_stocked_at); a low/out
+        # add leaves the anchor NULL until the item is first marked stocked.
+        last_stocked_at = now if status == "stocked" else None
         cur = db.execute(
             "INSERT INTO items (name, category, kind, status, note, restock_match, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, category, kind, status, note, restock_match, now, now))
+            "last_stocked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, category, kind, status, note, restock_match, last_stocked_at, now, now))
         row = db.execute("SELECT * FROM items WHERE id = ?", (cur.lastrowid,)).fetchone()
         _write_audit(db, actor, "add_item", f"item:{row['id']}", {"item": dict(row)})
     return row
@@ -1399,9 +1403,14 @@ def set_item_status(db, actor, item_id, status):
             raise ActionError(
                 "status must be one of: " + ", ".join(sorted(ITEM_STATUSES)))
         archived = existing["kind"] == "oneoff" and status == "stocked"
+        now = _now()
+        # Marking an item 'stocked' re-anchors its manual restock cadence (the
+        # last time it was full); low/out leaves the anchor where it was.
+        last_stocked_at = now if status == "stocked" else existing["last_stocked_at"]
         db.execute(
-            "UPDATE items SET status = ?, updated_at = ?, active = ? WHERE id = ?",
-            (status, _now(), 0 if archived else 1, item_id))
+            "UPDATE items SET status = ?, updated_at = ?, active = ?, "
+            "last_stocked_at = ? WHERE id = ?",
+            (status, now, 0 if archived else 1, last_stocked_at, item_id))
         row = db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
         _write_audit(db, actor, "set_item_status", f"item:{item_id}",
                      {"before": existing["status"], "after": status,
@@ -1554,6 +1563,50 @@ def set_item_match(db, actor, item_id, restock_match):
         _write_audit(db, actor, "set_item_match", f"item:{item_id}",
                      {"before": existing["restock_match"], "after": phrase})
     return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+
+
+def set_item_interval(db, actor, item_id, days):
+    """Set or clear a staple's manual restock cadence — the "remind me every N
+    days" a person sets directly (INVENTORY-DESIGN step 5). When set,
+    restock_forecast counts N days from last_stocked_at instead of inferring the
+    interval from purchase history; None/blank clears it, so the forecast falls
+    back to the inferred median cadence. Never touches money.
+
+    validate — the item exists, is active, and is a staple (a one-off archives
+    itself on purchase, so a cadence is meaningless there — NotFound / ActionError
+    otherwise); days is None (clear) or a positive integer within a sane bound.
+    edit — one transaction: restock_interval_days + updated_at + an audit row
+    carrying before/after. Returns the updated row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if existing is None or not existing["active"]:
+            raise NotFound("not found")
+        if existing["kind"] != "staple":
+            raise ActionError("a restock cadence only applies to a staple")
+        interval = _clean_interval_days(days)
+        db.execute(
+            "UPDATE items SET restock_interval_days = ?, updated_at = ? WHERE id = ?",
+            (interval, _now(), item_id))
+        _write_audit(db, actor, "set_item_interval", f"item:{item_id}",
+                     {"before": existing["restock_interval_days"], "after": interval})
+    return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+
+
+def _clean_interval_days(days):
+    """Validate a manual restock cadence: None/empty clears it; otherwise a
+    positive integer within [1, 365] (a year is the longest cadence worth a
+    reminder). Rejects zero, negatives, and non-integers."""
+    if days is None or days == "":
+        return None
+    try:
+        n = int(days)
+    except (TypeError, ValueError):
+        raise ActionError("interval must be a whole number of days")
+    if not 1 <= n <= 365:
+        raise ActionError("interval must be between 1 and 365 days")
+    return n
 
 
 # ─────────────────── declarative action parameters (ACTION-SCHEMA-DESIGN) ──────

@@ -501,6 +501,18 @@ check("restockForecastHTML surfaces stocked staples due soon, soonest first", ()
   assert.ok(html.indexOf("Milk") < html.indexOf("Coffee"), "soonest-due (Milk) first");
   assert.ok(!html.includes("data-mark-low"), "future rows are a heads-up — no action");
 });
+check("restockForecastHTML names where the interval came from (manual vs inferred)", () => {
+  const manual = R.restockForecastHTML(
+    [{ item_id: 1, name: "Coffee", status: "stocked", interval_days: 14,
+       interval_source: "manual", predicted_date: "2026-08-10" }],
+    "2026-08-04");
+  assert.ok(manual.includes("every 14 days (you set this)"), "manual cadence is attributed to the person");
+  const inferred = R.restockForecastHTML(
+    [{ item_id: 2, name: "Milk", status: "stocked", interval_days: 7,
+       interval_source: "cadence", predicted_date: "2026-08-08" }],
+    "2026-08-04");
+  assert.ok(inferred.includes("about every 7 days (from your purchases)"), "inferred cadence is attributed to the feed");
+});
 check("restockForecastHTML labels an overdue staple and offers 'Mark low'", () => {
   const html = R.restockForecastHTML(
     [{ item_id: 1, name: "Coffee", status: "stocked", interval_days: 14, predicted_date: "2026-08-01" }],

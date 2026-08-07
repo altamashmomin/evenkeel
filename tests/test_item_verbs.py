@@ -276,6 +276,82 @@ class ItemVerbTests(unittest.TestCase):
         fc = derivations.restock_forecast(self.db)
         self.assertEqual([sooner["id"], later["id"]], [f["item_id"] for f in fc])
 
+    def test_forecast_cadence_source_is_labelled(self):
+        self.add(name="Coffee")
+        for day in ("2026-01-01", "2026-01-31", "2026-03-02"):
+            self._purchase("BLUE BOTTLE COFFEE", day)
+        self.assertEqual("cadence", derivations.restock_forecast(self.db)[0]["interval_source"])
+
+    # ---- set_item_interval (INVENTORY-DESIGN step 5, user-set cadence) --------
+    def test_set_item_interval_sets_and_clears_with_audit(self):
+        item = self.add(name="Coffee")
+        row = actions.set_item_interval(self.db, "ui:avery", item["id"], 14)
+        self.assertEqual(14, row["restock_interval_days"])
+        audit = self.db.execute(
+            "SELECT actor, action, detail_json FROM audit_log WHERE target = ? "
+            "AND action = 'set_item_interval'", (f"item:{item['id']}",)).fetchone()
+        self.assertEqual("ui:avery", audit["actor"])
+        self.assertEqual({"before": None, "after": 14}, json.loads(audit["detail_json"]))
+        cleared = actions.set_item_interval(self.db, "ui:avery", item["id"], None)
+        self.assertIsNone(cleared["restock_interval_days"])
+
+    def test_set_item_interval_accepts_string_digits_and_rejects_bad_values(self):
+        item = self.add(name="Coffee")
+        # the route hands through JSON values; a numeric string coerces
+        self.assertEqual(21, actions.set_item_interval(
+            self.db, "ui:avery", item["id"], "21")["restock_interval_days"])
+        for bad in (0, -3, 366, "soon"):
+            with self.assertRaises(actions.ActionError):
+                actions.set_item_interval(self.db, "ui:avery", item["id"], bad)
+        # empty string clears, like a blank match
+        self.assertIsNone(actions.set_item_interval(
+            self.db, "ui:avery", item["id"], "")["restock_interval_days"])
+
+    def test_set_item_interval_rejects_a_oneoff(self):
+        oneoff = self.add(name="Birthday candles", kind="oneoff")
+        with self.assertRaisesRegex(actions.ActionError, "cadence only applies to a staple"):
+            actions.set_item_interval(self.db, "ui:avery", oneoff["id"], 7)
+
+    def test_set_item_interval_not_found(self):
+        with self.assertRaises(actions.NotFound):
+            actions.set_item_interval(self.db, "ui:avery", 99999, 7)
+
+    def test_add_stocked_seeds_last_stocked_at_and_lowout_does_not(self):
+        staple = self.add(name="Coffee")                       # defaults stocked
+        self.assertIsNotNone(staple["last_stocked_at"])
+        need = self.add(name="Napkins", status="out")          # a need, not full
+        self.assertIsNone(need["last_stocked_at"])
+
+    def test_marking_stocked_reanchors_last_stocked_at(self):
+        item = self.add(name="Coffee")
+        low = actions.set_item_status(self.db, "ui:avery", item["id"], "low")
+        anchored = low["last_stocked_at"]                       # unchanged by low
+        restocked = actions.set_item_status(self.db, "ui:avery", item["id"], "stocked")
+        self.assertGreaterEqual(restocked["last_stocked_at"], anchored)
+
+    def test_manual_interval_forecasts_from_last_stocked_without_purchases(self):
+        # No purchase history at all — the manual cadence still predicts, from
+        # the anchor set when the staple was added stocked.
+        item = self.add(name="Coffee")
+        actions.set_item_interval(self.db, "ui:avery", item["id"], 30)
+        f = derivations.restock_forecast(self.db)[0]
+        self.assertEqual(item["id"], f["item_id"])
+        self.assertEqual(30, f["interval_days"])
+        self.assertEqual("manual", f["interval_source"])
+        anchor = date.fromisoformat(item["last_stocked_at"][:10])
+        self.assertEqual((anchor + timedelta(days=30)).isoformat(), f["predicted_date"])
+        self.assertIsNone(f["last_purchase"])
+        self.assertNotIn("days_until", f)     # still clock-free
+
+    def test_manual_interval_overrides_the_inferred_cadence(self):
+        item = self.add(name="Coffee")
+        for day in ("2026-01-01", "2026-01-31", "2026-03-02"):  # median gap 30
+            self._purchase("BLUE BOTTLE COFFEE", day)
+        actions.set_item_interval(self.db, "ui:avery", item["id"], 7)
+        f = derivations.restock_forecast(self.db)[0]
+        self.assertEqual(7, f["interval_days"])                # manual, not 30
+        self.assertEqual("manual", f["interval_source"])
+
     # ---- new_staple_suggestions derivation (step 5 sibling) ------------------
     # NOTE: this derivation scans ALL outflows, so the seed contributes its own
     # merchant clusters — these assertions target the merchants they inject and

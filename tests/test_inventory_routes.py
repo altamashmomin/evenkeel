@@ -47,8 +47,8 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual(201, created.status_code)
         item = created.get_json()
         self.assertEqual(
-            ["category", "id", "kind", "name", "note", "restock_match",
-             "status", "updated_at"],
+            ["category", "id", "kind", "last_stocked_at", "name", "note",
+             "restock_interval_days", "restock_match", "status", "updated_at"],
             sorted(item))
         self.assertEqual("stocked", item["status"])
 
@@ -102,6 +102,25 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual("phrase", sugg[0]["matched_by"])
         # purchase amount is dollars at the JSON edge
         self.assertEqual({"cents": 4200, "display": "$42.00"}, sugg[0]["purchase"]["amount"])
+
+    def test_manual_interval_via_put_drives_the_forecast(self):
+        c = self.client()
+        item = c.post("/api/inventory", json={"name": "Coffee"}).get_json()
+        # set a manual cadence via PUT (its own verb, same route)
+        r = c.put(f"/api/inventory/{item['id']}", json={"restock_interval_days": 10})
+        self.assertEqual(200, r.status_code)
+        self.assertEqual(10, r.get_json()["restock_interval_days"])
+        # it drives a 'manual' forecast with no purchase history at all
+        fc = c.get("/api/inventory").get_json()["restock_forecast"]
+        mine = [f for f in fc if f["item_id"] == item["id"]]
+        self.assertEqual(1, len(mine))
+        self.assertEqual("manual", mine[0]["interval_source"])
+        self.assertEqual(10, mine[0]["interval_days"])
+        # a bad value is a 400 from the verb; blank clears it (back to inferred)
+        self.assertEqual(400, c.put(
+            f"/api/inventory/{item['id']}", json={"restock_interval_days": 0}).status_code)
+        cleared = c.put(f"/api/inventory/{item['id']}", json={"restock_interval_days": None})
+        self.assertIsNone(cleared.get_json()["restock_interval_days"])
 
     def test_staple_spend_money_is_dollars_at_the_edge(self):
         c = self.client()

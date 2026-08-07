@@ -608,11 +608,16 @@
       const trailing = days <= 0
         ? `<button class="btn small primary" data-mark-low="${f.item_id}">Mark low</button>`
         : `<span class="badge due">${esc(shortDate(f.predicted_date))}</span>`;
+      // Name where the interval came from, so the prediction isn't a black box:
+      // a manual "every N days" the person set, vs one inferred from the feed.
+      const cadence = f.interval_source === "manual"
+        ? `every ${f.interval_days} days (you set this)`
+        : `about every ${f.interval_days} days (from your purchases)`;
       return `<li>
         <span class="ic">${itemIcon({ name: f.name })}</span>
         <div class="grow">
           <div class="title">${esc(f.name)}</div>
-          <div class="sub">${when} · about every ${f.interval_days} days</div>
+          <div class="sub">${when} · ${cadence}</div>
         </div>
         ${trailing}
       </li>`;
@@ -840,11 +845,14 @@
             <div class="grow">
               <div class="title">${esc(it.name)}</div>
               ${it.note ? `<div class="sub">${esc(it.note)}</div>` : ""}
+              ${it.restock_interval_days ? `<div class="sub match-hint">⏰ remind every ${it.restock_interval_days} days</div>` : ""}
               ${it.restock_match ? `<div class="sub match-hint">🔎 matches “${esc(it.restock_match)}”</div>` : ""}
             </div>
             <button class="status-chip ${it.status}" data-item-cycle="${it.id}"
                     data-status="${it.status}"
                     aria-label="${esc(it.name)} is ${it.status}; tap to change">${esc(it.status)}</button>
+            <button class="item-x item-match" data-item-interval="${it.id}"
+                    aria-label="Set a restock reminder for ${esc(it.name)}">⏰</button>
             <button class="item-x item-match" data-item-match="${it.id}"
                     aria-label="Set a purchase match for ${esc(it.name)}">🔎</button>
             <button class="item-x" data-item-remove="${it.id}"

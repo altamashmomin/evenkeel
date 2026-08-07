@@ -735,7 +735,9 @@ def confirm_action_view():
 def item_to_json(r):
     return {"id": r["id"], "name": r["name"], "category": r["category"],
             "kind": r["kind"], "status": r["status"], "note": r["note"],
-            "restock_match": r["restock_match"], "updated_at": r["updated_at"]}
+            "restock_match": r["restock_match"],
+            "restock_interval_days": r["restock_interval_days"],
+            "last_stocked_at": r["last_stocked_at"], "updated_at": r["updated_at"]}
 
 
 @app.get("/api/inventory")
@@ -796,9 +798,11 @@ def add_inventory_item():
 @app.put("/api/inventory/<int:item_id>")
 @login_required
 def update_inventory_item(item_id):
-    """Thin caller: set the item's status and/or its restock-match phrase (each
-    its own verb). Pass 'status' (mark stocked/low/out) and/or 'restock_match'
-    (the optional purchase-feed override; blank clears it)."""
+    """Thin caller: set the item's status, its restock-match phrase, and/or its
+    manual restock cadence (each its own verb). Pass 'status' (mark
+    stocked/low/out), 'restock_match' (the optional purchase-feed override; blank
+    clears it), and/or 'restock_interval_days' (remind every N days; null/blank
+    clears it → back to the inferred cadence)."""
     db = get_db()
     data = request.get_json(silent=True) or {}
     row = None
@@ -807,12 +811,17 @@ def update_inventory_item(item_id):
             row = actions.set_item_status(db, ui_actor(db), item_id, data.get("status"))
         if "restock_match" in data:
             row = actions.set_item_match(db, ui_actor(db), item_id, data.get("restock_match"))
+        if "restock_interval_days" in data:
+            row = actions.set_item_interval(
+                db, ui_actor(db), item_id, data.get("restock_interval_days"))
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
     except ValueError as e:
         return bad_request(str(e))
     if row is None:
-        return bad_request("nothing to change: pass 'status' and/or 'restock_match'")
+        return bad_request(
+            "nothing to change: pass 'status', 'restock_match', and/or "
+            "'restock_interval_days'")
     return jsonify(item_to_json(row))
 
 

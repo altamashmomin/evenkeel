@@ -789,12 +789,18 @@ def restock_forecast(db, min_purchases=3):
     next be needed from the typical gap between its purchases — a forward
     heads-up beyond the reactive low/out hint restock_suggestions gives.
 
-    A staple qualifies only with >= min_purchases (default 3) matching purchases
-    on DISTINCT days (i.e. 2+ intervals), so a single coincidental gap can't
-    drive a forecast — the conservative "suggest, don't assert" bar. The
-    interval is the MEDIAN gap (in days) between consecutive purchase dates
-    (robust to one unusually early/late buy); predicted_date = the last purchase
-    + that interval.
+    Two ways a staple gets a forecast:
+      - MANUAL (interval_source='manual'): the person set restock_interval_days
+        ("remind me every N days"). predicted_date = last_stocked_at + N (the
+        cadence counts from the last time it was full); no purchase history
+        needed — they opted in.
+      - CADENCE (interval_source='cadence'): no manual interval, so the interval
+        is INFERRED — a staple qualifies only with >= min_purchases (default 3)
+        matching purchases on DISTINCT days (i.e. 2+ intervals), so a single
+        coincidental gap can't drive a forecast (the conservative "suggest,
+        don't assert" bar). The interval is the MEDIAN gap (in days) between
+        consecutive purchase dates (robust to one unusually early/late buy);
+        predicted_date = the last purchase + that interval.
 
     Deliberately CLOCK-FREE: it returns only facts derived from the purchase
     history (interval, last_purchase, predicted_date) and never reads a "today".
@@ -818,6 +824,32 @@ def restock_forecast(db, min_purchases=3):
         # distinct purchase DAYS, chronological — two buys on one day are one
         # restock event, not a zero-length interval.
         days = sorted({r["txn_date"][:10] for r in rows})
+        last_purchase = days[-1] if days else None
+
+        manual = it["restock_interval_days"]
+        if manual:
+            # The person SET a cadence — count `manual` days from the last time
+            # the staple was full (last_stocked_at), falling back to the last
+            # matching purchase and then updated_at when no stock event is
+            # recorded. Always yields a forecast (they opted in), no purchase
+            # history required. Clock-free: anchor + interval, both from stored
+            # data — the days-until framing stays a view-layer concern.
+            anchor = (it["last_stocked_at"] or "")[:10] or last_purchase \
+                or it["updated_at"][:10]
+            interval = manual
+            predicted = date.fromisoformat(anchor) + timedelta(days=interval)
+            out.append({
+                "item_id": it["id"], "name": it["name"], "status": it["status"],
+                "purchases_seen": len(days),
+                "interval_days": interval,
+                "interval_source": "manual",
+                "last_purchase": last_purchase,
+                "predicted_date": predicted.isoformat(),
+            })
+            continue
+
+        # No manual cadence — infer the median gap from purchase history (the
+        # prior behavior): needs >= min_purchases matched buys on distinct days.
         if len(days) < min_purchases:
             continue
         dates = [date.fromisoformat(d) for d in days]
@@ -827,6 +859,7 @@ def restock_forecast(db, min_purchases=3):
             "item_id": it["id"], "name": it["name"], "status": it["status"],
             "purchases_seen": len(days),
             "interval_days": interval,
+            "interval_source": "cadence",
             "last_purchase": dates[-1].isoformat(),
             "predicted_date": predicted.isoformat(),
         })
