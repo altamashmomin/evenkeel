@@ -1464,6 +1464,50 @@ def remove_budget(db, actor, budget_id):
     return db.execute("SELECT * FROM budgets WHERE id = ?", (budget_id,)).fetchone()
 
 
+RESET_CONFIRM_PHRASE = "reset all money rows"
+
+# The money-movement tables reset_money clears, in FK-safe order. Everything
+# else — members, splits config (none: splits IS money-derived so it clears),
+# bills, goals, budgets, income_rules (rows kept, hit_count zeroed), items,
+# api_tokens, and audit_log (the system of record) — survives untouched.
+RESET_TABLES = ("links", "splits", "bill_payments", "goal_contributions",
+                "pending_actions", "transactions")
+
+
+def reset_money(db, actor, confirm):
+    """The fresh-start wipe (Aug 2026): clear every money-movement row while
+    keeping the household's configured structure — members, bills, goals,
+    budgets, income rules, pantry items, api tokens — byte-untouched, so the
+    ledger reads $0/empty and fills forward from the next bank sync.
+
+    Deliberately has NO route: unreachable from the UI, MCP, or Ask. Run by
+    hand (CLI) on the Pi, against a fresh backup, per deploy/reset-money.md.
+
+    validate — `confirm` must equal RESET_CONFIRM_PHRASE exactly (a wrong or
+    missing phrase deletes nothing).
+    edit — one transaction: DELETE the RESET_TABLES in FK-safe order, zero
+    income_rules.hit_count (rules themselves survive), and ONE audit row
+    carrying each table's before-count — the wipe is itself part of the
+    record it preserves.
+    Returns {table: rows_deleted} plus rules_hit_count_zeroed.
+    """
+    if confirm != RESET_CONFIRM_PHRASE:
+        raise ActionError(
+            f"refusing: confirm must be the exact phrase {RESET_CONFIRM_PHRASE!r}")
+    with action_transaction(db):
+        before = {t: db.execute(f"SELECT COUNT(*) AS c FROM {t}").fetchone()["c"]
+                  for t in RESET_TABLES}
+        rules_hit = db.execute(
+            "SELECT COUNT(*) AS c FROM income_rules WHERE hit_count != 0"
+        ).fetchone()["c"]
+        for t in RESET_TABLES:
+            db.execute(f"DELETE FROM {t}")
+        db.execute("UPDATE income_rules SET hit_count = 0")
+        _write_audit(db, actor, "reset_money", "ledger:money",
+                     {"cleared": before, "rules_hit_count_zeroed": rules_hit})
+    return {**before, "rules_hit_count_zeroed": rules_hit}
+
+
 def set_item_match(db, actor, item_id, restock_match):
     """Set or clear a staple's restock-match phrase — the OPTIONAL override that
     ties a purchase's description to this item for restock suggestions
