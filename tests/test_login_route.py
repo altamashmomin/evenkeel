@@ -79,6 +79,32 @@ class LoginRouteTests(unittest.TestCase):
         r = c.post("/api/login", json={"username": "AVERY", "password": KNOWN_PW})
         self.assertEqual(200, r.status_code)
 
+    def test_login_is_rate_limited_after_repeated_failures(self):
+        # #17: brute force → 429 once the failure budget is spent. (Each test
+        # method reloads app.py, so the in-process buckets start empty here.)
+        c = self.app_module.app.test_client()
+        for _ in range(self.app_module.LOGIN_MAX_FAILS):
+            r = c.post("/api/login", json={"username": "avery", "password": "x"})
+            self.assertEqual(401, r.status_code)
+        # budget spent → throttled, and even the CORRECT password is refused
+        # while the window holds (the whole point of a lockout).
+        self.assertEqual(429, c.post(
+            "/api/login", json={"username": "avery", "password": "x"}).status_code)
+        self.assertEqual(429, c.post(
+            "/api/login", json={"username": "avery", "password": KNOWN_PW}).status_code)
+
+    def test_a_successful_login_clears_the_failure_count(self):
+        # A legitimate user is never locked out as long as the password is
+        # right: success resets the counter.
+        c = self.app_module.app.test_client()
+        for _ in range(self.app_module.LOGIN_MAX_FAILS - 1):
+            c.post("/api/login", json={"username": "avery", "password": "x"})
+        self.assertEqual(200, c.post(
+            "/api/login", json={"username": "avery", "password": KNOWN_PW}).status_code)
+        # counter cleared → a fresh wrong attempt is a plain 401, not near-limit
+        self.assertEqual(401, c.post(
+            "/api/login", json={"username": "avery", "password": "x"}).status_code)
+
 
 if __name__ == "__main__":
     unittest.main()

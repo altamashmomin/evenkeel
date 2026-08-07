@@ -116,7 +116,10 @@ class AskWriteTests(unittest.TestCase):
         # the model saw a NON-error tool_result carrying the updated row
         tr = mock.calls[1]["messages"][-1]["content"][0]
         self.assertFalse(tr["is_error"])
-        self.assertEqual("paycheck", json.loads(tr["content"])["income_type"])
+        # #7: the payload is labeled untrusted, then the JSON follows.
+        self.assertTrue(tr["content"].startswith("[untrusted tool data"))
+        self.assertEqual("paycheck",
+                         json.loads(tr["content"].split("\n", 1)[1])["income_type"])
         # attributed to the person, not an mcp token
         conn = self.db()
         try:
