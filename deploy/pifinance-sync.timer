@@ -1,10 +1,16 @@
-# Daily sync schedule — /etc/systemd/system/pifinance-sync.timer
+# Twice-daily sync schedule — /etc/systemd/system/pifinance-sync.timer
 [Unit]
-Description=Run Pi Finance SimpleFIN sync once a day
+Description=Run Pi Finance SimpleFIN sync twice a day
 
 [Timer]
+# Two pulls a day (2 of SimpleFIN's ~24/day budget) — the evening run catches
+# that day's ~24h bank refresh whenever it lands, without hourly polling (which
+# would re-fetch the same daily snapshot and sit on the token-disabling
+# ceiling). The two are ~11.5h apart, far above the sync script's own
+# min-interval budget guard, so neither trips it.
 OnCalendar=*-*-* 06:30:00
-# If the Pi was off at 06:30, run when it next boots
+OnCalendar=*-*-* 18:00:00
+# If the Pi was off at a run time, run when it next boots
 Persistent=true
 RandomizedDelaySec=15m
 
