@@ -1867,11 +1867,21 @@ first parent = prior main, tree == rework, **GATE PASS zero-diff, no migration**
   but shipped nothing, HEAD stuck at `544f7bc`). Fixed by fetching to confirm
   `origin/main` propagated, then `deploy.sh origin/main <currently-deployed-ref>`
   with the explicit old-ref so the gate compares the right baseline [[ledger-workflow]].
-- **Remaining (optional, not correctness):** the two SECONDARY #16 perf sub-paths
-  — pantry `_matching_purchases` per-item scans (a shared `_purchase_index`) and
-  `_monthly_series`'s per-month `spending_summary` (O(months)→O(1)). Everything
-  else in the review is shipped and verified. `origin/main` == `origin/rework` ==
-  local `rework` tree (`3de39fc`/`354680f`), invariant intact.
+- **#16 perf sub-path 1 — DONE + DEPLOYED (Aug 7, `main` `e699444`).** The pantry
+  N+1: `/api/inventory`'s five staple-looping derivations (`restock_suggestions`,
+  `restock_forecast`, `unmatched_staples`, `stale_shopping_items`, `staple_spend`)
+  each did one `instr()` table scan per staple (~150 with 30 staples). Now they
+  share one `_purchase_index(db)` scan (all outflows, pre-sorted) that
+  `_matching_purchases` filters in Python when passed `index=`; the per-item SQL
+  path stays for lone calls. Byte-identical (parity test index==SQL, balance GATE
+  PASS 42 values zero-diff, measured 125→5 scans). Suite 500 python + 96 render.
+- **#16 perf sub-path 2 — DELIBERATELY SKIPPED (Alta's call, Aug 7).**
+  `_monthly_series`'s per-month `spending_summary` (income/category trends). On the
+  occasional analytics tab it saves ~10 fast queries but a clean fix touches three
+  MONEY derivations (`income_summary`/`income_trend`/`category_trend`) with real
+  parity risk — cost/benefit doesn't justify it. NOT a gap; a decision.
+  **The Aug-7 code review is now fully closed** — every P0, every P1, and the one
+  #16 sub-path worth doing, all shipped. Nothing outstanding from it.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
