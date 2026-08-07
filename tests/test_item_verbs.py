@@ -489,6 +489,30 @@ class ItemVerbTests(unittest.TestCase):
         self.assertEqual("FRESH MART",
                          derivations.last_shopping_trip(self.db)["merchant"])
 
+    def test_matching_purchases_index_path_equals_sql_path(self):
+        # #16: the prefetched-index path must return byte-identical rows to the
+        # per-item SQL path — same substring filter, same `since` bound, same
+        # DESC order — so the pantry N+1 optimization can't silently diverge.
+        item = self.add(name="Tripwire Beans", kind="staple")
+        for d in ("2026-07-05", "2026-07-20", "2026-07-12"):  # out of order on purpose
+            self._purchase("TRIPWIRE BEANS CO", d)
+        self._purchase("TRIPWIRE BEANS refund", "2026-07-15", direction="in",
+                       income_type="refund")  # a matching INFLOW both paths ignore
+        index = derivations._purchase_index(self.db)
+
+        sql = [dict(r) for r in derivations._matching_purchases(self.db, item)]
+        idx = [dict(r) for r in derivations._matching_purchases(self.db, item, index=index)]
+        self.assertEqual(sql, idx)
+        self.assertEqual(3, len(sql))  # 3 outflows, the inflow excluded by both
+
+        sql_since = [dict(r) for r in
+                     derivations._matching_purchases(self.db, item, since="2026-07-12")]
+        idx_since = [dict(r) for r in
+                     derivations._matching_purchases(self.db, item, since="2026-07-12",
+                                                     index=index)]
+        self.assertEqual(sql_since, idx_since)
+        self.assertEqual(2, len(sql_since))  # 07-12 and 07-20 only
+
 
 if __name__ == "__main__":
     unittest.main()

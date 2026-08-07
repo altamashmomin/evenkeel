@@ -686,17 +686,40 @@ def _item_match_phrase(item):
     return (item["restock_match"] or item["name"] or "").strip()
 
 
-def _matching_purchases(db, item, since=None):
+def _purchase_index(db):
+    """Every OUTFLOW purchase, pre-sorted most-recent-first, fetched in ONE query
+    so a derivation looping staples can hand it to _matching_purchases and match
+    phrases in Python instead of running one instr() table scan per staple (#16:
+    /api/inventory calls ~5 such derivations, each previously scanning once per
+    staple). Same columns and DESC order as _matching_purchases' own query, so
+    the filtered results are byte-identical. direction='out' — an inflow never
+    enters the index (the mandatory filter the restock derivations share)."""
+    return db.execute(
+        "SELECT txn_date, description, amount_cents FROM transactions "
+        "WHERE direction = 'out' ORDER BY txn_date DESC, id DESC").fetchall()
+
+
+def _matching_purchases(db, item, since=None, index=None):
     """Every OUTFLOW purchase whose description contains the item's match phrase
     (restock_match, or the name when unset), most-recent first. `since` (a
     'YYYY-MM-DD') limits to purchases dated on/after it. Empty when the item has
     no match phrase. OUTFLOWS ONLY (direction='out') — the mandatory filter both
     restock derivations share, so an inflow that happens to name the item never
     counts. A plumbing helper (leading underscore): it takes an `item`, not just
-    `db`, so it is not one of the tripwire's income-ignoring aggregates."""
+    `db`, so it is not one of the tripwire's income-ignoring aggregates.
+
+    `index` (optional): a prefetched _purchase_index(db) list. When given, the
+    match runs in Python against that single scan — same substring filter, same
+    `since` bound, same DESC order — so a staple loop avoids one query per item
+    (#16). Byte-identical to the per-item SQL path (which stays for lone calls)."""
     phrase = _item_match_phrase(item)
     if not phrase:
         return []
+    if index is not None:
+        p = phrase.lower()
+        return [r for r in index
+                if p in (r["description"] or "").lower()
+                and (since is None or r["txn_date"] >= since)]
     sql = ("SELECT txn_date, description, amount_cents FROM transactions "
            "WHERE direction = 'out' AND instr(lower(description), lower(?)) > 0")
     params = [phrase]
@@ -741,10 +764,11 @@ def restock_suggestions(db):
     staples = db.execute(
         "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
         "AND status IN ('low', 'out')").fetchall()
+    index = _purchase_index(db)  # one scan, shared across the staple loop (#16)
     out = []
     for it in staples:
         since = (it["updated_at"] or "")[:10]  # the day it last changed
-        rows = _matching_purchases(db, it, since=since)
+        rows = _matching_purchases(db, it, since=since, index=index)
         if not rows:
             continue
         row = rows[0]  # most recent matching purchase (helper orders DESC)
@@ -787,9 +811,10 @@ def restock_forecast(db, min_purchases=3):
     """
     staples = db.execute(
         "SELECT * FROM items WHERE active = 1 AND kind = 'staple'").fetchall()
+    index = _purchase_index(db)  # one scan, shared across the staple loop (#16)
     out = []
     for it in staples:
-        rows = _matching_purchases(db, it)
+        rows = _matching_purchases(db, it, index=index)
         # distinct purchase DAYS, chronological — two buys on one day are one
         # restock event, not a zero-length interval.
         days = sorted({r["txn_date"][:10] for r in rows})
@@ -910,9 +935,10 @@ def unmatched_staples(db):
     """
     staples = db.execute(
         "SELECT * FROM items WHERE active = 1 AND kind = 'staple'").fetchall()
+    index = _purchase_index(db)  # one scan, shared across the staple loop (#16)
     out = []
     for it in staples:
-        if _matching_purchases(db, it):     # any matching purchase ever → it works
+        if _matching_purchases(db, it, index=index):  # any match ever → it works
             continue
         out.append({
             "item_id": it["id"], "name": it["name"],
@@ -944,10 +970,11 @@ def stale_shopping_items(db):
     staples = db.execute(
         "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
         "AND status IN ('low', 'out')").fetchall()
+    index = _purchase_index(db)  # one scan, shared across the staple loop (#16)
     out = []
     for it in staples:
         since = (it["updated_at"] or "")[:10]   # the day it went low/out
-        if _matching_purchases(db, it, since=since):   # bought since → not rot
+        if _matching_purchases(db, it, since=since, index=index):  # bought since
             continue                                   # (restock_suggestions owns it)
         out.append({
             "item_id": it["id"], "name": it["name"], "status": it["status"],
@@ -983,9 +1010,10 @@ def staple_spend(db, min_purchases=3):
     """
     staples = db.execute(
         "SELECT * FROM items WHERE active = 1 AND kind = 'staple'").fetchall()
+    index = _purchase_index(db)  # one scan, shared across the staple loop (#16)
     out = []
     for it in staples:
-        rows = _matching_purchases(db, it)
+        rows = _matching_purchases(db, it, index=index)
         days = sorted({r["txn_date"][:10] for r in rows})
         if len(days) < min_purchases:
             continue
