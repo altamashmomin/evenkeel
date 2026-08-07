@@ -762,16 +762,16 @@ check("agentsHTML renders the field once — no repeat", () => {
 });
 
 // ---- opsPanelHTML: the Agents-tab operations foot ----
-check("opsPanelHTML: green badge, report behind a collapsible, sync button", () => {
+check("opsPanelHTML: green badge, report + activity behind collapsibles", () => {
   const h = R.opsPanelHTML(
     { available: true, report: "Ledger Pi Ops — 🟢 GREEN — all healthy", age_hours: 3 },
     { entries: [{ id: 9, at: "2026-08-06T12:00:00", actor: "ui:avery",
-                  action: "record_sync_run", target: "sync:manual" }] });
+                  action: "set_item_status", target: "item:2" }] });
   assert.ok(h.includes("badge paid"), "GREEN report -> green badge");
   assert.ok(h.includes("checked 3h ago"), "age surfaced");
-  assert.ok(h.includes("btn-ops-sync"), "sync button present");
-  assert.ok(h.includes("record_sync_run"), "audit entry listed");
+  assert.ok(h.includes("set_item_status"), "audit entry listed");
   assert.ok(/<details class="key-group">/.test(h), "report + activity collapsed");
+  assert.ok(!/btn-ops-sync/.test(h), "no sync button (removed)");
 });
 check("opsPanelHTML: absent report is a normal state; amber/red map to badges", () => {
   const none = R.opsPanelHTML({ available: false }, { entries: [] });

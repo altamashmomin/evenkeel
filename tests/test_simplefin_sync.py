@@ -76,9 +76,25 @@ class SimplefinSyncTests(unittest.TestCase):
             os.environ.pop(key, None)
         self.tmp.cleanup()
 
-    def run_sync(self, payload):
+    def run_sync(self, payload, force=True):
+        # force=True by default: these tests exercise sync LOGIC (insert,
+        # dedupe) and call sync() repeatedly, so they bypass the min-interval
+        # budget guard (tested separately in test_budget_guard_*).
         with mock.patch.object(self.sync_module, "requests", FakeRequests(payload)):
-            self.sync_module.sync()
+            self.sync_module.sync(force=force)
+
+    def test_budget_guard_skips_a_too_soon_sync_and_force_overrides(self):
+        # A fresh stamp -> the guard skips before any network call (FakeRequests
+        # would raise if hit) and inserts nothing; --force runs anyway.
+        with open(self.sync_module.STAMP_FILE, "w") as f:
+            f.write(str(int(__import__("time").time())))
+        before = len(self.query("SELECT id FROM transactions"))
+        with mock.patch.object(self.sync_module, "requests",
+                               FakeRequests(simplefin_payload())):
+            self.sync_module.sync(force=False)           # too soon -> skip
+        self.assertEqual(before, len(self.query("SELECT id FROM transactions")))
+        self.run_sync(simplefin_payload(), force=True)   # override -> inserts
+        self.assertGreater(len(self.query("SELECT id FROM transactions")), before)
 
     def query(self, sql, *params):
         conn = sqlite3.connect(self.db_path)

@@ -49,6 +49,17 @@ ACCESS_FILE = os.environ.get(
 PAID_BY = int(os.environ.get("SYNC_PAID_BY", "1"))
 LOOKBACK_DAYS = int(os.environ.get("SYNC_LOOKBACK_DAYS", "10"))
 TIMEOUT = 30
+# SimpleFIN Bridge expects <= ~24 /accounts requests per day and refreshes bank
+# data only ~once/24h; exceeding the budget DISABLES the access token. The
+# 06:30 timer is 1/day (nowhere near), but this guard stops accidental rapid
+# re-runs (a loop, a double-invoke, a mis-set timer) from burning the budget
+# for zero fresher data. Space between allowed syncs; --force overrides it (for
+# deliberate setup runs right after claiming a new bank). Default 30 min.
+MIN_SYNC_INTERVAL_S = int(os.environ.get("SYNC_MIN_INTERVAL_S", "1800"))
+# Next to the db (BASE_DIR on the Pi, a temp dir under test) so it's naturally
+# test-isolated; gitignored (.last-sync) so it never dirties the Pi's tree and
+# trips deploy.sh's clean-tree guard.
+STAMP_FILE = os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), ".last-sync")
 
 
 def claim(setup_token: str) -> None:
@@ -91,8 +102,36 @@ def to_cents(amount_str) -> int:
         raise ValueError(f"unparseable amount: {amount_str!r}")
 
 
-def sync() -> None:
+def _seconds_since_last_sync():
+    """Age of the last successful sync in seconds, or None if never/unreadable."""
+    try:
+        with open(STAMP_FILE) as f:
+            return int(time.time()) - int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _stamp_sync():
+    try:
+        fd = os.open(STAMP_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(str(int(time.time())))
+    except OSError:
+        pass   # best-effort throttle stamp — never fail a sync over it
+
+
+def sync(force: bool = False) -> None:
     require_current_schema(DB_PATH)
+    # Budget guard: refuse a sync too soon after the last one (SimpleFIN's
+    # ~24/day limit disables the token). A clean no-op exit, not an error —
+    # the daily timer never trips it; only rapid re-runs do. --force overrides.
+    if not force:
+        age = _seconds_since_last_sync()
+        if age is not None and age < MIN_SYNC_INTERVAL_S:
+            mins = (MIN_SYNC_INTERVAL_S - age + 59) // 60
+            print(f"skip: last sync {age // 60}m ago; SimpleFIN refreshes ~daily "
+                  f"and limits requests. Wait ~{mins}m or pass --force.")
+            return
     access_url = read_access_url().rstrip("/")
     start = int(time.time()) - LOOKBACK_DAYS * 86400
     try:
@@ -106,6 +145,7 @@ def sync() -> None:
     if resp.status_code != 200:
         sys.exit(f"error: SimpleFIN returned HTTP {resp.status_code}")
     data = resp.json()
+    _stamp_sync()   # a request was spent — count it against the interval guard
 
     for err in data.get("errors", []):
         print(f"simplefin notice: {err}")
@@ -184,11 +224,14 @@ def main():
     ap = argparse.ArgumentParser(description="SimpleFIN sync for Pi Finance")
     ap.add_argument("--claim", metavar="SETUP_TOKEN",
                     help="one-time: exchange a setup token for a permanent access URL")
+    ap.add_argument("--force", action="store_true",
+                    help="bypass the min-interval budget guard (for deliberate "
+                         "setup syncs right after claiming a new bank)")
     args = ap.parse_args()
     if args.claim:
         claim(args.claim)
     else:
-        sync()
+        sync(force=args.force)
 
 
 if __name__ == "__main__":

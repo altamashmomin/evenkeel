@@ -364,23 +364,6 @@ async function renderAgents() {
   return agentsHTML(data) + opsPanelHTML(health, audit);
 }
 
-async function opsSyncNow(btn) {
-  btn.disabled = true;
-  const out = $("#ops-sync-result");
-  out.textContent = "syncing…";
-  try {
-    const r = await api("/api/ops/sync", { method: "POST", body: {} });
-    out.textContent = r.summary;
-    out.classList.toggle("err", !r.ok);
-    if (r.ok) setTimeout(() => render(), 1500);  // fresh rows -> refresh the view
-  } catch (e) {
-    out.textContent = e.message;
-    out.classList.add("err");
-  } finally {
-    btn.disabled = false;
-  }
-}
-
 /* ================= activity ================= */
 
 function txnRow(t) {
@@ -830,8 +813,6 @@ function wireMain() {
   // Home shortcuts to the tabs that aren't in the 5-slot mobile nav.
   $$("[data-goto]").forEach((el) =>
     el.addEventListener("click", () => setTab(el.dataset.goto)));
-  const opsSync = $("#btn-ops-sync");
-  if (opsSync) opsSync.addEventListener("click", () => opsSyncNow(opsSync));
   const thread = $("#ask-thread");
   if (thread) thread.scrollTop = thread.scrollHeight;
   if (state.tab === "ask" && !state.ask.pending) $("#ask-input")?.focus();

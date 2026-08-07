@@ -5,6 +5,8 @@
 # Databases — real financial data never enters git
 *.db
 *.db.bak-*
+*.db.nightly-*
+.last-sync
 *.db-wal
 *.db-shm
 *.sqlite

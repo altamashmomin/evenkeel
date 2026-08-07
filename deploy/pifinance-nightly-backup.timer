@@ -1,0 +1,15 @@
+# Nightly finance.db snapshot — /etc/systemd/system/pifinance-nightly-backup.timer
+# Fires at 03:00 — after the day's activity, well clear of the 06:30 SimpleFIN
+# sync and the 07:00 guardian run, so the guardian's freshness check always
+# sees that night's file already in place.
+[Unit]
+Description=Run the Ledger nightly finance.db snapshot
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+# If the Pi was off at 03:00, run when it next boots.
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

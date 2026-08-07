@@ -798,6 +798,3 @@ details.key-group[open] summary.key-h::after { transform: rotate(180deg); }
   white-space: pre-wrap; overflow-x: auto;
 }
 .ops-when { color: var(--muted); font-size: 11px; margin-left: 6px; }
-.ops-panel .btn.primary { width: auto; margin-top: 0; }
-.ops-sync-result { font-size: 12.5px; color: var(--muted); }
-.ops-sync-result.err { color: var(--danger); }

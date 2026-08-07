@@ -1,8 +1,8 @@
-"""The ops panel (Agents tab foot): run-sync-now, guardian heartbeat, recent
-audit activity. The sync trigger runs the REAL simplefin_sync.py as a
-subprocess (pointed at a missing access file here, so it exits fast and
-deterministically with no network) — proving the plumbing: exit relayed,
-summary surfaced, and the trigger audited as the person via record_sync_run."""
+"""The ops panel (Agents tab foot): read-only in-app views — the Pi guardian's
+heartbeat report and recent audit activity. (An on-demand sync button was
+considered and dropped — SimpleFIN refreshes ~daily and disables tokens past
+its request budget, so a one-tap button was redundant risk; sync stays
+scheduled, guarded in simplefin_sync.py.)"""
 import importlib.util
 import os
 import sqlite3
@@ -54,25 +54,13 @@ class OpsPanelTests(unittest.TestCase):
         conn.row_factory = sqlite3.Row
         return conn
 
-    def test_sync_runs_script_relays_failure_and_audits_the_trigger(self):
-        r = self.client().post("/api/ops/sync")
-        self.assertEqual(200, r.status_code)
-        body = r.get_json()
-        self.assertFalse(body["ok"])                    # no access file
-        self.assertIn("error:", body["summary"])        # the script's own reason
-        conn = self.db()
-        try:
-            row = conn.execute(
-                "SELECT actor, detail_json FROM audit_log "
-                "WHERE action = 'record_sync_run'").fetchone()
-        finally:
-            conn.close()
-        self.assertIsNotNone(row, "the trigger must be audited")
-        self.assertEqual("ui:avery", row["actor"])      # who pressed it
-        self.assertIn("error:", row["detail_json"])
-
-    def test_sync_is_session_only(self):
-        self.assertEqual(401, self.client(user_id=None).post("/api/ops/sync").status_code)
+    def test_no_sync_endpoint_exists(self):
+        # The on-demand sync trigger was deliberately removed; only read-only
+        # ops views remain. (405 not 404: the static catch-all matches the GET
+        # path, so a POST there is "method not allowed" — either way, no
+        # working sync endpoint.)
+        self.assertIn(self.client().post("/api/ops/sync").status_code, (404, 405))
+        self.assertNotIn("record_sync_run", (REPO / "app.py").read_text())
 
     def test_health_reads_the_heartbeat_and_absent_is_normal(self):
         no_file = self.client().get("/api/ops/health").get_json()
@@ -86,10 +74,10 @@ class OpsPanelTests(unittest.TestCase):
 
     def test_audit_lists_newest_first_and_clamps_limit(self):
         c = self.client()
-        c.post("/api/ops/sync")                          # guarantees >=1 row
+        c.post("/api/inventory", json={"name": "Coffee"})   # a real audited write
         body = c.get("/api/ops/audit?limit=5").get_json()
         self.assertLessEqual(len(body["entries"]), 5)
-        self.assertEqual("record_sync_run", body["entries"][0]["action"])
+        self.assertEqual("add_item", body["entries"][0]["action"])   # newest
         self.assertEqual({"id", "at", "actor", "action", "target"},
                          set(body["entries"][0]))
         ids = [e["id"] for e in body["entries"]]

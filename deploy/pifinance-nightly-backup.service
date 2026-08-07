@@ -1,0 +1,29 @@
+# Ledger nightly backup — /etc/systemd/system/pifinance-nightly-backup.service
+# Triggered by pifinance-nightly-backup.timer; not enabled directly. Writes a
+# WAL-safe VACUUM INTO snapshot (finance.db.nightly-<ts>) and prunes the
+# nightly pool to NIGHTLY_KEEP_BACKUPS — a deploy-independent data safety net
+# (NIGHTLY-BACKUP-DESIGN.md). Read-only against the live db; never stops the
+# app, never touches the deploy-backup pool or the off-Pi golden copy.
+#
+# Adjust User and paths if your username or install dir differs (the deployed
+# Pi is user `altamash` at /home/altamash/pifinance; rewrite with sed on copy,
+# never edit this tracked file — a future `git pull` would conflict).
+[Unit]
+Description=Ledger nightly finance.db snapshot
+After=pifinance.service
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/pifinance
+EnvironmentFile=-/home/pi/pifinance/.env
+ExecStart=/home/pi/pifinance/deploy/nightly-backup.sh
+
+# Hardening (same defaults as the guardian unit; ProtectSystem=full still
+# allows /home writes — the guardian writes its heartbeat under it too)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

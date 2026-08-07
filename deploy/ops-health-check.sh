@@ -26,8 +26,9 @@
 #   DISK_WARN_PCT       amber above this %     (default: 80)
 #   DISK_CRIT_PCT       red above this %       (default: 90)
 #   MAX_SYNC_AGE_H      amber if last good sync older   (default: 26)
-#   MAX_BACKUP_AGE_H    amber if newest backup older    (default: 168 = 7d)
-#   MAX_BACKUPS         amber if more bak files than    (default: 12)
+#   MAX_NIGHTLY_AGE_H   amber if newest nightly snapshot older (default: 30)
+#   MAX_NIGHTLY_BACKUPS amber if more nightly files than (default: 16)
+#   MAX_BACKUPS         amber if more deploy bak files than (default: 12)
 #   ASK_KEY_EXPIRES     YYYY-MM-DD; amber within 14d/past (default: unset)
 #   OPS_ALERT_GH_REPO   e.g. altamashmomin/evenkeel; with the token below, files
 #                       a GitHub issue on amber/red (the Chief-of-Staff bridge)
@@ -43,7 +44,8 @@ SYNC_SERVICE="${SYNC_SERVICE:-pifinance-sync.service}"
 DISK_WARN_PCT="${DISK_WARN_PCT:-80}"
 DISK_CRIT_PCT="${DISK_CRIT_PCT:-90}"
 MAX_SYNC_AGE_H="${MAX_SYNC_AGE_H:-26}"
-MAX_BACKUP_AGE_H="${MAX_BACKUP_AGE_H:-168}"
+MAX_NIGHTLY_AGE_H="${MAX_NIGHTLY_AGE_H:-30}"
+MAX_NIGHTLY_BACKUPS="${MAX_NIGHTLY_BACKUPS:-16}"
 MAX_BACKUPS="${MAX_BACKUPS:-12}"
 OPS_STATUS_FILE="${OPS_STATUS_FILE:-$APP_DIR/ops-status.txt}"
 
@@ -118,56 +120,94 @@ if have systemctl; then
   fi
 fi
 
-# ── 5. Backups: recent, restorable, not bloating the card ───────────────────
-# Exclude SQLite sidecars (-wal/-shm/-journal): they are not backups, and
-# counting them inflates the total and could pick a non-db file as "newest".
-shopt -s nullglob
-baks=()
-for _f in "$APP_DIR"/finance.db.bak-*; do
-  case "$_f" in *-wal|*-shm|*-journal) continue;; esac
-  baks+=("$_f")
-done
-shopt -u nullglob
-if (( ${#baks[@]} == 0 )); then
-  crit "no finance.db.bak-* backup found in $APP_DIR — no local rollback point"
-else
-  newest="$(ls -1t "$APP_DIR"/finance.db.bak-* 2>/dev/null \
-            | grep -vE -- '-(wal|shm|journal)$' | head -1)"
-  if have date && have stat; then
-    b_epoch="$(stat -c %Y "$newest" 2>/dev/null || echo 0)"
-    b_age_h=$(( ($(date +%s) - b_epoch) / 3600 ))
-    (( b_age_h > MAX_BACKUP_AGE_H )) \
-      && warn "newest backup is ${b_age_h}h old (> ${MAX_BACKUP_AGE_H}h) — no fresh safety net" \
-      || ok "newest backup ${b_age_h}h old ($(basename "$newest"))"
-  fi
-  # Restorability: integrity-check the newest backup (a .bak, never finance.db).
+# ── 5. Backups: two pools — nightly (data freshness) + deploy (rollback) ────
+# Nightly pool (finance.db.nightly-*): the deploy-independent safety net
+# written by pifinance-nightly-backup.timer at 03:00. FRESHNESS lives here —
+# a snapshot should never be older than ~a day.
+# Deploy pool (finance.db.bak-*): code-version rollback points written by
+# deploy.sh. Its old age check is RETIRED — "newest deploy backup is old" just
+# means "no deploy lately", which the nightly pool makes a non-signal.
+# Exclude SQLite sidecars (-wal/-shm/-journal) from both: not backups, and
+# counting them inflates totals / could pick a non-db file as "newest".
+
+pool_files() {  # $1 = glob prefix; echoes matching real backups, one per line
+  shopt -s nullglob
+  local f
+  for f in "$APP_DIR"/$1*; do
+    case "$f" in *-wal|*-shm|*-journal) continue;; esac
+    echo "$f"
+  done
+  shopt -u nullglob
+}
+
+integrity_of() {  # $1 = db file; echoes "ok", an error string, or "" (no tool)
   # python3 first (always present — the app runs on it) opened immutable=1, so
   # SQLite reads the static file directly and NEVER creates -wal/-shm sidecars
   # next to the backup. sqlite3 CLI only as a fallback.
-  res=""
   if have python3; then
-    res="$(python3 -c '
+    python3 -c '
 import sqlite3, sys
 try:
     c = sqlite3.connect("file:%s?immutable=1" % sys.argv[1], uri=True)
     print(c.execute("PRAGMA integrity_check").fetchone()[0])
 except Exception as e:
     print("unreadable (%s)" % e.__class__.__name__)
-' "$newest" 2>/dev/null | head -1)"
+' "$1" 2>/dev/null | head -1
   elif have sqlite3; then
-    res="$(sqlite3 "$newest" 'PRAGMA integrity_check;' 2>&1 | head -1)"
+    sqlite3 "$1" 'PRAGMA integrity_check;' 2>&1 | head -1
   fi
+}
+
+# (while-read, not mapfile: keeps the script runnable on bash 3.2 for off-Pi
+# dry-runs; the Pi's bash 5 handles either)
+nightlies=(); while IFS= read -r _f; do [ -n "$_f" ] && nightlies+=("$_f"); done < <(pool_files finance.db.nightly-)
+baks=();      while IFS= read -r _f; do [ -n "$_f" ] && baks+=("$_f");      done < <(pool_files finance.db.bak-)
+
+# Nightly pool — freshness, restorability, count.
+if (( ${#nightlies[@]} == 0 )); then
+  warn "no finance.db.nightly-* snapshot found — nightly backup timer not installed or not running?"
+else
+  newest_n="$(printf '%s\n' "${nightlies[@]}" | sort | tail -1)"  # ts in name: lexical == chronological
+  if have date && have stat; then
+    n_epoch="$(stat -c %Y "$newest_n" 2>/dev/null || echo 0)"
+    n_age_h=$(( ($(date +%s) - n_epoch) / 3600 ))
+    (( n_age_h > MAX_NIGHTLY_AGE_H )) \
+      && warn "newest nightly snapshot is ${n_age_h}h old (> ${MAX_NIGHTLY_AGE_H}h) — last night's backup missing?" \
+      || ok "newest nightly snapshot ${n_age_h}h old ($(basename "$newest_n"))"
+  fi
+  res="$(integrity_of "$newest_n")"
   if [[ -z "$res" ]]; then
-    warn "cannot integrity-check backups (no sqlite3 or python3)"
+    warn "cannot integrity-check nightly snapshots (no sqlite3 or python3)"
   elif [[ "$res" == "ok" ]]; then
-    ok "newest backup passes integrity_check (restorable)"
+    ok "newest nightly snapshot passes integrity_check (restorable)"
   else
-    crit "newest backup FAILED integrity_check ('$res') — backup may be corrupt"
+    crit "newest nightly snapshot FAILED integrity_check ('$res') — data safety net may be corrupt"
   fi
-  # Bloat: too many bak files slowly fills the SD card.
+  (( ${#nightlies[@]} > MAX_NIGHTLY_BACKUPS )) \
+    && warn "${#nightlies[@]} nightly snapshots (> ${MAX_NIGHTLY_BACKUPS}) — nightly prune not working?" \
+    || ok "${#nightlies[@]} nightly snapshot(s) retained"
+fi
+
+# Deploy pool — restorability + bloat only (age retired, see header above).
+if (( ${#baks[@]} == 0 )); then
+  if (( ${#nightlies[@]} == 0 )); then
+    crit "no local backups AT ALL (no deploy .bak, no nightly snapshot) — no rollback point"
+  else
+    ok "no deploy backups (nightly pool covers local rollback)"
+  fi
+else
+  newest_b="$(printf '%s\n' "${baks[@]}" | sort | tail -1)"
+  res="$(integrity_of "$newest_b")"
+  if [[ -z "$res" ]]; then
+    warn "cannot integrity-check deploy backups (no sqlite3 or python3)"
+  elif [[ "$res" == "ok" ]]; then
+    ok "newest deploy backup passes integrity_check ($(basename "$newest_b"))"
+  else
+    crit "newest deploy backup FAILED integrity_check ('$res') — backup may be corrupt"
+  fi
   (( ${#baks[@]} > MAX_BACKUPS )) \
-    && warn "${#baks[@]} backup files (> ${MAX_BACKUPS}) — consider pruning the oldest (human action)" \
-    || ok "${#baks[@]} backup file(s) retained"
+    && warn "${#baks[@]} deploy backup files (> ${MAX_BACKUPS}) — deploy prune not working?" \
+    || ok "${#baks[@]} deploy backup file(s) retained"
 fi
 
 # ── 6. Credentials before they die silently ─────────────────────────────────
