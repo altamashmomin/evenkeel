@@ -1708,7 +1708,7 @@ money path, zero-diff gates.
   pre-reset — dangerous) + **reconnect banks** (`--claim` per bank, then
   `simplefin_sync.py --force`).
 
-**Mobile nav redesign + Ask-tab keyboard fix — DONE, NOT YET DEPLOYED (Aug 6,
+**Mobile nav redesign + Ask-tab keyboard fix — DONE + DEPLOYED (Aug 6–7,
 2026).** Two mobile complaints from Alta, one frontend-only increment. (1) The
 5-slot mobile bottom bar only reached Home/Activity/Goals/Ask + Add — the other
 four tabs (Bills/Analytics/Pantry/Agents) were reachable ONLY via Home shortcut
@@ -1731,8 +1731,39 @@ highlight + no-false-highlight), python suite 484 green. Visually verified in th
 in-app Browser (worked this session) via a throwaway harness rendering the REAL
 `render.js` + `style.css` at 375px: bar layout, sheet open/close, tile→tab
 switch, and the More "you are here" highlight all confirmed in **light AND dark**.
-Ships through the zero-gate frontend deploy path when Alta merges + runs
-`deploy.sh` (needs a per-device hard refresh, though cache-busting handles it).
+Committed `rework` `c7b19da`; deployed via `main` `544f7bc` (`--no-ff` merge,
+first parent = prior main `b8fa7e0`, tree == rework). **DEPLOYED to the Pi (Aug 7,
+2026)** — `deploy/deploy.sh origin/main b8fa7e0` → **GATE PASS zero-diff, no
+migration** (schema stays v10), `pifinance` + `ledger-mcp` restarted; rollback
+backup `finance.db.bak-2026-08-07-001329`. Verified live over the tailnet: new
+nav (`moreSheetHTML`) served, dead `home-link` code gone, cache-busting stamping
+the fresh `render.js?v=…`. Per-device hard refresh picks it up.
+
+**Pi deploy footgun hit + fixed this deploy (Aug 7, 2026) — READ before the next
+Pi deploy.** The Pi's git model: deploys run `deploy/deploy.sh origin/main`, whose
+`git checkout origin/main` leaves **HEAD detached** at the deployed commit; the
+Pi's local **`main` branch is NOT advanced by deploys**. This session, the
+Mac-side merge command (`git checkout main && git merge --no-ff rework && git push
+… && git checkout rework`) was mistakenly run **on the Pi**. Its `git checkout
+main` reverted the whole working tree to the Pi's stale local `main` — which was
+pinned all the way back at **`e8f27d6` (schema v3, July)** — so on-disk `app.py`
+became v3 (`REQUIRED_SCHEMA_VERSION=3`), `deploy.sh` vanished (didn't exist at
+v3), and the app kept serving only because gunicorn still held the v10 code in
+memory. **Latent outage:** any `systemctl restart`/reboot would have loaded v3
+code, which hard-rejects the v10 DB (`require_current_schema` wants history
+`[1,2,3]`, DB is `[1..10]`) → workers die. `finance.db` was never at risk (it's
+gitignored, untouched by any checkout). Recovery (all Pi-side): (1) `git checkout
+origin/main` — restore disk to v10, **no restart, zero downtime**; (2)
+`deploy/deploy.sh origin/main b8fa7e0` — the explicit old-ref `b8fa7e0` is what
+made the gate compare v10-vs-v10 (real frontend diff) instead of the v3-vs-v10
+mismatch a bare `deploy.sh origin/main` would have hit; (3) `git branch -f main
+origin/main` — **heal the stale local `main`** so a future `git checkout main`
+can't revert to v3 again (now done — local `main` == `origin/main`). **Lessons:**
+Mac-side git (merge/push to `main`) and Pi-side git (`deploy.sh`) are separate —
+LABEL which machine each command is for; never run the merge command on the Pi.
+When a Pi deploy's gate would compare against the wrong baseline, pass the
+actually-deployed commit as `deploy.sh origin/main <old-ref>`. Cross-session
+detail: memory [[ledger-workflow]].
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
