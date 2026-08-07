@@ -25,40 +25,74 @@ GROUPS = [
     ("analysts", "Analysts & advisors"),
     ("build", "Maintainers & release"),
     ("ops", "Live operations"),
+    ("redvault", "Security squad · REDVAULT"),
     ("assistants", "The assistants"),
 ]
 
-# Presentation for the 7 role subagents in .claude/agents/. Keyed by the
+# Presentation for the 14 role subagents in .claude/agents/. Keyed by the
 # file stem (which is the agent's `name`). `model` is read from the file.
+# Display names carry a tactical codename (the standing team + the REDVAULT
+# security squad both have them) followed by the plain role.
 SUBAGENTS = {
     "ledger-analyst": {
-        "name": "Analyst", "group": "analysts", "icon": "📊",
+        "name": "ORACLE · Analyst", "group": "analysts", "icon": "📊",
         "access": "read-only", "surface": "Claude Code",
         "tagline": "Answers money questions from live data."},
     "ledger-security": {
-        "name": "Security", "group": "analysts", "icon": "🛡️",
+        "name": "WARDEN · Security", "group": "analysts", "icon": "🛡️",
         "access": "advisory", "surface": "Claude Code",
         "tagline": "Defensive review — auth, injection, secrets, deps."},
     "ledger-chief-of-staff": {
-        "name": "Chief of Staff", "group": "analysts", "icon": "🗂️",
+        "name": "QUILL · Chief of Staff", "group": "analysts", "icon": "🗂️",
         "access": "read-only", "surface": "cloud · Fri",
         "tagline": "Reconciles every report into one weekly briefing."},
     "ledger-maintenance": {
-        "name": "Maintenance", "group": "build", "icon": "🔧",
+        "name": "KEEPER · Maintenance", "group": "build", "icon": "🔧",
         "access": "edits · stops before commit", "surface": "Claude Code",
         "tagline": "Dependency freshness & backend health."},
     "ledger-release": {
-        "name": "Release", "group": "build", "icon": "🚀",
+        "name": "GATEKEEPER · Release", "group": "build", "icon": "🚀",
         "access": "recommend-only", "surface": "Claude Code",
         "tagline": "Go / no-go for a gated deploy; never pulls the trigger."},
     "ledger-health-sweep": {
-        "name": "Health Sweep", "group": "build", "icon": "🩺",
+        "name": "PULSE · Health Sweep", "group": "build", "icon": "🩺",
         "access": "read-only", "surface": "cloud · Mon",
         "tagline": "Weekly red / amber / green sweep of the whole app."},
     "ledger-ops": {
-        "name": "Ops · SRE", "group": "ops", "icon": "🛰️",
+        "name": "BEACON · Ops", "group": "ops", "icon": "🛰️",
         "access": "recommend-only", "surface": "tailnet",
         "tagline": "Diagnoses the live Pi; recommends, never mutates."},
+
+    # REDVAULT — the authorized security squad over the household's own stack.
+    # Offense runs on dev copies; only Alta deploys. See docs/OPERATING-CHARTER.md.
+    "ledger-scout": {
+        "name": "SCOUT · Recon", "group": "redvault", "icon": "🧭",
+        "access": "read-only", "surface": "Claude Code",
+        "tagline": "Maps the attack surface; sets the test boundary."},
+    "ledger-picklock": {
+        "name": "PICKLOCK · Auth", "group": "redvault", "icon": "🔓",
+        "access": "advisory", "surface": "dev copy",
+        "tagline": "Tests auth, sessions & token scope on a copy."},
+    "ledger-mirage": {
+        "name": "MIRAGE · Injection", "group": "redvault", "icon": "💉",
+        "access": "advisory", "surface": "dev copy",
+        "tagline": "Probes injection & prompt-injection of the agent tools."},
+    "ledger-keyring": {
+        "name": "KEYRING · Access", "group": "redvault", "icon": "🔑",
+        "access": "advisory", "surface": "dev copy",
+        "tagline": "Checks member isolation & the two-phase write flow."},
+    "ledger-blackout": {
+        "name": "BLACKOUT · Infra", "group": "redvault", "icon": "🔒",
+        "access": "recommend-only", "surface": "tailnet",
+        "tagline": "Checks the Pi's secrets & tailnet exposure."},
+    "ledger-patchwright": {
+        "name": "PATCHWRIGHT · Fix", "group": "redvault", "icon": "🩹",
+        "access": "edits · stops before commit", "surface": "Claude Code",
+        "tagline": "Writes the fix + a proven regression test; stops before commit."},
+    "ledger-tribunal": {
+        "name": "TRIBUNAL · Purple lead", "group": "redvault", "icon": "⚖️",
+        "access": "advisory", "surface": "Claude Code",
+        "tagline": "Verifies findings, runs the fix loop, hands you go / no-go."},
 }
 
 # The always-on / scheduled pieces — not .claude/agents files, so their
@@ -110,6 +144,7 @@ GLOSSARY = [
         ("tailnet", "Over your private Tailscale network."),
         ("Pi timer", "A scheduled job on the Raspberry Pi."),
         ("in-app", "Built right into the Ledger app."),
+        ("dev copy", "On a throwaway copy of the data (dev.db), never the live one."),
     ]),
     ("Type", [
         ("subagent", "A role-scoped Claude agent you invoke in a session."),

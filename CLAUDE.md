@@ -1770,6 +1770,31 @@ When a Pi deploy's gate would compare against the wrong baseline, pass the
 actually-deployed commit as `deploy.sh origin/main <old-ref>`. Cross-session
 detail: memory [[ledger-workflow]].
 
+**REDVAULT security squad + team codenames — DONE, NOT DEPLOYED (Aug 7, 2026).**
+Seven new role-scoped subagents in `.claude/agents/` forming an authorized,
+defensive pen-test → verify → patch → re-test pipeline over the household's OWN
+Ledger stack (concept artifact `fbc269c3-03c3-4298-b6f3-402653230ac3`):
+`ledger-scout` (SCOUT · recon/scope-marshal, read-only), `ledger-picklock`
+(PICKLOCK · auth/session, dev copy), `ledger-mirage` (MIRAGE · injection +
+prompt-injection of the Ask/MCP tool boundary, dev copy), `ledger-keyring`
+(KEYRING · access-control/IDOR + two-phase-write replay, dev copy),
+`ledger-blackout` (BLACKOUT · infra/secrets/exposure, recommend-only on the Pi
+like `ledger-ops`), `ledger-patchwright` (PATCHWRIGHT · fix author — edits `rework`
++ a regression test proven to fail-first, stops before commit like
+`ledger-maintenance`), `ledger-tribunal` (TRIBUNAL · verifier/purple-lead —
+adversarially confirms findings, runs the closed loop where the original finder
+re-attacks the patch, hands Alta the go/no-go). All bounded by
+`docs/OPERATING-CHARTER.md`: own assets only, `dev.db` copies never `finance.db`,
+recommend-only on the live Pi, every fix clears the balance gate, no agent deploys.
+Tools scoped per role (only PATCHWRIGHT gets Edit/Write; MIRAGE/BLACKOUT get
+WebSearch/WebFetch). Registered in `agent_catalog.py` (SUBAGENTS 7→14, new
+`redvault` group, +1 glossary label `dev copy`) so the coherence test
+(`test_subagents_match_agent_files`) stays green, and the standing seven each got a
+tactical codename too (ORACLE/WARDEN/QUILL/KEEPER/GATEKEEPER/PULSE/BEACON) in both
+the catalog display name and their file. Tooling/frontend only — no schema/verb/
+derivation/money path → **no balance gate**; suite 484 python + 94 render green.
+The in-app Agents tab now shows the REDVAULT group + codenames once deployed.
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 
