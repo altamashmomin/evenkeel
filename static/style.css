@@ -753,25 +753,8 @@ details.agent-group > .agent-grid { padding: 0 14px 15px; }
   background: color-mix(in srgb, var(--brass) 14%, transparent);
   border-color: transparent;
 }
-/* A glossed label: normal cursor, a faint dotted underline as the "there's
-   more here" hint, and a fast CSS tooltip (data-tip -> ::after, ~80ms) rather
-   than the slow native title. The Key below spells them all out for touch. */
-.agent-chip.explains { text-decoration: underline dotted var(--line); text-underline-offset: 3px; }
-.agents-view [data-tip] { position: relative; cursor: default; }
-.agents-view [data-tip]::after {
-  content: attr(data-tip);
-  position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 6;
-  width: max-content; max-width: 230px;
-  background: var(--text); color: var(--surface);
-  padding: 6px 9px; border-radius: 9px;
-  font-size: 12px; font-weight: 400; line-height: 1.35; letter-spacing: 0;
-  text-transform: none; text-decoration: none; white-space: normal;
-  box-shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.45);
-  opacity: 0; visibility: hidden; pointer-events: none;
-  transition: opacity 0.08s ease;
-}
-.agents-view [data-tip]:hover::after { opacity: 1; visibility: visible; }
-
+/* Pills are plain labels; the collapsible Key below is the single place that
+   explains what they mean (no per-pill hover tooltip). */
 .agent-key { margin-top: 26px; }
 .agent-key .eyebrow { margin-bottom: 6px; }
 /* Collapsible Key: each dimension a native <details>, collapsed by default. */

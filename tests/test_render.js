@@ -733,14 +733,13 @@ check("agentsHTML shows the catalog note only when live_status is false", () => 
 check("agentsHTML empty state", () => {
   assert.ok(R.agentsHTML({ live_status: false, groups: [] }).includes("No agents configured"));
 });
-check("agentsHTML explains pills: fast tooltip via data-tip + a collapsible Key", () => {
+check("agentsHTML pills are plain — no per-pill tooltip; the Key explains them", () => {
   const h = R.agentsHTML(AGENT_CAT);
-  assert.ok(h.includes("What the labels mean"), "renders the Key card");
-  assert.ok(h.includes('data-tip="Only looks at data — never changes anything."'),
-    "glossed chip carries its explanation as data-tip (CSS tooltip), not title");
-  assert.ok(!/agent-chip[^>]*\btitle=/.test(h), "no native title on chips (would be the slow tooltip)");
-  assert.ok(h.includes("Can both look at and change data."), "Key lists each term's meaning");
-  assert.ok(/agent-chip[^>]*explains/.test(h), "glossed chip is marked explains");
+  assert.ok(!/data-tip=/.test(h), "no CSS-tooltip attribute on pills");
+  assert.ok(!/agent-chip[^>]*\btitle=/.test(h), "no native title tooltip on pills");
+  assert.ok(!/agent-pip[^>]*\btitle=/.test(h), "no title tooltip on the pip either");
+  assert.ok(h.includes("What the labels mean"), "the Key card still explains the labels");
+  assert.ok(h.includes("Only looks at data — never changes anything."), "Key lists each meaning");
 });
 check("agentsHTML Key is collapsible: a <details>/<summary> per dimension", () => {
   const h = R.agentsHTML(AGENT_CAT);
