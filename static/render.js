@@ -887,25 +887,18 @@
     return "r";
   }
 
-  // A chip that explains itself: the term is glossed via a fast CSS tooltip
-  // (data-tip -> ::after, ~80ms, unlike the native title's ~0.5s delay), and
-  // the collapsible Key lists them all for touch.
-  function agentChip(val, gloss, cls) {
+  function agentChip(val, cls) {
     if (!val) return "";
-    const g = gloss[val];
-    const t = g ? ` data-tip="${esc(g)}"` : "";
-    const explains = g ? " explains" : "";
-    return `<span class="agent-chip${cls ? " " + cls : ""}${explains}"${t}>${esc(val)}</span>`;
+    return `<span class="agent-chip${cls ? " " + cls : ""}">${esc(val)}</span>`;
   }
 
-  function agentTile(ag, gloss) {
+  function agentTile(ag) {
     const showModel = ag.model && ag.model !== "—" && ag.model !== "inherits";
-    const kindGloss = gloss[ag.kind];
     const chips = [
-      agentChip(ag.access, gloss),
+      agentChip(ag.access),
       showModel ? `<span class="agent-chip model">${esc(ag.model)}</span>` : "",
-      agentChip(ag.surface, gloss, "ghost"),
-      agentChip(ag.cadence, gloss, "ghost"),
+      agentChip(ag.surface, "ghost"),
+      agentChip(ag.cadence, "ghost"),
     ].join("");
     return `
       <div class="agent-tile">
@@ -913,9 +906,9 @@
           <span class="agent-ic">${esc(ag.icon)}</span>
           <div class="agent-id">
             <div class="agent-name">${esc(ag.name)}</div>
-            <div class="agent-kind${kindGloss ? " explains" : ""}"${kindGloss ? ` data-tip="${esc(kindGloss)}"` : ""}>${esc(ag.kind)}</div>
+            <div class="agent-kind">${esc(ag.kind)}</div>
           </div>
-          <span class="agent-pip ${agentTone(ag.access)}" title="${esc(ag.access)}"></span>
+          <span class="agent-pip ${agentTone(ag.access)}"></span>
         </div>
         <p class="agent-tagline">${esc(ag.tagline)}</p>
         <div class="agent-chips">${chips}</div>
@@ -947,14 +940,12 @@
   function agentsHTML(data) {
     const groups = (data && data.groups) || [];
     const glossaryList = (data && data.glossary) || [];
-    const gloss = {};
-    glossaryList.forEach((grp) => grp.terms.forEach((t) => { gloss[t.term] = t.gloss; }));
     const sections = groups
       .filter((g) => g.agents && g.agents.length)
       .map((g) => `
         <details class="agent-group">
           <summary class="group-h"><span class="group-name">${esc(g.label)}</span><span class="group-count">${g.agents.length}</span></summary>
-          <div class="agent-grid">${g.agents.map((ag) => agentTile(ag, gloss)).join("")}</div>
+          <div class="agent-grid">${g.agents.map((ag) => agentTile(ag)).join("")}</div>
         </details>`).join("");
     const note = data && data.live_status
       ? ""

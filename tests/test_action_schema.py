@@ -18,6 +18,8 @@ VERB_TOOL = {
     "classify_inflow": "ledger_classify_inflow",
     "add_item": "ledger_add_item",
     "set_item_status": "ledger_set_item_status",
+    "archive_item": "ledger_archive_item",
+    "set_item_match": "ledger_set_item_match",
 }
 
 

@@ -72,7 +72,7 @@ SERVICES = [
     {"id": "mcp", "kind": "service", "name": "MCP server",
      "group": "assistants", "icon": "🔌", "access": "reads + writes",
      "model": "—", "surface": "tailnet", "cadence": "always-on",
-     "tagline": "Your Claude's 18 tools over Tailscale."},
+     "tagline": "Your Claude's read + write tools over Tailscale."},
     {"id": "sync", "kind": "routine", "name": "SimpleFIN sync",
      "group": "ops", "icon": "🔄", "access": "writes",
      "model": "—", "surface": "Pi timer", "cadence": "daily · 06:30",

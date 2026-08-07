@@ -127,16 +127,64 @@ class AskWriteTests(unittest.TestCase):
             conn.close()
         self.assertEqual("ui:avery", audit["actor"])
 
+    # -- pantry writes: the effect through the same routes -------------------
+    def a_staple(self, name="Coffee"):
+        c = self.app_module.app.test_client()
+        with c.session_transaction() as s:
+            s["user_id"] = 1
+        r = c.post("/api/inventory", json={"name": name, "kind": "staple"})
+        self.assertEqual(201, r.status_code)
+        return r.get_json()["id"]
+
+    def item_row(self, item_id):
+        conn = self.db()
+        try:
+            return conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        finally:
+            conn.close()
+
+    def audited(self, action, item_id):
+        conn = self.db()
+        try:
+            return conn.execute(
+                "SELECT actor FROM audit_log WHERE action = ? AND target = ?",
+                (action, f"item:{item_id}")).fetchone()
+        finally:
+            conn.close()
+
+    def test_archive_tool_removes_the_item_and_logs_as_the_person(self):
+        item_id = self.a_staple()
+        mock = MockAnthropic([
+            resp([tool_block("ledger_archive_item", {"item_id": item_id})], "tool_use"),
+            resp([text_block("Removed Coffee from the pantry ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="stop tracking coffee", caller=self.caller)
+        self.assertEqual(["ledger_archive_item"], out["tools_used"])
+        self.assertEqual(0, self.item_row(item_id)["active"])          # soft-deleted
+        self.assertEqual("ui:avery", self.audited("archive_item", item_id)["actor"])
+
+    def test_set_match_tool_sets_the_phrase_as_the_person(self):
+        item_id = self.a_staple()
+        mock = MockAnthropic([
+            resp([tool_block("ledger_set_item_match",
+                             {"item_id": item_id, "restock_match": "chewy"})], "tool_use"),
+            resp([text_block("Matched Coffee to 'chewy' ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="match coffee to chewy", caller=self.caller)
+        self.assertEqual(["ledger_set_item_match"], out["tools_used"])
+        self.assertEqual("chewy", self.item_row(item_id)["restock_match"])
+        self.assertEqual("ui:avery", self.audited("set_item_match", item_id)["actor"])
+
     # -- write tools are offered only with a caller --------------------------
     def test_write_tools_present_only_when_caller_given(self):
         read_only = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(read_only)  # no caller
-        self.assertEqual(18, len(read_only.calls[0]["tools"]))
+        self.assertEqual(19, len(read_only.calls[0]["tools"]))
 
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(21, len(tools))  # 18 read + 3 write
+        self.assertEqual(24, len(tools))  # 19 read + 5 write
         names = [t["name"] for t in tools]
         self.assertIn("ledger_classify_inflow", names)
         self.assertIn("ledger_add_item", names)
