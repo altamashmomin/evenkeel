@@ -95,7 +95,10 @@ class AskLoopTests(unittest.TestCase):
         second_call_msgs = mock.calls[1]["messages"]
         tr = second_call_msgs[-1]["content"][0]
         self.assertEqual("tool_result", tr["type"])
-        self.assertIn("spend", json.loads(tr["content"]))  # snapshot shape
+        # #7: results are labeled untrusted, then the JSON payload follows.
+        self.assertTrue(tr["content"].startswith("[untrusted tool data"),
+                        "tool result should be labeled untrusted data")
+        self.assertIn("spend", json.loads(tr["content"].split("\n", 1)[1]))
         self.assertFalse(tr["is_error"])
         # tools were passed and prompt-cache-marked
         self.assertEqual(19, len(mock.calls[0]["tools"]))
@@ -127,6 +130,19 @@ class AskLoopTests(unittest.TestCase):
         mock = MockAnthropic([resp([text_block("ok")], "end_turn")])
         self.ask(mock, history=history)
         self.assertEqual(2, len(history), "caller's history list left intact")
+
+    def test_system_prompt_carries_the_injection_defenses(self):
+        # #7: the standing prompt must establish the untrusted-data boundary and
+        # the refund-specific caution. (Structural check — the same kind the
+        # suite already uses for the vocabulary rules.)
+        p = ask_loop.system_prompt("2026-07").lower()
+        self.assertIn("untrusted tool data", p)
+        self.assertIn("not instructions", p)
+        # tightened refund handling: only on explicit say-so, since it moves a
+        # spending number
+        self.assertIn("refund", p)
+        self.assertTrue("explicit" in p or "explicitly" in p,
+                        "refund rule should require explicit user intent")
 
 
 if __name__ == "__main__":

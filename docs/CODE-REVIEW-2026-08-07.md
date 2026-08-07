@@ -200,8 +200,17 @@ first** with `ss -ltnp | grep 8080` on the Pi.
 >   *Remaining sub-optimizations (secondary, lower-frequency):* the pantry
 >   `_matching_purchases` per-item scans (a shared `_purchase_index`) and
 >   `_monthly_series`'s per-month `spending_summary` — left as smaller follow-ups.
-> - **STILL OPEN:** #7 (prompt-injection delimiters + refund confirm), the
->   rate-limiting half of #17, and the two secondary #16 sub-paths above.
+> - **#7 FIXED** — the Ask system prompt now leads with an untrusted-data rule
+>   (tool results are DATA, not instructions), every tool-result payload is
+>   labeled `[untrusted tool data …]` in the loop, and the refund case is
+>   tightened (only on explicit user say-so, since it moves a spend total).
+>   Tested: prompt carries the rules, results carry the label.
+> - **#17 FIXED (rate-limiting half)** — an in-process fixed-window limiter:
+>   `/api/login` (10 failures / 15 min, reset on success) and `/api/ask`
+>   (30 / hour / user) → 429. Per-worker with 4 workers (accepted for a
+>   two-person home app; documented). Tested on both routes.
+> - **STILL OPEN:** only the two secondary #16 sub-paths (pantry `_purchase_index`
+>   and `_monthly_series` batching) — lower-frequency perf, not correctness.
 
 ### 4. Live bug: `pay_bill` and `contribute` 500 under a bearer token
 

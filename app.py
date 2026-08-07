@@ -6,6 +6,7 @@ import functools
 import os
 import secrets
 import sqlite3
+import time
 from datetime import date, datetime
 
 from dotenv import load_dotenv
@@ -65,6 +66,34 @@ _CSP = ("default-src 'self'; img-src 'self' data:; "
 # password against this when the username is unknown costs the same as a real
 # check, so response time doesn't reveal whether a username exists.
 _DUMMY_PW_HASH = generate_password_hash("timing-equalizer-not-a-real-password")
+
+# In-process fixed-window rate limiter (CODE-REVIEW-2026-08-07 #17): guards
+# /api/login against brute force and /api/ask against runaway cost. Keyed by
+# username / user_id. NOTE: with gunicorn --workers 4 the buckets are per
+# worker, so the real ceiling is ~4x the numbers below — deliberately accepted
+# for a two-person home app on a tailnet (a DB-backed counter would be exact but
+# needs a migration). It still stops brute force and bounds API spend.
+LOGIN_MAX_FAILS, LOGIN_WINDOW_S = 10, 900       # 10 failed logins / 15 min
+ASK_MAX, ASK_WINDOW_S = 30, 3600                # 30 assistant queries / hour
+_RATE_BUCKETS = {}  # key -> (window_start_epoch, count)
+
+
+def _rate_over(key, limit, window_s):
+    """True if `key` has already reached `limit` hits in the current window.
+    Read-only — does not count this call."""
+    start, count = _RATE_BUCKETS.get(key, (0, 0))
+    if time.time() - start >= window_s:
+        return False  # window expired → not over
+    return count >= limit
+
+
+def _rate_hit(key, window_s):
+    """Record one hit against `key`, rolling the window if it has expired."""
+    now = time.time()
+    start, count = _RATE_BUCKETS.get(key, (now, 0))
+    if now - start >= window_s:
+        start, count = now, 0
+    _RATE_BUCKETS[key] = (start, count + 1)
 
 
 @app.after_request
@@ -301,6 +330,13 @@ def login():
     data = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip().lower()
     password = data.get("password") or ""
+    # Brute-force guard (#17): reject early — before spending a password hash —
+    # once this username has burned its failure budget. Counted on failure and
+    # cleared on success below, so a legitimate login is never blocked as long
+    # as the password is right.
+    rl_key = f"login:{username}"
+    if _rate_over(rl_key, LOGIN_MAX_FAILS, LOGIN_WINDOW_S):
+        return jsonify({"error": "too many attempts — wait a few minutes"}), 429
     db = get_db()
     row = db.execute(
         "SELECT * FROM members WHERE username = ? AND active = 1", (username,)
@@ -312,7 +348,9 @@ def login():
     ok = check_password_hash(row["password_hash"] if row else _DUMMY_PW_HASH,
                              password)
     if row is None or not ok:
+        _rate_hit(rl_key, LOGIN_WINDOW_S)
         return jsonify({"error": "wrong username or password"}), 401
+    _RATE_BUCKETS.pop(rl_key, None)  # success clears the failure count
     session.permanent = True
     session["user_id"] = row["id"]
     return jsonify({"ok": True, "user": {"id": row["id"], "display_name": row["display_name"]}})
@@ -1343,6 +1381,13 @@ def ask():
     history = data.get("history")
     if history is not None and not isinstance(history, list):
         return bad_request("history must be a list of prior messages")
+    # Cost guard (#17): each query can drive several paid model round-trips, so
+    # cap per-user request rate before running the loop.
+    rl_key = f"ask:{session['user_id']}"
+    if _rate_over(rl_key, ASK_MAX, ASK_WINDOW_S):
+        return jsonify({"error": "you've asked a lot in a short time — "
+                                 "give it a few minutes"}), 429
+    _rate_hit(rl_key, ASK_WINDOW_S)
     try:
         result = ask_loop.answer(
             app, session["user_id"], message,

@@ -144,6 +144,24 @@ class AskRouteTests(unittest.TestCase):
         self.assertEqual(503, r.status_code)
         self.assertIn("isn't set up", r.get_json()["error"])
 
+    def test_ask_is_rate_limited_per_user(self):
+        # #17: cap paid queries per user. Stub the loop so nothing hits the SDK;
+        # each allowed call returns the stub, the one past the cap is 429. (Each
+        # test method reloads app.py, so the in-process buckets start empty.)
+        orig = self.app_module.ask_loop.answer
+        self.app_module.ask_loop.answer = (
+            lambda *a, **k: {"answer": "ok", "tools_used": [], "rounds": 1,
+                             "stopped": "end"})
+        try:
+            c = self.client()
+            for _ in range(self.app_module.ASK_MAX):
+                self.assertEqual(200, c.post(
+                    "/api/ask", json={"message": "hi"}).status_code)
+            self.assertEqual(429, c.post(
+                "/api/ask", json={"message": "hi"}).status_code)
+        finally:
+            self.app_module.ask_loop.answer = orig
+
     def test_requires_a_session(self):
         self.use_mock(MockAnthropic([resp([text_block("x")], "end_turn")]))
         # no session cookie
