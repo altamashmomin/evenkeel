@@ -1883,9 +1883,19 @@ first parent = prior main, tree == rework, **GATE PASS zero-diff, no migration**
   **The Aug-7 code review is now fully closed** — every P0, every P1, and the one
   #16 sub-path worth doing, all shipped. Nothing outstanding from it.
 
-**iOS add-expense dialog fix + user-set pantry restock cadence — DONE, NOT YET
-DEPLOYED (Aug 7, 2026).** Two aesthetics/UX items Alta reported from an iPhone,
-built as two separate commits on `rework`.
+**iOS add-expense dialog fix + user-set pantry restock cadence — DONE + DEPLOYED
+(Aug 7, 2026).** Two aesthetics/UX items Alta reported from an iPhone, built as
+two separate commits on `rework`, shipped together in one batched deploy.
+**Deployed via `main` `faccf9d`** (`--no-ff` merge, first parent = prior main
+`c1a5439`, tree byte-identical to rework; fast-forward push). `deploy.sh
+origin/main` on the Pi (baseline defaulted to the deployed HEAD `e699444` — a
+v10 commit; `origin/main`'s earlier `c1a5439` was a docs-only merge the Pi had
+never deployed, so nothing was skipped) → **GATE PASS**, enumerated `#011` diff
+only (`schema_version` 10→11; balance + every monthly total unchanged to the
+cent), `#011` applied `--live`, `pifinance` + `ledger-mcp` restarted clean,
+`/api/status` OK. Rollback backup `finance.db.bak-2026-08-07-194546` (retention
+prune kept newest 10). Per-device hard-refresh picks up the frontend. First
+`--live` migration since #010.
 - **iOS date/amount overlap (`586360d`, frontend-only, no gate).** In the
   add-expense dialog the Date and Amount fields overlapped on iOS Safari. Root
   cause: iOS renders `input[type=date]` with its native control, which keeps an
