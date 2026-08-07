@@ -11,7 +11,8 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         memberBreakdownHTML, billVarianceHTML, budgetStatusHTML, savingsRateTrendHTML,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
-        askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML } = window.Render;
+        askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
+        moreSheetHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -187,16 +188,25 @@ const TABS = [
   ["agents", "Agents"],
 ];
 
-// The mobile bottom bar is the Garden mock's 5 slots: Home · Activity · [+] ·
-// Goals · Ask, glyphs and all. Bills + Analytics live on Home (data-goto links
-// in renderDashboard). The center + adds a transaction (same as the desktop
-// FAB). Desktop keeps the full 6-tab text nav in the topbar.
+// Glyph per tab — one source for both the mobile bar and the More sheet.
+const TAB_GLYPH = {
+  dashboard: "🏡", activity: "📋", bills: "📅", goals: "🌱",
+  analytics: "📊", inventory: "🧺", ask: "💬", agents: "🤖",
+};
+// The "More" sheet lists every tab (with its glyph), so all 8 are reachable
+// from any page. Built from TABS so a new tab shows up here automatically.
+const MORE_TABS = TABS.map(([key, label]) => [key, label, TAB_GLYPH[key]]);
+const PINNED = new Set(["dashboard", "activity", "ask"]);
+
+// The mobile bottom bar pins Home · Activity · [+] · Ask, plus a More button
+// that opens the sheet with the rest. The center + adds a transaction (same as
+// the desktop FAB). Desktop keeps the full text nav in the topbar.
 const NAV_MOBILE = [
   ["dashboard", "Home", "🏡"],
   ["activity", "Activity", "📋"],
   ["__add__", "Add", "+"],
-  ["goals", "Goals", "🌱"],
   ["ask", "Ask", "💬"],
+  ["__more__", "More", "☰"],
 ];
 
 function buildNav() {
@@ -219,6 +229,11 @@ function buildNav() {
       b.textContent = glyph;
       b.setAttribute("aria-label", "Add expense");
       b.addEventListener("click", () => openTxnDialog(null));
+    } else if (key === "__more__") {
+      b.className = "nav-more";
+      b.innerHTML = `<span class="g">${glyph}</span><span class="l">${label}</span>`;
+      b.setAttribute("aria-label", "More tabs");
+      b.addEventListener("click", openMoreSheet);
     } else {
       b.dataset.tab = key;
       b.innerHTML = `<span class="g">${glyph}</span><span class="l">${label}</span>`;
@@ -232,8 +247,22 @@ function setTab(tab) {
   state.tab = tab;
   $$("#topnav button, #tabbar button").forEach((b) =>
     b.classList.toggle("on", b.dataset.tab === tab));
+  // The More button lights up when the current tab lives inside the sheet.
+  $(".nav-more")?.classList.toggle("on", !PINNED.has(tab) && tab !== "dashboard");
   render();
 }
+
+// The "More" bottom sheet: fill it with every tab, open it, and let a tile
+// switch tabs (then close). Reachable from any page, so all 8 tabs are too.
+const dlgMore = $("#dlg-more");
+function openMoreSheet() {
+  $("#more-body").innerHTML = moreSheetHTML(MORE_TABS, state.tab);
+  $$("#more-body [data-tab]").forEach((b) =>
+    b.addEventListener("click", () => { dlgMore.close(); setTab(b.dataset.tab); }));
+  dlgMore.showModal();
+}
+// Tap the backdrop (outside the sheet body) to dismiss.
+dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.close(); });
 
 async function render() {
   const main = $("#main");
@@ -349,13 +378,7 @@ async function renderDashboard() {
     ${incomeCardHTML(inc, d.month)}
     <div class="card"><p class="eyebrow">Coming up</p>${bills}</div>
     <div class="card"><p class="eyebrow">Growing toward</p>${goals}</div>
-    <div class="card"><p class="eyebrow">Recent</p>${recent}</div>
-    <div class="home-links">
-      <button class="home-link" data-goto="bills" type="button">📅 Bills</button>
-      <button class="home-link" data-goto="analytics" type="button">📊 Analytics</button>
-      <button class="home-link" data-goto="inventory" type="button">🧺 Pantry</button>
-      <button class="home-link" data-goto="agents" type="button">🤖 Agents</button>
-    </div>`;
+    <div class="card"><p class="eyebrow">Recent</p>${recent}</div>`;
 }
 
 async function renderAgents() {
@@ -810,12 +833,13 @@ function wireMain() {
   });
   $$("[data-ask-eg]").forEach((el) =>
     el.addEventListener("click", () => askSend(el.dataset.askEg)));
-  // Home shortcuts to the tabs that aren't in the 5-slot mobile nav.
-  $$("[data-goto]").forEach((el) =>
-    el.addEventListener("click", () => setTab(el.dataset.goto)));
   const thread = $("#ask-thread");
   if (thread) thread.scrollTop = thread.scrollHeight;
-  if (state.tab === "ask" && !state.ask.pending) $("#ask-input")?.focus();
+  // Auto-focus the Ask input only once a conversation exists (keeps the
+  // keyboard up for follow-ups). On the EMPTY Ask tab we deliberately don't —
+  // auto-focusing there pops the iOS keyboard and hides the example chips.
+  if (state.tab === "ask" && !state.ask.pending && state.ask.messages.length)
+    $("#ask-input")?.focus();
 }
 
 function shiftMonth(delta) {

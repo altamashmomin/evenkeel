@@ -780,6 +780,23 @@ check("opsPanelHTML: absent report is a normal state; amber/red map to badges", 
   assert.ok(red.includes("badge overdue"), "RED -> red badge");
 });
 
+// ---- moreSheetHTML: the "More" bottom sheet lists every tab ----
+check("moreSheetHTML: a tile per tab, active one highlighted", () => {
+  const tabs = [["dashboard", "Home", "🏡"], ["bills", "Bills", "📅"],
+                ["ask", "Ask", "💬"], ["agents", "Agents", "🤖"]];
+  const h = R.moreSheetHTML(tabs, "bills");
+  assert.strictEqual((h.match(/more-tile/g) || []).length, 4, "one tile per tab");
+  assert.ok(/data-tab="bills"/.test(h) && /data-tab="agents"/.test(h), "keys present");
+  // the active tab (and only it) gets the .on class
+  assert.ok(/class="more-tile on" data-tab="bills"/.test(h), "active tab highlighted");
+  assert.strictEqual((h.match(/more-tile on/g) || []).length, 1, "exactly one active");
+  assert.ok(h.includes("🏡") && h.includes("🤖") && h.includes("Agents"), "glyphs + labels");
+});
+check("moreSheetHTML: none active when the current tab isn't in the list", () => {
+  const h = R.moreSheetHTML([["dashboard", "Home", "🏡"]], "activity");
+  assert.strictEqual((h.match(/more-tile on/g) || []).length, 0, "no false highlight");
+});
+
 check("app.js destructures every Render helper it calls by bare name", () => {
   const fs = require("fs"), path = require("path");
   const app = fs.readFileSync(path.join(__dirname, "../static/app.js"), "utf8");
