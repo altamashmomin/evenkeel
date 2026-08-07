@@ -733,13 +733,28 @@ check("agentsHTML shows the catalog note only when live_status is false", () => 
 check("agentsHTML empty state", () => {
   assert.ok(R.agentsHTML({ live_status: false, groups: [] }).includes("No agents configured"));
 });
-check("agentsHTML explains pills: gloss on the chip title + a Key card", () => {
+check("agentsHTML explains pills: fast tooltip via data-tip + a collapsible Key", () => {
   const h = R.agentsHTML(AGENT_CAT);
   assert.ok(h.includes("What the labels mean"), "renders the Key card");
-  assert.ok(h.includes('title="Only looks at data — never changes anything."'),
-    "glossed access chip carries its explanation as a title");
+  assert.ok(h.includes('data-tip="Only looks at data — never changes anything."'),
+    "glossed chip carries its explanation as data-tip (CSS tooltip), not title");
+  assert.ok(!/agent-chip[^>]*\btitle=/.test(h), "no native title on chips (would be the slow tooltip)");
   assert.ok(h.includes("Can both look at and change data."), "Key lists each term's meaning");
   assert.ok(/agent-chip[^>]*explains/.test(h), "glossed chip is marked explains");
+});
+check("agentsHTML Key is collapsible: a <details>/<summary> per dimension", () => {
+  const h = R.agentsHTML(AGENT_CAT);
+  assert.ok(/<details class="key-group">/.test(h), "each group is a <details>");
+  assert.ok(/<summary class="key-h">What it can do<\/summary>/.test(h), "the label is the clickable summary");
+  // collapsed by default = no `open` attribute on the details
+  assert.ok(!/<details class="key-group" open/.test(h), "collapsed by default");
+});
+check("agentsHTML groups are collapsible: <details> per group, count, collapsed by default", () => {
+  const h = R.agentsHTML(AGENT_CAT);
+  assert.ok(/<details class="agent-group">/.test(h), "each group is a <details>");
+  assert.ok(/<summary class="group-h">.*Analysts &amp; advisors/.test(h), "label is the clickable summary");
+  assert.ok(/<span class="group-count">1<\/span>/.test(h), "shows how many agents are inside");
+  assert.ok(!/<details class="agent-group" open/.test(h), "collapsed by default");
 });
 check("agentsHTML renders the field once — no repeat", () => {
   const h = R.agentsHTML(AGENT_CAT);
