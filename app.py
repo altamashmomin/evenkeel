@@ -10,12 +10,14 @@ from datetime import date, datetime
 
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, session
+from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 import agent_catalog
 import ask_loop
-from actions import active_members, current_period, payer_share_pct, to_cents
+from actions import (active_members, current_period, payer_share_pct,
+                     prefetch_payer_shares, to_cents)
 from derivations import (anomaly_flags, bill_variance, budget_status,
                          cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
@@ -49,6 +51,44 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 90,  # 90 days
     MAX_CONTENT_LENGTH=64 * 1024,
 )
+
+# Security response headers (CODE-REVIEW-2026-08-07 #13). All scripts/styles are
+# same-origin files and there are no inline <script> blocks, so a strict
+# script-src 'self' holds — and would have neutralised the P0 XSS payload.
+# style-src needs 'unsafe-inline' for the inline style="width:…" bars render.js
+# emits; script-src does NOT, which is the load-bearing directive.
+_CSP = ("default-src 'self'; img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline'; script-src 'self'; "
+        "object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+
+# A fixed hash for the login timing-equalizer (#17): comparing an attempted
+# password against this when the username is unknown costs the same as a real
+# check, so response time doesn't reveal whether a username exists.
+_DUMMY_PW_HASH = generate_password_hash("timing-equalizer-not-a-real-password")
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    return resp
+
+
+@app.errorhandler(Exception)
+def _json_errors(e):
+    """Backstop so /api/* always answers JSON, never Flask's HTML page — an
+    unhandled 500 as HTML made api() in app.js fail to parse and blank the whole
+    tab (CODE-REVIEW-2026-08-07 #14). HTTP errors keep their status; a truly
+    unhandled exception is logged with its stack and returned as a generic 500
+    with no internals leaked. Routes that already catch NotFound/ValueError are
+    unaffected — this only sees what reaches the top."""
+    if isinstance(e, HTTPException):
+        if request.path.startswith("/api/"):
+            return jsonify({"error": e.description}), e.code
+        return e  # non-API (static, redirects): Flask's default response
+    app.logger.exception("unhandled error on %s", request.path)
+    return jsonify({"error": "internal error"}), 500
 
 DEFAULT_CATEGORIES = [
     "Groceries", "Dining", "Rent", "Utilities", "Internet", "Phone",
@@ -167,7 +207,10 @@ def ui_actor(db):
     return f"ui:{member['username']}" if member else f"ui:{uid}"
 
 
-def txn_to_json(db, r):
+def txn_to_json(db, r, shares=None):
+    # `shares` (optional): a prefetched {(txn_id, member_id): share_bp} dict from
+    # prefetch_payer_shares, so a list endpoint resolves the payer share without
+    # one SELECT per row (#16). Output is byte-identical either way.
     return {
         "id": r["id"],
         "date": r["txn_date"],
@@ -176,7 +219,7 @@ def txn_to_json(db, r):
         "category": r["category"],
         "paid_by": r["paid_by"],
         "is_shared": bool(r["is_shared"]),
-        "payer_share_pct": payer_share_pct(db, r["id"], r["paid_by"]),
+        "payer_share_pct": payer_share_pct(db, r["id"], r["paid_by"], shares),
         "source": r["source"],
     }
 
@@ -262,7 +305,13 @@ def login():
     row = db.execute(
         "SELECT * FROM members WHERE username = ? AND active = 1", (username,)
     ).fetchone()
-    if row is None or not check_password_hash(row["password_hash"], password):
+    # Always run a hash comparison — against a dummy hash when the user doesn't
+    # exist — so an unknown username takes the same time as a wrong password.
+    # Otherwise the short-circuit `or` skipped check_password_hash for unknown
+    # users, a username-enumeration timing oracle (CODE-REVIEW-2026-08-07 #17).
+    ok = check_password_hash(row["password_hash"] if row else _DUMMY_PW_HASH,
+                             password)
+    if row is None or not ok:
         return jsonify({"error": "wrong username or password"}), 401
     session.permanent = True
     session["user_id"] = row["id"]
@@ -407,7 +456,8 @@ def list_transactions():
         params.append(month)
     q += " ORDER BY txn_date DESC, id DESC LIMIT 500"
     rows = db.execute(q, params).fetchall()
-    return jsonify([txn_to_json(db, r) for r in rows])
+    shares = prefetch_payer_shares(db, [r["id"] for r in rows])
+    return jsonify([txn_to_json(db, r, shares) for r in rows])
 
 
 @app.get("/api/activity")
@@ -444,11 +494,12 @@ def activity():
         "SELECT COUNT(*) AS c FROM transactions "
         "WHERE direction = 'in' AND income_type = 'unclassified'").fetchone()["c"]
 
+    shares = prefetch_payer_shares(db, [r["id"] for r in rows])
     return jsonify({
         "month": month,
         "filter": filt,
         "transactions": [
-            {**txn_to_json(db, r),
+            {**txn_to_json(db, r, shares),
              "direction": r["direction"], "income_type": r["income_type"]}
             for r in rows
         ],
@@ -1396,7 +1447,7 @@ def pay_bill(bill_id):
     try:
         bill, period = actions.mark_bill_paid(
             db, actor=ui_actor(db), bill_id=bill_id, data=data,
-            default_paid_by=session["user_id"])
+            default_paid_by=g.auth["user_id"])
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
     except ValueError as e:
@@ -1485,7 +1536,7 @@ def contribute(goal_id):
         return bad_request("amount cannot be zero")
     verb = actions.contribute_to_goal if cents > 0 else actions.withdraw_from_goal
     try:
-        goal = verb(db, ui_actor(db), goal_id, session["user_id"],
+        goal = verb(db, ui_actor(db), goal_id, g.auth["user_id"],
                     abs(cents), data.get("note"))
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
@@ -1524,8 +1575,10 @@ def dashboard():
     unpaid = [b for b in upcoming if not b["paid_this_period"]]
     goals = [goal_to_json(db, r) for r in
              db.execute("SELECT * FROM goals ORDER BY created_at, id").fetchall()]
-    recent = [txn_to_json(db, r) for r in db.execute(
-        "SELECT * FROM transactions ORDER BY txn_date DESC, id DESC LIMIT 6").fetchall()]
+    recent_rows = db.execute(
+        "SELECT * FROM transactions ORDER BY txn_date DESC, id DESC LIMIT 6").fetchall()
+    recent_shares = prefetch_payer_shares(db, [r["id"] for r in recent_rows])
+    recent = [txn_to_json(db, r, recent_shares) for r in recent_rows]
     return jsonify({
         "month": month,
         "month_total": dollars(spending["total_cents"]),
@@ -1575,4 +1628,8 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)
+    # Loopback by default (P0-3): the dev server must not expose the LAN unless
+    # BIND_HOST is deliberately set (prod runs under gunicorn, see the systemd
+    # unit). Set BIND_HOST=0.0.0.0 or a tailnet IP only when you mean to.
+    app.run(host=os.environ.get("BIND_HOST", "127.0.0.1"),
+            port=int(os.environ.get("PORT", 8080)), debug=False)

@@ -9,16 +9,34 @@ added later is picked up and checked automatically. Nothing to remember
 to register; the only manual step is adding a name to EXEMPT, and only
 for a function whose entire job is to summarize income.
 
-Honest boundary: this only catches a MANDATORY filter going missing (no
-other guard exists at all, e.g. spending_summary's original bug) --
-verified by temporarily reverting that exact fix and confirming this
-test fails. It will NOT catch a regression in a DEFENSE-IN-DEPTH filter
-(compute_balance, settle_up's covered-rows query), because ordinary
-seed_income.py fixtures never produce the invariant-1 violation (an
-inflow with split rows) those filters guard against -- verified the same
-way, and that gap is exactly what tests/test_income_isolation.py's
-deliberately-mis-split fixtures exist to cover instead. The two suites
-are complementary, not redundant."""
+The fixture is deliberately RICH so the probe can actually contaminate the
+functions it covers (CODE-REVIEW-2026-08-07 #8): setUp seeds a few `items`
+(a low staple, an out staple, a stocked staple, all named to match a
+merchant) and the probe adds THREE inflows in a shopping category, on an
+even in-window cadence, whose description matches those staples. Without
+that data the pantry derivations returned [] before and after and the
+tripwire was checking [] == [] -- vacuous. With it, removing the repo's
+`direction = 'out'` filters is caught on 8 of the 15 discovered functions
+(last_shopping_trip, recurring_charges, restock_forecast,
+restock_suggestions, stale_shopping_items, staple_spend, top_merchants,
+unmatched_staples) -- verified by the mutation.
+
+Honest boundary: this catches a MANDATORY filter going missing. The 7
+functions it does NOT move are provably not contaminatable by an inflow
+probe, for structural reasons, not gaps:
+  - compute_balance / member_breakdown -- protected by a splits INNER JOIN;
+    an inflow writes no splits, so the probe can't reach them. This is a
+    DEFENSE-IN-DEPTH filter, and tests/test_income_isolation.py's
+    deliberately-mis-split fixtures (an inflow WITH split rows) cover it
+    instead. The two suites are complementary, not redundant.
+  - low_stock / shopping_list / goal_pace -- read items/goals only, never
+    transactions, so no inflow can move them.
+  - bill_variance -- with period=None matches no payment by construction.
+  - new_staple_suggestions -- excludes already-tracked and fixed-amount
+    (subscription-shaped) merchants, which the matching probe is; its own
+    hand-written test covers its inflow-invariance.
+Both the mutation coverage and the no-false-positive property (the REAL
+code shows before == after) were verified before landing this."""
 import inspect
 import json
 import sqlite3
@@ -26,7 +44,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -116,6 +133,37 @@ class DerivationIgnoresIncomeTripwireTests(unittest.TestCase):
             check=True, capture_output=True, text=True)
         self.db = sqlite3.connect(self.db_path)
         self.db.row_factory = sqlite3.Row
+        self._seed_probe_items()
+
+    # A low staple, an out staple, and a stocked one — all named so the probe's
+    # matching purchases (below) reach the pantry derivations. updated_at is
+    # in-window so restock_suggestions' "purchase since it ran low" can match.
+    PROBE_ITEMS = [("Tripwire Beans", "low"), ("Tripwire Soap", "out"),
+                   ("Tripwire Rice", "stocked")]
+    # Three inflows the tripwire adds: a shopping category (so last_shopping_trip
+    # is reachable), an EVEN in-window cadence (so recurring_charges is
+    # reachable), a large amount (so top_merchants is reachable), a description
+    # matching the staples (so the restock/staple derivations are reachable), and
+    # income_type != 'refund' (so the refund-netting EXEMPT set stays inert).
+    PROBE_DATES = ("2026-07-22", "2026-07-26", "2026-07-30")
+
+    def _seed_probe_items(self):
+        for name, status in self.PROBE_ITEMS:
+            self.db.execute(
+                "INSERT INTO items (name, kind, status, active, created_at, "
+                "updated_at) VALUES (?, 'staple', ?, 1, '2026-07-01', '2026-07-01')",
+                (name, status))
+        self.db.commit()
+
+    def _add_probe_inflows(self):
+        for d in self.PROBE_DATES:
+            self.db.execute(
+                """INSERT INTO transactions
+                   (txn_date, amount_cents, description, category, paid_by,
+                    is_shared, source, direction, income_type)
+                   VALUES (?, 999999999, 'TRIPWIRE BEANS CO', 'Groceries', 1, 0,
+                           'simplefin', 'in', 'unclassified')""", (d,))
+        self.db.commit()
 
     def tearDown(self):
         self.db.close()
@@ -133,28 +181,23 @@ class DerivationIgnoresIncomeTripwireTests(unittest.TestCase):
         self.assertIn("spending_summary", EXEMPT)
         self.assertNotIn("round_ratio", names)  # takes (numerator, denominator), not db
 
-    def test_no_derivation_changes_when_a_large_inflow_is_added(self):
+    def test_no_derivation_changes_when_inflows_are_added(self):
         found = db_functions()
         self.assertTrue(found, "no db-taking functions discovered in derivations.py")
         before = _snapshot(self.db, found)
 
-        self.db.execute(
-            """INSERT INTO transactions
-               (txn_date, amount_cents, description, category, paid_by,
-                is_shared, source, direction, income_type)
-               VALUES (?, 999999999, 'tripwire paycheck', 'Other', 1, 0,
-                       'simplefin', 'in', 'unclassified')""",
-            (date.today().isoformat(),))
-        self.db.commit()
+        self._add_probe_inflows()
 
         after = _snapshot(self.db, found)
-        for name, _ in found:
-            self.assertEqual(
-                before[name], after[name],
-                f"derivations.{name}(db) changed after an inflow was added — "
-                "it's counting income as if it were spending or balance. If "
-                "this function is SUPPOSED to include inflows, add its name "
-                "to EXEMPT at the top of this file with a one-line reason.")
+        # Collect ALL contaminated functions (not just the first), so a missing
+        # filter shows its full blast radius in one run.
+        changed = [name for name, _ in found if before[name] != after[name]]
+        self.assertEqual(
+            [], changed,
+            f"derivations {changed} changed after inflows were added — they are "
+            "counting income as if it were spending or balance. If a function is "
+            "SUPPOSED to include inflows, add its name to EXEMPT at the top of "
+            "this file with a one-line reason.")
 
 
 if __name__ == "__main__":

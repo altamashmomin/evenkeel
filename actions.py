@@ -132,18 +132,42 @@ def active_members(db):
     ).fetchall()
 
 
-def payer_share_pct(db, txn_id, paid_by):
+def payer_share_pct(db, txn_id, paid_by, shares=None):
     """The payer's share as a percentage, derived from split rows.
 
     Kept in API responses for byte-compatibility with v1.0: the payer's
     share_bp / 100 for shared rows, the old default of 50 for unshared rows
     (which have no split rows at all).
+
+    `shares` — an optional {(txn_id, member_id): share_bp} dict from
+    prefetch_payer_shares. When given, the value is read from it instead of a
+    per-row SELECT, so a list endpoint avoids one query per transaction (the
+    N+1 in CODE-REVIEW-2026-08-07 #16). The /100-else-50 rule is single-sourced
+    here, so batched and unbatched callers can't diverge — byte-identical output.
     """
+    if shares is not None:
+        bp = shares.get((txn_id, paid_by))
+        return bp / 100 if bp is not None else 50.0
     row = db.execute(
         "SELECT share_bp FROM splits WHERE transaction_id = ? AND member_id = ?",
         (txn_id, paid_by),
     ).fetchone()
     return row["share_bp"] / 100 if row else 50.0
+
+
+def prefetch_payer_shares(db, txn_ids):
+    """Batch the split lookup payer_share_pct does one-at-a-time: ONE query for
+    a whole page of transactions instead of one per row (CODE-REVIEW #16).
+    Returns {(transaction_id, member_id): share_bp}; pass it to
+    payer_share_pct/txn_to_json as `shares`."""
+    ids = list(txn_ids)
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    rows = db.execute(
+        f"SELECT transaction_id, member_id, share_bp FROM splits "
+        f"WHERE transaction_id IN ({marks})", ids).fetchall()
+    return {(r["transaction_id"], r["member_id"]): r["share_bp"] for r in rows}
 
 
 def validate_txn_payload(db, data, partial=False):

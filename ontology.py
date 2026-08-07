@@ -40,8 +40,14 @@ REPO = Path(__file__).resolve().parent
 
 # One definition of "a raw SQL write" for the whole repo: the manifest's
 # writes-scan and tests/test_architecture.py's invariant-1 scan import this.
+# Widened (CODE-REVIEW-2026-08-07 #11) to also catch the SQLite upsert forms
+# (INSERT OR REPLACE/IGNORE INTO, REPLACE INTO) and schema DDL (DROP/ALTER TABLE
+# — invariant 7's guard, previously uncovered). \s+ spans newlines, so the
+# full-text scan in test_architecture catches a table name wrapped onto the next
+# line. An optional leading "/'/[ lets a quoted identifier still be caught.
 WRITE_RE = re.compile(
-    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)", re.IGNORECASE)
+    r"\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM"
+    r"|DROP\s+TABLE|ALTER\s+TABLE)\s+[\"'\[]?([a-z_]+)", re.IGNORECASE)
 
 _CREATE_RE_TMPL = r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{table}\b"
 

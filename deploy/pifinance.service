@@ -2,14 +2,30 @@
 # Adjust User and paths if your username or install dir differs.
 [Unit]
 Description=Pi Finance web app
-After=network.target
+# When BIND_HOST is the Tailscale IP (P0-3), gunicorn can only bind once
+# tailscaled has assigned it. Order after tailscaled + wait for the network so a
+# reboot doesn't fail the bind; Restart=on-failure below is the backstop if the
+# IP is still settling. (Harmless when BIND_HOST is 127.0.0.1.)
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
 
 [Service]
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/pifinance
+# Safe default: bind loopback only. The Pi's .env sets BIND_HOST to the
+# Tailscale IP (e.g. 100.x.y.z) so phones + the MCP client reach it over the
+# tailnet WITHOUT the 0.0.0.0 LAN exposure the review flagged (P0-3). This
+# Environment= line is listed BEFORE EnvironmentFile= so .env's value wins when
+# set, and falls back to loopback when it isn't — never all-interfaces.
+Environment=BIND_HOST=127.0.0.1
 EnvironmentFile=/home/pi/pifinance/.env
-ExecStart=/home/pi/pifinance/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:${PORT} app:app
+# --workers 4: the Pi 5 has 4 cores; 2 workers left the 13-endpoint analytics
+# fan-out queueing and a single /api/ask (which holds a worker for the whole
+# model loop) at 50% capacity. --timeout 120: the default 30s could kill a slow
+# Ask request mid-flight (CODE-REVIEW-2026-08-07 #15). Tune down if the Pi is
+# memory-constrained.
+ExecStart=/home/pi/pifinance/venv/bin/gunicorn --workers 4 --timeout 120 --bind ${BIND_HOST}:${PORT} app:app
 Restart=on-failure
 RestartSec=5
 

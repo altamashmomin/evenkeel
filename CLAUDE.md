@@ -1825,6 +1825,19 @@ section to reflect what's done and what's next.
   reintroducing the bugs they guard
   against — a claimed regression test is unproven until it's watched
   to fail once.
+  **Honest coverage note (corrected Aug 7, 2026, CODE-REVIEW #8): "the
+  tripwire covers it" is real but NOT automatic-for-free.** A derivation
+  is only genuinely covered if the fixture contains data the probe can
+  contaminate. The fixture was enriched (setUp seeds `items`; the probe
+  adds three matching in-window shopping-category inflows) so removing the
+  repo's `direction='out'` filters now trips 8 of the 15 discovered
+  functions (was 1 — the fixture previously had no `items` rows, so seven
+  pantry derivations compared `[] == []`). The other 7 are provably
+  uncontaminatable by an inflow (splits INNER JOIN → `test_income_isolation`;
+  read no transactions; or excluded-by-design), documented in the test's
+  docstring. When a NEW derivation says "tripwire-covered," confirm the
+  fixture actually reaches it — the hand-written `*_ignores_inflows` tests
+  remain the primary coverage for anything the generic probe can't move.
 - Frontend testing (added July 24, 2026): the pure presentation helpers
   live in `static/render.js` (a dual-environment module — browser reads
   `window.Render`, node `require`s it), split out of `app.js` precisely

@@ -14,11 +14,20 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML } = window.Render;
 
+// One local-time source for "today" / "this month" — the user's calendar, not
+// UTC. Both the initial selected month and the Bills header read it, so the app
+// no longer mixes a UTC month with local dates (CODE-REVIEW-2026-08-07 #6).
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const thisMonthISO = () => todayISO().slice(0, 7);
+
 const state = {
   meId: null,
   users: [],          // [{id, display_name}]
   tab: "dashboard",
-  month: new Date().toISOString().slice(0, 7),
+  month: thisMonthISO(),
   activityFilter: "all",   // all | spending | income
 
   editingTxn: null,
@@ -28,11 +37,6 @@ const state = {
   openLogs: new Set(),
 
   ask: { messages: [], pending: false },   // Ask tab: client-held chat history
-};
-
-const todayISO = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
 function userById(id) {
@@ -264,8 +268,17 @@ function openMoreSheet() {
 // Tap the backdrop (outside the sheet body) to dismiss.
 dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.close(); });
 
+// Per-tab row stashes the tap/edit handlers read (findTxn, bill/goal/budget
+// edit, the pantry match editor). Cleared at the top of every render so a tab
+// only ever sees ITS OWN current rows — otherwise a stale pool (e.g. _txns,
+// written by Activity and never cleared) let a tap on another tab resolve to a
+// pre-edit row and Save write the stale values back (CODE-REVIEW-2026-08-07 #5).
+const ROW_STASHES = ["_dash", "_recent", "_txns", "_bills", "_goals",
+                     "_budgets", "_budgetStatus", "_inv"];
+
 async function render() {
   const main = $("#main");
+  ROW_STASHES.forEach((k) => { delete window[k]; });
   try {
     if (state.tab === "dashboard") main.innerHTML = await renderDashboard();
     if (state.tab === "activity") main.innerHTML = await renderActivity();
@@ -488,7 +501,7 @@ async function renderBills() {
     : `<p class="empty">No recurring bills yet.</p>`;
   return `
     <div class="section-head">
-      <p class="eyebrow" style="margin:0">Bills — ${monthName(state.month = new Date().toISOString().slice(0,7)) }</p>
+      <p class="eyebrow" style="margin:0">Bills — ${monthName(thisMonthISO())}</p>
       <button class="btn small" id="btn-add-bill">Add bill</button>
     </div>
     <div class="card">${rows}</div>`;

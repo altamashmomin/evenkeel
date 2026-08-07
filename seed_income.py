@@ -114,7 +114,8 @@ def main():
         help="paycheck-shaped inflows per month, before the occasional gift/refund")
     args = ap.parse_args()
 
-    if os.path.basename(args.path) == "finance.db":
+    # Case-insensitive + symlink-resolving (CODE-REVIEW-2026-08-07 #10).
+    if os.path.basename(os.path.realpath(args.path)).lower() == "finance.db":
         sys.exit("error: refusing to touch finance.db (CLAUDE.md rule 6)")
     try:
         require_current_schema(args.path)
