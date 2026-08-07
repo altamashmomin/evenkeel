@@ -11,25 +11,23 @@ Schema-version coherence (REQUIRED_SCHEMA_VERSION == latest migration) is
 already covered by test_migrations.test_runtime_version_matches_latest_
 migration, so it isn't repeated here."""
 import re
+import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
 
-# The tables the action registry governs: every write to these must go
-# through a verb in actions.py (CORE-DESIGN invariant 1). 'members' is
-# deliberately NOT here — member/auth management isn't a verb yet
-# (CORE-DESIGN open question "Member auth mechanics beyond two"); it's
-# tracked as a documented exception below instead of silently dropped, so
-# the test still catches auth writes leaking into new files.
-GOVERNED_TABLES = {
-    "transactions", "splits", "links", "goals", "goal_contributions",
-    "bills", "bill_payments", "audit_log", "income_rules", "members",
-    "api_tokens", "pending_actions", "items", "budgets",
-}
-
-WRITE_RE = re.compile(
-    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)", re.IGNORECASE)
+# GOVERNED_TABLES and WRITE_RE now live with the code they describe, so this
+# test, the manifest, and the verbs share one definition instead of three
+# copies drifting apart: the governed-table set lives in actions.py (with
+# the registry it governs) and the raw-write regex in ontology.py (with the
+# manifest's writes-scan). 'members' is in the set but carries a documented
+# KNOWN_EXCEPTIONS entry below (account/auth management isn't a verb yet —
+# CORE-DESIGN open question), so this test still catches auth writes leaking
+# into new files.
+from actions import GOVERNED_TABLES
+from ontology import WRITE_RE
 
 # Files/dirs where raw SQL against governed tables legitimately lives:
 # the verbs themselves, schema migrations, and synthetic fixtures (whose

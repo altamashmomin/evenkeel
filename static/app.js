@@ -11,7 +11,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         memberBreakdownHTML, billVarianceHTML, budgetStatusHTML, savingsRateTrendHTML,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
-        askThreadHTML, inventoryHTML } = window.Render;
+        askThreadHTML, inventoryHTML, agentsHTML } = window.Render;
 
 const state = {
   meId: null,
@@ -184,6 +184,7 @@ const TABS = [
   ["analytics", "Analytics"],
   ["inventory", "Pantry"],
   ["ask", "Ask"],
+  ["agents", "Agents"],
 ];
 
 // The mobile bottom bar is the Garden mock's 5 slots: Home · Activity · [+] ·
@@ -244,6 +245,7 @@ async function render() {
     if (state.tab === "analytics") main.innerHTML = await renderAnalytics();
     if (state.tab === "inventory") main.innerHTML = await renderInventory();
     if (state.tab === "ask") main.innerHTML = renderAsk();
+    if (state.tab === "agents") main.innerHTML = await renderAgents();
     wireMain();
   } catch (e) {
     if (e.message !== "authentication required")
@@ -352,7 +354,13 @@ async function renderDashboard() {
       <button class="home-link" data-goto="bills" type="button">📅 Bills</button>
       <button class="home-link" data-goto="analytics" type="button">📊 Analytics</button>
       <button class="home-link" data-goto="inventory" type="button">🧺 Pantry</button>
+      <button class="home-link" data-goto="agents" type="button">🤖 Agents</button>
     </div>`;
+}
+
+async function renderAgents() {
+  const data = await api("/api/agents");
+  return agentsHTML(data);
 }
 
 /* ================= activity ================= */

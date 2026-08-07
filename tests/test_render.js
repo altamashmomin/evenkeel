@@ -686,6 +686,67 @@ check("goalPaceHTML maps status to a chip and shows the projection", () => {
 // app.js but forgotten in that block is undefined at runtime ("Can't find variable")
 // — exactly what took out the Analytics tab when the budgets card shipped. This
 // fails the build instead of production.
+// ---- agentsHTML: the owner-only Agents catalog ----
+const AGENT_CAT = {
+  live_status: false,
+  groups: [
+    { id: "analysts", label: "Analysts & advisors", agents: [
+      { id: "ledger-analyst", kind: "subagent", name: "Analyst", icon: "📊",
+        access: "read-only", model: "sonnet", surface: "Claude Code",
+        cadence: "on-demand", tagline: "Answers money questions from live data." } ] },
+    { id: "assistants", label: "The assistants", agents: [
+      { id: "mcp", kind: "service", name: "MCP server", icon: "🔌",
+        access: "reads + writes", model: "—", surface: "tailnet",
+        cadence: "always-on", tagline: "Your Claude's 18 tools over Tailscale." } ] },
+  ],
+  glossary: [
+    { label: "What it can do", terms: [
+      { term: "read-only", gloss: "Only looks at data — never changes anything." },
+      { term: "reads + writes", gloss: "Can both look at and change data." } ] },
+    { label: "Type", terms: [
+      { term: "subagent", gloss: "A role-scoped Claude agent." } ] },
+  ],
+};
+check("agentsHTML renders group labels, tiles, names, taglines", () => {
+  const h = R.agentsHTML(AGENT_CAT);
+  assert.ok(h.includes("Analysts &amp; advisors"), "group label escaped+shown");
+  assert.ok(h.includes("Analyst") && h.includes("MCP server"), "both tiles named");
+  assert.ok(h.includes("Answers money questions from live data."), "tagline shown");
+  assert.strictEqual((h.match(/agent-tile/g) || []).length, 2, "one tile per agent");
+});
+check("agentsHTML shows a real model chip but hides '—'/inherits", () => {
+  const h = R.agentsHTML(AGENT_CAT);
+  assert.ok(h.includes("sonnet"), "meaningful model shown");
+  assert.strictEqual((h.match(/agent-chip model/g) || []).length, 1,
+    "only the sonnet tile gets a model chip; mcp's '—' is hidden");
+});
+check("agentsHTML pip tone encodes power: read-only=r, writes=w", () => {
+  const h = R.agentsHTML(AGENT_CAT);
+  assert.ok(/agent-pip r/.test(h), "read-only -> r");
+  assert.ok(/agent-pip w/.test(h), "reads + writes -> w");
+});
+check("agentsHTML shows the catalog note only when live_status is false", () => {
+  assert.ok(R.agentsHTML(AGENT_CAT).includes("Catalog view"), "note when not live");
+  const live = { live_status: true, groups: AGENT_CAT.groups };
+  assert.ok(!R.agentsHTML(live).includes("Catalog view"), "no note when live");
+});
+check("agentsHTML empty state", () => {
+  assert.ok(R.agentsHTML({ live_status: false, groups: [] }).includes("No agents configured"));
+});
+check("agentsHTML explains pills: gloss on the chip title + a Key card", () => {
+  const h = R.agentsHTML(AGENT_CAT);
+  assert.ok(h.includes("What the labels mean"), "renders the Key card");
+  assert.ok(h.includes('title="Only looks at data — never changes anything."'),
+    "glossed access chip carries its explanation as a title");
+  assert.ok(h.includes("Can both look at and change data."), "Key lists each term's meaning");
+  assert.ok(/agent-chip[^>]*explains/.test(h), "glossed chip is marked explains");
+});
+check("agentsHTML renders the field once — no repeat", () => {
+  const h = R.agentsHTML(AGENT_CAT);
+  assert.strictEqual((h.match(/agents-view/g) || []).length, 1, "one view wrapper");
+  assert.strictEqual((h.match(/What the labels mean/g) || []).length, 1, "one Key card");
+});
+
 check("app.js destructures every Render helper it calls by bare name", () => {
   const fs = require("fs"), path = require("path");
   const app = fs.readFileSync(path.join(__dirname, "../static/app.js"), "utf8");

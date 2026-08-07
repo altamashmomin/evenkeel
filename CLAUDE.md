@@ -1233,6 +1233,36 @@ derivation change), so nothing to gate.**
   the WAL-mode live DB dropped uncheckpointed transactions) and it now restarts
   `ledger-mcp` after a deploy. Both activate on the deploy AFTER the one that
   ships them (deploy.sh backs up + self-replaces before those lines run).
+- **Backup retention — self-pruning (Aug 6, 2026) — DEPLOYED.** Third piece of
+  the deploy.sh hardening lineage. Problem: deploy.sh writes a `finance.db.bak-*`
+  on EVERY run — including gate-failed and same-day propagation-race re-runs —
+  with no pruning, so backups accumulated until the Pi Ops guardian's backup-count
+  alert fired (28 files on Aug 6, amber two days running: `evenkeel` issues #4, #6;
+  hand-pruned to 10 that day). Fix (design in `docs/BACKUP-RETENTION-DESIGN.md`):
+  a best-effort prune step (3b) right after the new backup is written + verified —
+  keep newest N (`DEPLOY_KEEP_BACKUPS` from `.env`, default 10; keep it < the
+  guardian's `MAX_BACKUPS`=12), delete the rest, so the very runs that cause the
+  bloat self-limit. **Keep-newest-N** (not time-thinning) — filenames embed the
+  timestamp, so lexical sort == chronological. Safety: the just-written `$BACKUP`
+  is newest → this run's own rollback point can never be pruned; the off-Pi golden
+  backup is outside the glob; nothing is deleted until the new backup passes
+  `PRAGMA integrity_check` (immutable=1 — the guardian's integrity-before-trust
+  discipline); non-fatal under `set -euo pipefail` so housekeeping never aborts a
+  deploy. Prune lives in **deploy.sh, not the guardian** — the guardian stays
+  read-only, keeping its `> MAX_BACKUPS` amber as an independent backstop. Verified
+  off-Pi by extracting the real `prune_backups` function and sourcing it against
+  dummy dirs (11 checks: no-op under limit, keeps exactly N, keeps `$BACKUP`, never
+  a sidecar, refuses+warns on a corrupt new backup, honors the `.env` override).
+  That dry-run caught a real pre-Pi regression: the optional-key `grep .env`
+  aborted the whole deploy under `set -e`+`pipefail` when `.env` lacked the key
+  (the default) — fixed with `|| true`. Ops tooling only — no
+  schema/verb/derivation/money path, balance gate N/A. Committed on `rework`
+  `6b95541`, deployed via `main` `e1fe6b4` (`--no-ff` merge, first parent = prior
+  main `3fc0201`, tree == rework; fast-forward push) — **GATE PASS zero-diff, no
+  migration**. Shipped with a two-run deploy (the "takes effect on the deploy AFTER
+  the one that ships it" quirk): run 1 swapped in the new script, run 2 executed it
+  and **pruned 13→10 live**, integrity-gated on the fresh backup. Count on the Pi
+  is now 10; guardian reads green on the backup-count line.
 
 **Pantry #009 DEPLOYED (Aug 4, 2026) — done.** The gated migration shipped via
 the `ledger-release` agent's go/no-go: `origin/main` advanced to rework's tree

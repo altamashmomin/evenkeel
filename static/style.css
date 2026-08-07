@@ -675,3 +675,85 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   * { transition: none !important; animation: none !important; }
   .ask-thinking span { opacity: 0.5; }
 }
+
+/* ================= Agents tab (owner-only) ================= */
+.agents-head { margin-bottom: 4px; }
+.agents-head h2 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.agent-note { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.agent-group { margin-top: 22px; }
+.agent-group .eyebrow { margin-bottom: 10px; }
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.agent-tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 15px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  animation: rise 0.42s ease both;
+}
+.agent-top { display: flex; align-items: center; gap: 11px; }
+.agent-ic {
+  font-size: 22px; line-height: 1;
+  width: 42px; height: 42px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  background: var(--surface-2);
+  border-radius: 13px;
+}
+.agent-id { flex: 1; min-width: 0; }
+.agent-name { font-size: 15px; font-weight: 600; color: var(--text); }
+.agent-kind {
+  font-size: 11px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.08em; margin-top: 1px;
+}
+.agent-pip {
+  width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--muted);
+}
+.agent-pip.r { background: var(--ok); }                          /* read-only */
+.agent-pip.w { background: var(--brass); }                       /* can write */
+.agent-pip.a { background: color-mix(in srgb, var(--p2) 70%, var(--muted)); } /* recommend/edit */
+.agent-tagline { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
+.agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.agent-chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line);
+}
+.agent-chip.ghost { background: transparent; color: var(--muted); }
+.agent-chip.model {
+  color: var(--brass-dim);
+  background: color-mix(in srgb, var(--brass) 14%, transparent);
+  border-color: transparent;
+}
+/* A chip that has an explanation: help cursor + a faint dotted underline so
+   it reads as "there's more here" (the Key below spells it out for touch). */
+.agent-chip.explains { cursor: help; text-decoration: underline dotted var(--line); text-underline-offset: 3px; }
+.agent-kind.explains { cursor: help; }
+
+.agent-key { margin-top: 26px; }
+.agent-key .eyebrow { margin-bottom: 12px; }
+.key-group + .key-group { margin-top: 14px; }
+.key-h {
+  font-size: 12px; font-weight: 700; color: var(--text);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;
+}
+.key-list { margin: 0; display: flex; flex-direction: column; gap: 5px; }
+.key-row {
+  display: grid; grid-template-columns: 168px 1fr; gap: 12px; align-items: baseline;
+}
+.key-row dt {
+  font-size: 12px; color: var(--text); font-weight: 600;
+  padding: 2px 8px; border-radius: 999px; background: var(--surface-2);
+  border: 1px solid var(--line); justify-self: start;
+}
+.key-row dd { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
+@media (max-width: 520px) {
+  .key-row { grid-template-columns: 1fr; gap: 2px; }
+  .key-row dt { justify-self: start; }
+}
