@@ -41,6 +41,20 @@ class NotFound(Exception):
     Message is caller-safe and frozen (deployed API surface)."""
 
 
+# The tables the action registry governs: every write to these must go
+# through a verb here (CORE-DESIGN invariant 1). This lives with the
+# registry it describes — tests/test_architecture.py imports it to enforce
+# the no-raw-writes invariant, and ontology.py imports it to enumerate the
+# object types. 'members' is included but carries a documented exception in
+# the architecture test (account/auth management isn't a verb yet —
+# CORE-DESIGN open question "Member auth mechanics beyond two").
+GOVERNED_TABLES = frozenset({
+    "transactions", "splits", "links", "goals", "goal_contributions",
+    "bills", "bill_payments", "audit_log", "income_rules", "members",
+    "api_tokens", "pending_actions", "items", "budgets",
+})
+
+
 @contextmanager
 def action_transaction(db):
     """Own one complete verb transaction, including rollback on failure.
