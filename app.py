@@ -13,6 +13,7 @@ from flask import Flask, g, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
+import agent_catalog
 import ask_loop
 from actions import active_members, current_period, payer_share_pct, to_cents
 from derivations import (anomaly_flags, bill_variance, budget_status,
@@ -281,6 +282,15 @@ def me():
     users = [{"id": u["id"], "username": u["username"], "display_name": u["display_name"]}
              for u in get_users(db)]
     return jsonify({"user_id": g.auth["user_id"], "users": users})
+
+
+@app.get("/api/agents")
+@login_required
+def agents():
+    """Catalog of Ledger's autonomous layer (the Agents tab) — a read-only map
+    of the agents, assistants, and scheduled jobs acting on the app. Shared
+    with the household like every other tab."""
+    return jsonify(agent_catalog.catalog())
 
 
 # ------------------------------------------------------ api tokens (agent auth)

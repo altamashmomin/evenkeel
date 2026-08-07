@@ -877,6 +877,98 @@
       ${matchCard}`;
   }
 
+  // Which "power" a pip signals: green for read-only/advisory, honey for
+  // anything that can write, sage for recommend/edit-then-stop. A glanceable
+  // encoding of what each agent is allowed to do — real catalog status.
+  function agentTone(access) {
+    const a = (access || "").toLowerCase();
+    if (/write|tag/.test(a)) return "w";
+    if (/recommend|edit|advis/.test(a)) return "a";
+    return "r";
+  }
+
+  // A chip that explains itself: the term is glossed on hover (desktop) /
+  // long-press (mobile) via title, and the Key card lists them all for touch.
+  function agentChip(val, gloss, cls) {
+    if (!val) return "";
+    const g = gloss[val];
+    const t = g ? ` title="${esc(g)}"` : "";
+    const explains = g ? " explains" : "";
+    return `<span class="agent-chip${cls ? " " + cls : ""}${explains}"${t}>${esc(val)}</span>`;
+  }
+
+  function agentTile(ag, gloss) {
+    const showModel = ag.model && ag.model !== "—" && ag.model !== "inherits";
+    const kindGloss = gloss[ag.kind];
+    const chips = [
+      agentChip(ag.access, gloss),
+      showModel ? `<span class="agent-chip model">${esc(ag.model)}</span>` : "",
+      agentChip(ag.surface, gloss, "ghost"),
+      agentChip(ag.cadence, gloss, "ghost"),
+    ].join("");
+    return `
+      <div class="agent-tile">
+        <div class="agent-top">
+          <span class="agent-ic">${esc(ag.icon)}</span>
+          <div class="agent-id">
+            <div class="agent-name">${esc(ag.name)}</div>
+            <div class="agent-kind${kindGloss ? " explains" : ""}"${kindGloss ? ` title="${esc(kindGloss)}"` : ""}>${esc(ag.kind)}</div>
+          </div>
+          <span class="agent-pip ${agentTone(ag.access)}" title="${esc(ag.access)}"></span>
+        </div>
+        <p class="agent-tagline">${esc(ag.tagline)}</p>
+        <div class="agent-chips">${chips}</div>
+      </div>`;
+  }
+
+  // The "What the labels mean" key — every pill's plain-language meaning, from
+  // the catalog's own glossary (single source), so touch users get an
+  // explanation the hover tooltips can't give them.
+  function agentKeyHTML(glossary) {
+    if (!glossary || !glossary.length) return "";
+    const groups = glossary.map((grp) => `
+      <div class="key-group">
+        <div class="key-h">${esc(grp.label)}</div>
+        <dl class="key-list">${grp.terms.map((t) => `
+          <div class="key-row"><dt>${esc(t.term)}</dt><dd>${esc(t.gloss)}</dd></div>`).join("")}
+        </dl>
+      </div>`).join("");
+    return `
+      <div class="card agent-key">
+        <p class="eyebrow">What the labels mean</p>
+        ${groups}
+      </div>`;
+  }
+
+  // The Agents tab: Ledger's autonomous layer as a field of Garden tiles,
+  // grouped by nature, with a Key that explains every label. Pure function of
+  // the catalog; v1 shows catalog facts, not live health.
+  function agentsHTML(data) {
+    const groups = (data && data.groups) || [];
+    const glossaryList = (data && data.glossary) || [];
+    const gloss = {};
+    glossaryList.forEach((grp) => grp.terms.forEach((t) => { gloss[t.term] = t.gloss; }));
+    const sections = groups
+      .filter((g) => g.agents && g.agents.length)
+      .map((g) => `
+        <section class="agent-group">
+          <p class="eyebrow">${esc(g.label)}</p>
+          <div class="agent-grid">${g.agents.map((ag) => agentTile(ag, gloss)).join("")}</div>
+        </section>`).join("");
+    const note = data && data.live_status
+      ? ""
+      : `<p class="agent-note">Catalog view — what each one is and can do. Live health is coming.</p>`;
+    return `
+      <div class="agents-view">
+        <div class="agents-head">
+          <h2>Agents</h2>
+          ${note}
+        </div>
+        ${sections || `<p class="empty">No agents configured.</p>`}
+        ${sections ? agentKeyHTML(glossaryList) : ""}
+      </div>`;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
@@ -886,5 +978,5 @@
            budgetStatusHTML,
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
-           askThreadHTML };
+           askThreadHTML, agentsHTML };
 });
