@@ -674,6 +674,26 @@ async function setItemMatch(id) {
   render();
 }
 
+// Set (or clear) a staple's manual restock cadence — "remind me every N days".
+// When set, the forecast counts N days from the last time it was marked stocked
+// instead of inferring the interval from purchase history. Blank clears it (back
+// to the inferred cadence); the backend validates 1..365.
+async function setItemInterval(id) {
+  const item = (window._inv && window._inv.items || []).find((x) => x.id === id);
+  const cur = item && item.restock_interval_days ? String(item.restock_interval_days) : "";
+  const next = prompt(
+    "Remind me to restock this every how many days? (leave blank to clear and " +
+    "let the app learn it from your purchases)",
+    cur);
+  if (next === null) return;               // cancelled
+  if (next.trim() === cur) return;         // unchanged
+  await api(`/api/inventory/${id}`, {
+    method: "PUT",
+    body: { restock_interval_days: next.trim() === "" ? null : next.trim() },
+  });
+  render();
+}
+
 async function addItem(name, kind) {
   name = (name || "").trim();
   if (!name) return;
@@ -816,6 +836,8 @@ function wireMain() {
     el.addEventListener("click", () => setItemStatus(+el.dataset.markLow, "low")));
   $$("[data-item-match]").forEach((el) =>
     el.addEventListener("click", () => setItemMatch(+el.dataset.itemMatch)));
+  $$("[data-item-interval]").forEach((el) =>
+    el.addEventListener("click", () => setItemInterval(+el.dataset.itemInterval)));
   // New-staple suggestion: "Track" starts tracking that merchant as a staple.
   $$("[data-track-staple]").forEach((el) =>
     el.addEventListener("click", () => trackSuggestedStaple(+el.dataset.trackStaple)));

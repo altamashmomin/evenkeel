@@ -125,6 +125,17 @@ input, select {
   font-family: var(--sans);
 }
 input[type="number"], input[type="date"] { font-family: var(--mono); }
+/* iOS Safari renders input[type=date] with its native control, which keeps an
+   intrinsic content width and IGNORES width:100% inside a grid/flex column — so
+   in .row2 the date field overflowed and collided with the amount field on a
+   phone (the min-width:0 rule below can't fix it; the native control sets its
+   own width). -webkit-appearance:none makes iOS honor width:100% + box-sizing
+   like a plain input. Scoped to the mobile layout (< the 720px desktop
+   breakpoint) so desktop keeps its native calendar-picker button, which mouse
+   users rely on; a min-height keeps the field level with its sibling inputs. */
+@media (max-width: 719.98px) {
+  input[type="date"] { -webkit-appearance: none; appearance: none; min-height: 44px; }
+}
 input:focus-visible, button:focus-visible, .seg button:focus-visible {
   outline: 2px solid var(--brass);
   outline-offset: 1px;

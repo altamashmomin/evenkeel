@@ -1883,6 +1883,44 @@ first parent = prior main, tree == rework, **GATE PASS zero-diff, no migration**
   **The Aug-7 code review is now fully closed** — every P0, every P1, and the one
   #16 sub-path worth doing, all shipped. Nothing outstanding from it.
 
+**iOS add-expense dialog fix + user-set pantry restock cadence — DONE, NOT YET
+DEPLOYED (Aug 7, 2026).** Two aesthetics/UX items Alta reported from an iPhone,
+built as two separate commits on `rework`.
+- **iOS date/amount overlap (`586360d`, frontend-only, no gate).** In the
+  add-expense dialog the Date and Amount fields overlapped on iOS Safari. Root
+  cause: iOS renders `input[type=date]` with its native control, which keeps an
+  intrinsic content width and IGNORES `width:100%` inside the `.row2` 1fr grid
+  column, so the date field overflowed into amount. The Aug-5 `min-width:0` fix
+  only helps standard browsers (Chromium at 375px was already clean, confirmed
+  in a harness) — iOS needed `-webkit-appearance:none` to honor the width/box
+  model. Scoped to the mobile layout (`@media (max-width: 719.98px)`, below the
+  720px desktop breakpoint) so desktop keeps its native calendar-picker button.
+  Covers every date dialog (bill/goal share `.row2`). render seam 97.
+- **#011 — user-set restock cadence (`168c38f`, gated migration).** Answers
+  Alta's "I don't understand where the pantry gets its intervals from": today
+  they're purely INFERRED (`restock_forecast` = median gap between bank-feed
+  matched purchases, ≥3 needed) — invisible and sparse (merchant-not-product).
+  Now a person can SET one. Migration #011 adds `items.restock_interval_days`
+  (nullable; NULL = infer, prior behavior) + `items.last_stocked_at` (the anchor
+  the manual cadence counts from — Alta's chosen anchor: "last time marked
+  stocked"; `add_item`/`set_item_status` write it on a stock event). New verb
+  `set_item_interval` (staple-only, 1..365 or None-to-clear, audited, UI-only —
+  not exposed to Ask/MCP this increment); `restock_forecast` gains a MANUAL
+  branch (`predicted = last_stocked_at + N`, no purchase history needed) beside
+  the CADENCE branch, each row carrying `interval_source`. Pantry UI: a per-
+  staple ⏰ "remind every N days" editor + hint line, and the "Coming up" card
+  now attributes the number — "(you set this)" vs "(from your purchases)". Still
+  clock-free (anchor+interval from stored data) → tripwire covers it, no
+  exemption; never touches money. **Enumerated-diff balance GATE PASS** (`586360d`
+  → `168c38f`, seeded v10 db: only `schema_version` 10→11, balance + every
+  monthly total unchanged to the cent; notes/011). Suite 500→**510** python + 96→
+  **97** render. **Deploy: this is the first `--live` migration since #010** —
+  advance `main` to rework, `deploy.sh origin/main` runs its dry-run gate (prints
+  the #011 structural diff to eyeball vs notes/011), applies `#011 --live`,
+  restarts. Per-device hard-refresh picks up the frontend. Optional follow-on if
+  wanted: expose `set_item_interval` to Charlee's Ask/MCP door (a PARAM_SPECS
+  entry + agent_write_tools tool, like `set_item_match`).
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 
