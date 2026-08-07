@@ -1464,6 +1464,20 @@ def remove_budget(db, actor, budget_id):
     return db.execute("SELECT * FROM budgets WHERE id = ?", (budget_id,)).fetchone()
 
 
+def record_sync_run(db, actor, exit_code, summary):
+    """Audit an in-app 'Sync now' trigger (the ops panel). The sync's DATA
+    writes are record_transaction's (actor 'sync', same as the timer); this
+    row records the human trigger event itself — who pressed it and how the
+    run ended — so a manual sync is never invisible in the record.
+
+    edit — one transaction: one audit row. No other table is touched.
+    """
+    with action_transaction(db):
+        _write_audit(db, actor, "record_sync_run", "sync:manual",
+                     {"exit_code": exit_code, "summary": (summary or "")[:500]})
+    return {"ok": exit_code == 0}
+
+
 RESET_CONFIRM_PHRASE = "reset all money rows"
 
 # The money-movement tables reset_money clears, in FK-safe order. Everything

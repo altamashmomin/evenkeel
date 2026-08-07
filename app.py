@@ -6,6 +6,8 @@ import functools
 import os
 import secrets
 import sqlite3
+import subprocess
+import sys
 from datetime import date, datetime
 
 from dotenv import load_dotenv
@@ -291,6 +293,72 @@ def agents():
     of the agents, assistants, and scheduled jobs acting on the app. Shared
     with the household like every other tab."""
     return jsonify(agent_catalog.catalog())
+
+
+# ------------------------------------------------- ops panel (Agents tab)
+# The in-app operations controls: run a sync now, read the Pi guardian's
+# latest report, browse recent audit activity. Shared like every other tab
+# (the household's call) — nothing here bypasses a verb's checks.
+
+OPS_STATUS_FILE = os.environ.get(
+    "OPS_STATUS_FILE", os.path.expanduser("~/pifinance-ops/ops-status.txt"))
+SYNC_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "simplefin_sync.py")
+
+
+@app.post("/api/ops/sync")
+@session_required
+def ops_sync():
+    """Run a SimpleFIN sync NOW — the same script the 06:30 timer runs, as a
+    subprocess (never a second insert path; its writes go through
+    record_transaction exactly like the timer's). Session-only: a bearer
+    token must not be able to trigger paid/banking side effects. The trigger
+    itself is audited via record_sync_run."""
+    try:
+        proc = subprocess.run(
+            [sys.executable, SYNC_SCRIPT], capture_output=True, text=True,
+            timeout=90, cwd=os.path.dirname(SYNC_SCRIPT))
+        exit_code = proc.returncode
+        # the script's last line is its summary ("done: N outflows …" or an
+        # "error: …" reason) — relay that, not the whole transcript
+        lines = [l for l in (proc.stdout + proc.stderr).strip().splitlines() if l]
+        summary = lines[-1] if lines else "(no output)"
+    except subprocess.TimeoutExpired:
+        exit_code, summary = -1, "sync timed out after 90s"
+    db = get_db()
+    actions.record_sync_run(db, ui_actor(db), exit_code, summary)
+    return jsonify({"ok": exit_code == 0, "summary": summary})
+
+
+@app.get("/api/ops/health")
+@login_required
+def ops_health():
+    """The Pi Ops guardian's latest heartbeat report (ops-status.txt), plus
+    its age — surfacing the existing daily check in-app instead of via SSH.
+    Absent file (e.g. local dev, or the guardian not installed) is a normal
+    state, not an error."""
+    try:
+        with open(OPS_STATUS_FILE) as f:
+            report = f.read().strip()
+        age_h = int((datetime.now().timestamp()
+                     - os.path.getmtime(OPS_STATUS_FILE)) // 3600)
+        return jsonify({"available": True, "report": report, "age_hours": age_h})
+    except OSError:
+        return jsonify({"available": False, "report": None, "age_hours": None})
+
+
+@app.get("/api/ops/audit")
+@login_required
+def ops_audit():
+    """Recent audit-log activity (newest first) — the system of record made
+    visible without sqlite3 on the Pi. Row summaries only; detail payloads
+    stay out of the response."""
+    limit = max(1, min(int(request.args.get("limit", 30)), 200))
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, at, actor, action, target FROM audit_log "
+        "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return jsonify({"entries": [dict(r) for r in rows]})
 
 
 # ------------------------------------------------------ api tokens (agent auth)

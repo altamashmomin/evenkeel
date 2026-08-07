@@ -934,6 +934,47 @@
       </div>`;
   }
 
+  // The ops panel at the foot of the Agents tab: guardian heartbeat, a
+  // Sync-now control, and recent audit activity. Pure — the button's result
+  // line is re-rendered by app.js after the POST.
+  function opsPanelHTML(health, audit) {
+    const h = health || {};
+    const badge = !h.available
+      ? `<span class="badge due">no report</span>`
+      : /GREEN/.test(h.report || "") ? `<span class="badge paid">green</span>`
+      : /RED/.test(h.report || "") ? `<span class="badge overdue">red</span>`
+      : `<span class="badge due">amber</span>`;
+    const healthBody = h.available
+      ? `<pre class="ops-report">${esc(h.report)}</pre>
+         <p class="agent-note">checked ${h.age_hours}h ago</p>`
+      : `<p class="agent-note">No guardian report here — it lives on the Pi (normal on a dev machine).</p>`;
+    const entries = ((audit && audit.entries) || []).map((e) => `
+      <div class="key-row"><dt>${esc(e.actor)}</dt>
+        <dd>${esc(e.action)}${e.target ? " · " + esc(e.target) : ""}
+          <span class="ops-when">${esc(shortDate((e.at || "").slice(0, 10)))}</span></dd>
+      </div>`).join("");
+    return `
+      <div class="card ops-panel">
+        <p class="eyebrow">Operations</p>
+        <div class="ops-row">
+          <span class="ops-h">Pi health ${badge}</span>
+        </div>
+        <details class="key-group">
+          <summary class="key-h">Guardian report</summary>
+          ${healthBody}
+        </details>
+        <details class="key-group">
+          <summary class="key-h">Recent activity</summary>
+          <dl class="key-list">${entries || ""}</dl>
+          ${entries ? "" : `<p class="agent-note">Nothing logged yet.</p>`}
+        </details>
+        <div class="ops-row">
+          <button class="btn primary" id="btn-ops-sync" type="button">Sync banks now</button>
+          <span class="ops-sync-result" id="ops-sync-result"></span>
+        </div>
+      </div>`;
+  }
+
   // The Agents tab: Ledger's autonomous layer as a field of Garden tiles,
   // grouped by nature, with a Key that explains every label. Pure function of
   // the catalog; v1 shows catalog facts, not live health.
@@ -970,5 +1011,5 @@
            budgetStatusHTML,
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
-           askThreadHTML, agentsHTML };
+           askThreadHTML, agentsHTML, opsPanelHTML };
 });

@@ -761,6 +761,25 @@ check("agentsHTML renders the field once — no repeat", () => {
   assert.strictEqual((h.match(/What the labels mean/g) || []).length, 1, "one Key card");
 });
 
+// ---- opsPanelHTML: the Agents-tab operations foot ----
+check("opsPanelHTML: green badge, report behind a collapsible, sync button", () => {
+  const h = R.opsPanelHTML(
+    { available: true, report: "Ledger Pi Ops — 🟢 GREEN — all healthy", age_hours: 3 },
+    { entries: [{ id: 9, at: "2026-08-06T12:00:00", actor: "ui:avery",
+                  action: "record_sync_run", target: "sync:manual" }] });
+  assert.ok(h.includes("badge paid"), "GREEN report -> green badge");
+  assert.ok(h.includes("checked 3h ago"), "age surfaced");
+  assert.ok(h.includes("btn-ops-sync"), "sync button present");
+  assert.ok(h.includes("record_sync_run"), "audit entry listed");
+  assert.ok(/<details class="key-group">/.test(h), "report + activity collapsed");
+});
+check("opsPanelHTML: absent report is a normal state; amber/red map to badges", () => {
+  const none = R.opsPanelHTML({ available: false }, { entries: [] });
+  assert.ok(none.includes("no report") && none.includes("lives on the Pi"));
+  const red = R.opsPanelHTML({ available: true, report: "🔴 RED — down", age_hours: 1 }, {});
+  assert.ok(red.includes("badge overdue"), "RED -> red badge");
+});
+
 check("app.js destructures every Render helper it calls by bare name", () => {
   const fs = require("fs"), path = require("path");
   const app = fs.readFileSync(path.join(__dirname, "../static/app.js"), "utf8");
