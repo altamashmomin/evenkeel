@@ -1795,6 +1795,84 @@ the catalog display name and their file. Tooling/frontend only — no schema/ver
 derivation/money path → **no balance gate**; suite 484 python + 94 render green.
 The in-app Agents tab now shows the REDVAULT group + codenames once deployed.
 
+**CODE REVIEW + REMEDIATION — every P0 and P1 shipped (Aug 7, 2026).** A
+three-pass adversarial review of `rework` (security / architecture-quality /
+test-quality subagents), written up in `docs/CODE-REVIEW-2026-08-07.md` (findings,
+failure scenarios, fixes, live remediation-status blocks). Every finding verified
+against the real code before landing; every regression-critical guard watched to
+FAIL on the old code first. Suite 484 → **499 python + 96 render**. Shipped across
+three gated deploys — `main` `bda68a3` → `346b838` → `3de39fc`, each `--no-ff`,
+first parent = prior main, tree == rework, **GATE PASS zero-diff, no migration**.
+- **P0-1 stored XSS — FIXED + LIVE.** `static/render.js` `esc()` escaped only
+  `&<>`, so a `"`-bearing item name / budget category broke out of the aria-label
+  attributes into a live event handler (items/categories are household-shared →
+  one member's payload runs in the other's privileged session; same-origin fetch
+  could mint a `read,write` token). `esc()` now escapes both quote forms; unit +
+  attribute-breakout regression, both proven to fail on the old code.
+- **P0-2 unauthenticated MCP port — CLOSED (Tailscale ACL).** `ledger_mcp` ran
+  with NO inbound auth (probed live: `100.108.237.13:8765` answers
+  unauthenticated), so any tailnet peer — incl. Charlee's device — could drive all
+  24 tools + both halves of the two-phase write tier under the Pi's `read,write`
+  token. Closed with a tailnet ACL (grants format, `deploy/mcp-tailnet-acl.md`):
+  `altamashmomin@github → *:*` (Alta's devices full), everyone else →
+  `100.108.237.13:8080` ONLY, so `:8765` is Alta-only. Built-in `tests` block
+  makes the deny provable — a clean save == the "Charlee can't reach :8765" test
+  passed. NOTE: Charlee is a Tailscale ADMIN (kept — Alta's call, useful for phone
+  support); the port is closed to her *device* regardless of role (network access
+  is grant-governed, not role-governed), so the posture holds — her *account*
+  could edit the policy, an accepted trust decision.
+- **P0-3 LAN exposure — CLOSED (BIND_HOST + dual-bind).** gunicorn bound `0.0.0.0`
+  (tracked `pifinance.service`), exposing a plaintext-http login on the home LAN.
+  Introduced `BIND_HOST`; the Pi's `.env` sets the tailnet IP. **Same-day
+  follow-up bug + fix:** binding ONLY the tailnet IP broke Pi-local clients —
+  `ledger_mcp` reaches Flask over `LEDGER_API_BASE=http://127.0.0.1:8080` and
+  `deploy.sh`'s health check probes loopback; both went dark (silent since the
+  P0-3 step — the deploy WARNING surfaced it). The unit now ALWAYS binds loopback
+  PLUS the optional `BIND_HOST` interface (`ExecStart=/bin/sh -c` with
+  `${BIND_HOST:+…}`, `$$`-escaped so the shell does the conditional); LAN still
+  never bound. Verified on the Pi: two listeners `127.0.0.1:8080` +
+  `100.108.237.13:8080`, no `0.0.0.0`; loopback + tailnet both 200; `ledger-mcp
+  active`. `After=tailscaled.service` added so the tailnet-IP bind survives a
+  reboot. **Lesson: a service binding a specific non-loopback IP must ALSO bind
+  loopback, or Pi-local siblings + the deploy health check break** [[ledger-ops-layer]].
+- **P1 — all correctness findings FIXED + LIVE.** Live bearer-token 500 in
+  `pay_bill`/`contribute` (`session["user_id"]` → `g.auth["user_id"]`, + bearer
+  tests); `finance.db` guards made case-insensitive + symlink-resolving
+  (`basename(realpath).lower()` in `seed_db`/`seed_income`/`migrate`/`gate`);
+  `WRITE_RE` widened (INSERT OR REPLACE/IGNORE, REPLACE INTO, DROP/ALTER TABLE) +
+  full-text scan; CSP + `nosniff` + Referrer-Policy via `after_request`; a JSON
+  `errorhandler(Exception)` so a backend 500 can't blank a tab; login
+  timing-oracle closed (dummy-hash) and the login route finally tested; **rate
+  limiting** (in-process fixed-window: `/api/login` 10 fails/15min reset-on-
+  success, `/api/ask` 30/hr/user → 429; per-worker with 4 workers, accepted for a
+  two-person home app); the **derivation tripwire made non-vacuous** (fixture now
+  seeds `items` + a matching in-window shopping-category probe → removing the
+  `direction='out'` filters trips **1→8** functions under mutation; the "tripwire-
+  covered" overclaim corrected at its definitional point in Conventions); the
+  **balance gate** gained optional `by_category`/`income` snapshot sections
+  (catches a category reassignment / income misclassification the old net-only
+  snapshot missed; v1.0-baseline path preserved via compare-only-when-both-have-
+  it); the **txn-list N+1** killed (`actions.prefetch_payer_shares` → `/api/
+  transactions`, `/api/activity`, dashboard-recent issue ONE splits query, was up
+  to ~502; byte-parity held); the **render build-guard** given the inverse
+  direction (resolves every bare call in `app.js` → catches a call to a name that
+  exists nowhere, the real blank-tab outage class); **#7 prompt-injection
+  hardening** (Ask system prompt leads with an untrusted-data rule, every tool
+  result labeled `[untrusted tool data …]` in the loop, refund tagging requires
+  explicit user say-so since it's the one Ask write that moves a spend total).
+- **Capacity:** service unit → `--workers 4 --timeout 120` (Pi 5 has 4 cores;
+  `/api/ask` holds a worker for the whole model loop).
+- **Deploy footgun (again):** the propagation race bit the FIRST deploy attempt —
+  its internal `git fetch` grabbed the prior `main`, gated old-vs-old (GATE PASS
+  but shipped nothing, HEAD stuck at `544f7bc`). Fixed by fetching to confirm
+  `origin/main` propagated, then `deploy.sh origin/main <currently-deployed-ref>`
+  with the explicit old-ref so the gate compares the right baseline [[ledger-workflow]].
+- **Remaining (optional, not correctness):** the two SECONDARY #16 perf sub-paths
+  — pantry `_matching_purchases` per-item scans (a shared `_purchase_index`) and
+  `_monthly_series`'s per-month `spending_summary` (O(months)→O(1)). Everything
+  else in the review is shipped and verified. `origin/main` == `origin/rework` ==
+  local `rework` tree (`3de39fc`/`354680f`), invariant intact.
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 
