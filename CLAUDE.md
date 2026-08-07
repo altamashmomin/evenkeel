@@ -1631,6 +1631,48 @@ that statically asserts every Render helper app.js calls by bare name is
 destructured from `window.Render` (verified it bites — fails with the exact
 missing name). Frontend-only, zero-gate; render seam 80→**81**.
 
+**Aug 6, 2026 — post-Foundry pivot: Agents tab, Ask expansion, ontology inc 1,
+and the FRESH-START RESET (all deployed the same day).**
+- **Foundry-comparison exploration closed:** ontology visualized (artifact
+  `e8ac34b5…` + a Claude Design atlas); verdict recorded — the grammar is
+  complete, remaining Foundry imports are judged per-need, lineage/ACL stay
+  refused. **Ontology manifest inc 1 shipped** (per
+  `docs/ONTOLOGY-MANIFEST-DESIGN.md`): `ontology.py` `manifest()` +
+  `GOVERNED_TABLES` relocated test→`actions.py` + coherence tests (incl. the
+  registry↔code check that closes ACTION-SCHEMA step 5). **Inc 2 (`GET
+  /api/ontology`) not built yet** — the manifest is code-only, no route.
+- **Agents tab v1 + polish — DEPLOYED.** `agent_catalog.py` (7 subagents
+  coherence-tested vs `.claude/agents/`, model read from each file, + Ask/MCP/
+  sync/guardian service entries, plain-language GLOSSARY), `GET /api/agents`
+  (login-gated, shared — owner-gating was built then deliberately removed),
+  Garden tiles in collapsible `<details>` groups w/ counts, collapsible "What
+  the labels mean" Key (per-pill hover tooltip added then removed — the Key is
+  the one explanation surface). 8th tab + 🤖 Home pill; mobile 5-slot nav
+  unchanged.
+- **Ask chatbot expansion — DEPLOYED (Alta's scope: budget_status read, quick-win
+  pantry writes, money line HELD).** `ledger_budget_status` joined the shared
+  read registry + `ledger_mcp` (reads 18→19, MCP 24 tools);
+  `ledger_archive_item` + `ledger_set_item_match` joined `agent_write_tools`
+  (writes 3→5), schemas generated from new `PARAM_SPECS` entries; system prompt
+  gives the bot broad pantry freedom (lookup-first) and budget answers.
+  Settle/edit/delete/rules remain out of Ask.
+- **reset_money — DEPLOYED + EXECUTED on the Pi (Aug 6, 2026).** The household's
+  numbers had drifted from the real accounts, so the ledger restarted from zero
+  (Alta's call: clear money, keep setup, fresh bank links). CLI-only verb
+  (registered row first; NO route — unreachable from UI/MCP/Ask; confirm phrase
+  `reset all money rows`; one transaction; one audit row w/ before-counts;
+  keep-set proven byte-identical in tests; runbook `deploy/reset-money.md`).
+  Live run cleared: 134 transactions, 170 splits, 83 links, 1 bill_payment,
+  1 goal_contribution, 1 pending_action; structure intact (`setup_required:
+  false` post-reset, app 200). Pre-reset backup `finance.db.bak-pre-reset-<ts>`
+  on the Pi is the undo. **The ledger now fills FORWARD from fresh SimpleFIN
+  connections** — history does not replay (~10-day lookback window per claim);
+  early numbers are recent-only and partial by design. NEXT: Alta re-claims
+  SimpleFIN per bank (runbook step 4) as they connect accounts.
+  Deploys: `main` `88e6d18` (Agents) → `9df0000` (Ask expansion + tooltip
+  removal) → `de02dc7` (reset verb), each `--no-ff`, tree == rework, GATE PASS
+  zero-diff, no migration. Suite **480** python + **90** render.
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 

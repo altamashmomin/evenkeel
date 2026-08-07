@@ -786,3 +786,18 @@ details.key-group[open] summary.key-h::after { transform: rotate(180deg); }
   .key-row { grid-template-columns: 1fr; gap: 2px; }
   .key-row dt { justify-self: start; }
 }
+
+/* Ops panel (Agents tab foot) */
+.ops-panel { margin-top: 18px; }
+.ops-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 0; }
+.ops-h { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.ops-report {
+  margin: 4px 0; padding: 10px 12px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  font: 12px/1.5 var(--mono); color: var(--text);
+  white-space: pre-wrap; overflow-x: auto;
+}
+.ops-when { color: var(--muted); font-size: 11px; margin-left: 6px; }
+.ops-panel .btn.primary { width: auto; margin-top: 0; }
+.ops-sync-result { font-size: 12.5px; color: var(--muted); }
+.ops-sync-result.err { color: var(--danger); }
