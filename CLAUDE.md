@@ -1929,7 +1929,14 @@ prune kept newest 10). Per-device hard-refresh picks up the frontend. First
   the #011 structural diff to eyeball vs notes/011), applies `#011 --live`,
   restarts. Per-device hard-refresh picks up the frontend.
 
-**Ask-tab chat cadence for Charlee — DONE, NOT YET DEPLOYED (Aug 7, 2026).** The
+**Ask-tab chat cadence for Charlee — DONE + DEPLOYED (Aug 7, 2026).** Deployed via
+`main` `873a78d` (`--no-ff` merge, first parent = prior main `faccf9d`, tree
+byte-identical to rework; merged in an isolated worktree to avoid disturbing
+Alta's uncommitted `/trace` WIP in the working dir). `deploy.sh origin/main` on
+the Pi → **GATE PASS, zero diff** (no migration — schema stays v11 — no money
+moved), `pifinance` + `ledger-mcp` restarted clean, `/api/status` OK. Rollback
+backup `finance.db.bak-2026-08-07-212724`. No per-device refresh (backend +
+system-prompt only). The
 follow-on to #011: let Charlee set a restock cadence by *chatting* ("remind me to
 restock coffee every two weeks"), not just via the ⏰ editor. Scoped to her door
 only (Ask), like the other pantry writes — the MCP write tier (Alta's door) for

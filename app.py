@@ -29,7 +29,8 @@ from derivations import (anomaly_flags, bill_variance, budget_status,
                          savings_rate_trend, shopping_list,
                          spending_summary, stale_shopping_items, staple_spend,
                          top_merchants, unmatched_staples)
-from schema_runtime import connect_existing, require_current_schema
+from schema_runtime import (
+    connect_existing, require_current_schema, REQUIRED_SCHEMA_VERSION)
 
 load_dotenv()
 
@@ -1677,6 +1678,27 @@ def index():
         v = _asset_version(name)
         html = html.replace(f'href="{name}"', f'href="{name}?v={v}"')
         html = html.replace(f'src="{name}"', f'src="{name}?v={v}"')
+    return html, 200, {"Content-Type": "text/html; charset=utf-8",
+                       "Cache-Control": "no-cache"}
+
+
+@app.get("/trace")
+def trace_web():
+    """The architecture Trace Web: a static, self-contained interactive map of
+    the ontology (callers → verbs → objects → derivations → doors), reconciled
+    against actions.py / derivations.py. Ungated like the rest of the frontend
+    (index, app.js, render.js) — it carries no live household data, only the
+    code's shape. Its edge logic is a SAME-ORIGIN script (trace-web.js), never
+    an inline block, so the strict `script-src 'self'` CSP that neutralised the
+    P0 XSS still holds; the shell version-stamps that script exactly as index()
+    stamps the SPA assets, so a deploy is picked up without a hard refresh."""
+    with open(os.path.join(app.static_folder, "trace-web.html"), encoding="utf-8") as f:
+        html = f.read()
+    v = _asset_version("trace-web.js")
+    html = html.replace('src="trace-web.js"', f'src="trace-web.js?v={v}"')
+    # inject the live schema version (the one fact the static map can't self-source);
+    # the verb/table/derivation counts are computed in-page from the edge data.
+    html = html.replace("__SCHEMA_VERSION__", str(REQUIRED_SCHEMA_VERSION))
     return html, 200, {"Content-Type": "text/html; charset=utf-8",
                        "Cache-Control": "no-cache"}
 
