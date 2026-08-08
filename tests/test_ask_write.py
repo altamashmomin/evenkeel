@@ -178,6 +178,30 @@ class AskWriteTests(unittest.TestCase):
         self.assertEqual("chewy", self.item_row(item_id)["restock_match"])
         self.assertEqual("ui:avery", self.audited("set_item_match", item_id)["actor"])
 
+    def test_set_interval_tool_sets_the_cadence_as_the_person(self):
+        item_id = self.a_staple()
+        mock = MockAnthropic([
+            resp([tool_block("ledger_set_item_interval",
+                             {"item_id": item_id, "days": 14})], "tool_use"),
+            resp([text_block("I'll remind you to restock Coffee every 14 days ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="remind me to restock coffee every two weeks",
+                       caller=self.caller)
+        self.assertEqual(["ledger_set_item_interval"], out["tools_used"])
+        self.assertEqual(14, self.item_row(item_id)["restock_interval_days"])
+        self.assertEqual("ui:avery", self.audited("set_item_interval", item_id)["actor"])
+
+    def test_set_interval_bad_value_is_caught(self):
+        item_id = self.a_staple()
+        mock = MockAnthropic([
+            resp([tool_block("ledger_set_item_interval",
+                             {"item_id": item_id, "days": 9999})], "tool_use"),  # out of 1..365
+            resp([text_block("That's too long — pick something up to a year.")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="restock coffee every 9999 days", caller=self.caller)
+        self.assertEqual(["ledger_set_item_interval"], out["tools_used"])   # attempted
+        self.assertIsNone(self.item_row(item_id)["restock_interval_days"])  # verb rejected it
+
     # -- write tools are offered only with a caller --------------------------
     def test_write_tools_present_only_when_caller_given(self):
         read_only = MockAnthropic([resp([text_block("hi")], "end_turn")])
@@ -187,11 +211,12 @@ class AskWriteTests(unittest.TestCase):
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(24, len(tools))  # 19 read + 5 write
+        self.assertEqual(25, len(tools))  # 19 read + 6 write
         names = [t["name"] for t in tools]
         self.assertIn("ledger_classify_inflow", names)
         self.assertIn("ledger_add_item", names)
         self.assertIn("ledger_set_item_status", names)
+        self.assertIn("ledger_set_item_interval", names)
         # exactly one prompt-cache breakpoint, on the last (write) tool
         cached = [t for t in tools if "cache_control" in t]
         self.assertEqual([tools[-1]], cached)

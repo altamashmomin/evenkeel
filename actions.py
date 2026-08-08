@@ -1664,6 +1664,12 @@ PARAM_SPECS = {
               "The purchase description to match this staple against (e.g. "
               "'chewy' for dog food), or an empty string to clear the match."),
     ],
+    "set_item_interval": [
+        Param("item_id", "integer", "The staple's id, from ledger_inventory."),
+        Param("days", "integer",
+              "How many days between restocks — e.g. 14 for every two weeks, 30 "
+              "for monthly. A whole number from 1 to 365."),
+    ],
 }
 
 

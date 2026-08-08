@@ -1883,9 +1883,19 @@ first parent = prior main, tree == rework, **GATE PASS zero-diff, no migration**
   **The Aug-7 code review is now fully closed** — every P0, every P1, and the one
   #16 sub-path worth doing, all shipped. Nothing outstanding from it.
 
-**iOS add-expense dialog fix + user-set pantry restock cadence — DONE, NOT YET
-DEPLOYED (Aug 7, 2026).** Two aesthetics/UX items Alta reported from an iPhone,
-built as two separate commits on `rework`.
+**iOS add-expense dialog fix + user-set pantry restock cadence — DONE + DEPLOYED
+(Aug 7, 2026).** Two aesthetics/UX items Alta reported from an iPhone, built as
+two separate commits on `rework`, shipped together in one batched deploy.
+**Deployed via `main` `faccf9d`** (`--no-ff` merge, first parent = prior main
+`c1a5439`, tree byte-identical to rework; fast-forward push). `deploy.sh
+origin/main` on the Pi (baseline defaulted to the deployed HEAD `e699444` — a
+v10 commit; `origin/main`'s earlier `c1a5439` was a docs-only merge the Pi had
+never deployed, so nothing was skipped) → **GATE PASS**, enumerated `#011` diff
+only (`schema_version` 10→11; balance + every monthly total unchanged to the
+cent), `#011` applied `--live`, `pifinance` + `ledger-mcp` restarted clean,
+`/api/status` OK. Rollback backup `finance.db.bak-2026-08-07-194546` (retention
+prune kept newest 10). Per-device hard-refresh picks up the frontend. First
+`--live` migration since #010.
 - **iOS date/amount overlap (`586360d`, frontend-only, no gate).** In the
   add-expense dialog the Date and Amount fields overlapped on iOS Safari. Root
   cause: iOS renders `input[type=date]` with its native control, which keeps an
@@ -1917,9 +1927,29 @@ built as two separate commits on `rework`.
   **97** render. **Deploy: this is the first `--live` migration since #010** —
   advance `main` to rework, `deploy.sh origin/main` runs its dry-run gate (prints
   the #011 structural diff to eyeball vs notes/011), applies `#011 --live`,
-  restarts. Per-device hard-refresh picks up the frontend. Optional follow-on if
-  wanted: expose `set_item_interval` to Charlee's Ask/MCP door (a PARAM_SPECS
-  entry + agent_write_tools tool, like `set_item_match`).
+  restarts. Per-device hard-refresh picks up the frontend.
+
+**Ask-tab chat cadence for Charlee — DONE, NOT YET DEPLOYED (Aug 7, 2026).** The
+follow-on to #011: let Charlee set a restock cadence by *chatting* ("remind me to
+restock coffee every two weeks"), not just via the ⏰ editor. Scoped to her door
+only (Ask), like the other pantry writes — the MCP write tier (Alta's door) for
+this stays a later increment if ever wanted. No new verb/route/schema: it bottoms
+out in the same `set_item_interval` verb via `PUT /api/inventory/<id>` the SPA
+uses (one write path, `ui:<name>`, logged, reversible). Changes: a `PARAM_SPECS`
+entry for `set_item_interval` (item_id + days, generated schema — the verb was
+UI-only at #011); `ledger_set_item_interval` in `agent_write_tools` (writes 5→6,
+so the Ask loop offers 19 read + **6** write = 25 tools); Ask system prompt gains
+the cadence capability + example. `test_ask_write` proves the tool flips
+`restock_interval_days` through the route as `ui:avery` and that an out-of-range
+value (9999) is caught by the verb (not written) and recoverable; `test_action_schema`'s
+VERB_TOOL map + the tool-count assertions updated. Pure client of the already-gated
+inventory route → **no balance gate**; suite 510→**512** python + 97 render.
+**Deploy is a plain frontend/agent path** (no migration, schema stays v11):
+advance `main` to rework, `deploy.sh origin/main <deployed-ref>`, GATE PASS
+zero-diff, `ledger-mcp` restarts (no new MCP tool, but the restart is harmless).
+Prereq already met: `ANTHROPIC_API_KEY` on the Pi (⚠ expires ~Aug 30). No
+per-device refresh needed for this one (backend + prompt only — the ⏰ editor UI
+already shipped with #011).
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
