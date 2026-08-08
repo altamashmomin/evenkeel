@@ -1672,6 +1672,19 @@ and the FRESH-START RESET (all deployed the same day).**
   Deploys: `main` `88e6d18` (Agents) → `9df0000` (Ask expansion + tooltip
   removal) → `de02dc7` (reset verb), each `--no-ff`, tree == rework, GATE PASS
   zero-diff, no migration. Suite **480** python + **90** render.
+- **reset_money RUN AGAIN (Aug 8, 2026).** Second fresh-start wipe via the same
+  CLI verb + `deploy/reset-money.md` — the Aug-6 reset's fresh bank re-claim was
+  never done (the Jul-26 `simplefin_access.url` claim kept pulling), so Alta
+  redid it clean: **keep the current banks**, let the twice-daily sync timer
+  refill the empty ledger. Rehearsed on a `/tmp` copy first, then live-cleared
+  **77 transactions, 124 splits, 61 links, 2 income_rules hit_counts zeroed**
+  (bill_payments/goal_contributions/pending_actions all 0); structure kept intact
+  (2 members, 4 bills, 1 goal, 33 pantry items). Pre-reset archive
+  `finance.db.bak-pre-reset-2026-08-08-095321` (VACUUM INTO) — also copied off-Pi
+  to the Mac `~/Ledger-archives/` (prune-proof; the Aug-6 pre-reset backup
+  archived there too). Banks refill from the Jul-26 claim on the next timer runs
+  (~18:08 same day, then 06:30 daily). No deploy — an operational data reset, not
+  a code change.
 
 **Aug 6, 2026 — ops/backup/sync hardening batch (deployed `main` `b8fa7e0`).**
 Post-reset operational work; all off-Pi tooling / read-frontend, no schema/verb/
