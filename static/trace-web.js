@@ -1,219 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ledger · Trace Web — every path, end to end</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<style>
-  /* ── Modernist design-system tokens (inlined so this file is self-contained) ── */
-  :root {
-    --color-bg: #f3f2f2;
-    --color-surface: #eae9e9;
-    --color-text: #201e1d;
-    --color-accent: #ec3013;
-    --color-divider: #201e1d;
-    --color-neutral-300: #cfcbc9;
-    --color-neutral-600: #6b6663;
-    --color-neutral-700: #4a4644;
-    --ink: #201e1d;
-    --acc: #ec3013;
-    --font-body: 'Archivo', system-ui, sans-serif;
-    --font-heading: 'Archivo', system-ui, sans-serif;
-    --mono: ui-monospace, 'SF Mono', Menlo, monospace;
-  }
-  * , *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body {
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-family: var(--font-body);
-    /* the diagram is a fixed-width desktop artifact: let it scroll on narrow screens */
-    overflow-x: auto;
-  }
-  ::selection { background: #f9c6bd; }
-
-  .btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    cursor: pointer; font-family: var(--font-heading); font-weight: 800;
-    line-height: 1.2; background: transparent;
-    border: 1px solid var(--color-divider); color: var(--color-text);
-    font-size: 12px; padding: 6px 14px; border-radius: 0;
-  }
-  .btn:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
-  .btn:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
-
-  #stage {
-    width: 1760px;
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-family: var(--font-body);
-    padding: 40px 44px 34px;
-    display: flex; flex-direction: column; gap: 0;
-  }
-
-  /* ── header ── */
-  .kicker { font-size: 12px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: var(--acc); }
-  h1.title { font-family: var(--font-heading); font-size: 46px; font-weight: 800; letter-spacing: -.03em; line-height: 1; margin: 12px 0 10px; }
-  p.lede { font-size: 15px; line-height: 1.5; margin: 0; color: var(--color-neutral-700); text-wrap: pretty; }
-
-  .legend-title { font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--color-neutral-600); margin-bottom: 2px; }
-  .lg-row {
-    display: flex; align-items: center; gap: 9px;
-    font-size: 11.5px; font-family: var(--mono); cursor: pointer; padding: 2px 0;
-    color: var(--color-neutral-700);
-    transition: color .12s, opacity .12s;
-  }
-  .lg-row.muted { color: #b3adaa; opacity: .5; }
-  .lg-row svg { flex: 0 0 auto; }
-
-  .rule { height: 2px; background: var(--color-divider); }
-
-  /* ── status bar ── */
-  .statusbar { display: flex; align-items: center; gap: 0; border-bottom: 1px solid var(--color-neutral-300); }
-  .statusbar .left { flex: 1; display: flex; align-items: baseline; gap: 14px; padding: 11px 0; }
-  .statusbar .right { display: flex; gap: 22px; align-items: center; padding: 11px 0; }
-  #statusLabel { font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--acc); }
-  #statusDetail { font-size: 13px; color: var(--color-neutral-700); }
-  #counts { font-size: 11.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600); }
-
-  /* ── canvas ── */
-  #canvas { position: relative; height: 1060px; display: flex; justify-content: space-between; align-items: stretch; padding: 22px 0 0; }
-  #wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-  .col { display: flex; flex-direction: column; position: relative; }
-  .col-head {
-    font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
-    color: var(--color-neutral-600); border-bottom: 2px solid var(--color-divider);
-    padding-bottom: 6px; height: 36px; display: flex; align-items: flex-end;
-  }
-  .col-head.accent { color: var(--acc); border-bottom-color: var(--acc); }
-  .col-body { flex: 1; display: flex; flex-direction: column; justify-content: center; }
-  .node {
-    font-family: var(--mono); font-size: 12px; padding: 4px 8px; cursor: pointer;
-    user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    transition: opacity .18s, background .12s, color .12s; position: relative; z-index: 2;
-  }
-  .grp-head {
-    font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
-    color: #8d8785; padding: 8px 0 2px; pointer-events: none;
-  }
-
-  /* ── detail grid ── */
-  #detail { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0; border-bottom: 1px solid var(--color-neutral-300); }
-  #detail .cell { padding: 16px 56px 18px 0; border-right: 1px solid var(--color-neutral-300); }
-  #detail .cell:last-child { padding: 16px 0 18px 0; border-right: 0; }
-  #detail .rel { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--acc); margin-bottom: 8px; }
-  #detail .items { font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--color-text); text-wrap: pretty; }
-
-  .footer { display: flex; justify-content: space-between; align-items: center; padding-top: 14px; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600); }
-</style>
-</head>
-<body>
-<div id="stage">
-
-  <!-- header -->
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:56px">
-    <div style="max-width:640px">
-      <div class="kicker">Ledger &middot; Trace Web</div>
-      <h1 class="title">Every path, end to end</h1>
-      <p class="lede">Click any node to trace its complete route &mdash; caller into verb, verb into objects, objects into derivations, derivations out to a door. Everything unrelated recedes. Seven connection types, each drawn with its own line grammar.</p>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:7px;flex:0 0 auto;padding-top:4px">
-      <div class="legend-title">Line grammar &mdash; click to mute</div>
-      <div class="lg-row" data-mute="call">
-        <svg width="52" height="9"><line x1="1" y1="4.5" x2="41" y2="4.5" stroke="#201e1d" stroke-width="1.4" stroke-dasharray="1 4" stroke-linecap="round"></line><path d="M41,1.5 L48,4.5 L41,7.5" fill="none" stroke="#201e1d" stroke-width="1.2"></path></svg>
-        <span>call &mdash; caller invokes verb</span>
-      </div>
-      <div class="lg-row" data-mute="write">
-        <svg width="52" height="9"><line x1="1" y1="4.5" x2="41" y2="4.5" stroke="#ec3013" stroke-width="1.9"></line><path d="M41,1 L49,4.5 L41,8 Z" fill="#ec3013"></path></svg>
-        <span>write &mdash; verb mutates object</span>
-      </div>
-      <div class="lg-row" data-mute="phase">
-        <svg width="52" height="9"><line x1="1" y1="2.8" x2="43" y2="2.8" stroke="#ec3013" stroke-width="1.2"></line><line x1="1" y1="6.2" x2="43" y2="6.2" stroke="#ec3013" stroke-width="1.2"></line><path d="M43,1 L50,4.5 L43,8 Z" fill="#ec3013"></path></svg>
-        <span>two-phase &mdash; propose / confirm</span>
-      </div>
-      <div class="lg-row" data-mute="cascade">
-        <svg width="52" height="9"><line x1="1" y1="4.5" x2="41" y2="4.5" stroke="#ec3013" stroke-width="1.3" stroke-dasharray="4 4"></line><path d="M41,1.5 L48,4.5 L41,7.5" fill="none" stroke="#ec3013" stroke-width="1.3"></path></svg>
-        <span>cascade &mdash; verb calls verb</span>
-      </div>
-      <div class="lg-row" data-mute="audit">
-        <svg width="52" height="9"><line x1="1" y1="4.5" x2="47" y2="4.5" stroke="#201e1d" stroke-width="0.8" stroke-dasharray="1 3"></line></svg>
-        <span>audit &mdash; attributed to log</span>
-      </div>
-      <div class="lg-row" data-mute="read">
-        <svg width="52" height="9"><line x1="1" y1="4.5" x2="41" y2="4.5" stroke="#201e1d" stroke-width="1.5" stroke-dasharray="7 4"></line><path d="M41,1.5 L48,4.5 L41,7.5" fill="none" stroke="#201e1d" stroke-width="1.4"></path></svg>
-        <span>read &mdash; derivation recomputes</span>
-      </div>
-      <div class="lg-row" data-mute="serve">
-        <svg width="52" height="9"><line x1="1" y1="4.5" x2="42" y2="4.5" stroke="#201e1d" stroke-width="1.5" stroke-dasharray="9 3 2 3"></line><rect x="45" y="1" width="2.4" height="7" fill="#201e1d"></rect></svg>
-        <span>serve &mdash; door exposes result</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="rule" style="margin:24px 0 0"></div>
-
-  <!-- status bar -->
-  <div class="statusbar">
-    <div class="left">
-      <span id="statusLabel">No trace selected</span>
-      <span id="statusDetail">Click any node to isolate its full read/write path.</span>
-    </div>
-    <div class="right">
-      <span id="counts"></span>
-      <button class="btn" id="clearBtn">Clear trace</button>
-    </div>
-  </div>
-
-  <!-- canvas -->
-  <div id="canvas">
-    <svg id="wires">
-      <defs>
-        <marker id="mAcc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 Z" fill="#ec3013"></path></marker>
-        <marker id="mAccO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,1.5 L9,5 L0,8.5" fill="none" stroke="#ec3013" stroke-width="1.6"></path></marker>
-        <marker id="mInk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,1.5 L9,5 L0,8.5" fill="none" stroke="#201e1d" stroke-width="1.6"></path></marker>
-        <marker id="mBar" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><rect x="4" y="0.5" width="2.6" height="9" fill="#201e1d"></rect></marker>
-      </defs>
-      <g id="edges"></g>
-    </svg>
-
-    <div class="col" style="width:158px">
-      <div class="col-head">Callers</div>
-      <div class="col-body" id="col-callers" style="gap:5px"></div>
-    </div>
-    <div class="col" style="width:232px">
-      <div class="col-head accent">Write verbs &mdash; actions.py</div>
-      <div class="col-body" id="col-verbs" style="gap:4px"></div>
-    </div>
-    <div class="col" style="width:206px">
-      <div class="col-head">Objects &mdash; source of truth</div>
-      <div class="col-body" id="col-objects" style="gap:4px"></div>
-    </div>
-    <div class="col" style="width:232px">
-      <div class="col-head">Derivations &mdash; derivations.py</div>
-      <div class="col-body" id="col-derivs" style="gap:4px"></div>
-    </div>
-    <div class="col" style="width:150px">
-      <div class="col-head">Doors</div>
-      <div class="col-body" id="col-doors" style="gap:5px"></div>
-    </div>
-  </div>
-
-  <div class="rule" style="margin-top:6px"></div>
-
-  <!-- detail grid -->
-  <div id="detail"></div>
-
-  <!-- footer -->
-  <div class="footer">
-    <span>audit_log &middot; api_tokens &middot; pending_actions are written, never read &mdash; the governance sink</span>
-    <span id="provenance">Reconciled against actions.py &middot; derivations.py &mdash; 27 verbs &middot; 14 tables &middot; 23 derivations &middot; schema v10</span>
-  </div>
-</div>
-
-<script>
 "use strict";
 // ═══════════════════════════════════════════════════════════════════════════
 // EDGE TABLE — grounded in the real Ledger source (actions.py / derivations.py /
@@ -257,11 +41,15 @@ const WRITES = {
   add_item:            ['items'],                                        // :1324
   set_item_status:     ['items'],                                        // :1359
   archive_item:        ['items'],                                        // :1388
-  set_item_match:      ['items'],                                        // :1467 (sets restock_match)
-  set_budget:          ['budgets'],                                      // :1409
-  remove_budget:       ['budgets'],                                      // :1446
-  create_api_token:    ['api_tokens'],                                   // :1243
-  revoke_api_token:    ['api_tokens']                                    // :1279
+  set_item_match:      ['items'],                                        // sets restock_match
+  set_item_interval:   ['items'],                                        // user-set restock cadence (#011)
+  set_budget:          ['budgets'],
+  remove_budget:       ['budgets'],
+  create_api_token:    ['api_tokens'],
+  revoke_api_token:    ['api_tokens'],
+  // CLI-only fresh-start wipe: DELETEs the money-movement rows + zeroes
+  // income_rules.hit_count. No route — the one verb no door can reach.
+  reset_money:         ['transactions', 'splits', 'links', 'bill_payments', 'goal_contributions', 'pending_actions', 'income_rules']
 };
 // the two verbs whose object-writes are the two-phase choreography
 const PHASE = { propose_action: ['pending_actions'], confirm_action: ['pending_actions'] };
@@ -300,10 +88,11 @@ const ALL_VERBS = Object.keys(WRITES);
 // caller → verbs it can invoke (grounded in app.py routes / simplefin_sync.py /
 // ledger_mcp.py write tools / agent_write_tools.py)
 const CALLERS = [
-  { id: 'UI route', calls: ALL_VERBS.slice() },                                        // every verb has a Flask route
+  { id: 'UI route', calls: ALL_VERBS.filter(v => v !== 'reset_money') },                // every verb EXCEPT reset_money has a Flask route
   { id: 'SimpleFIN sync', calls: ['record_transaction'] },                             // rules match inside the verb
   { id: 'MCP write tier', calls: ['classify_inflow', 'set_rule_enabled', 'propose_action', 'confirm_action'] },
-  { id: 'Ask · chat', calls: ['classify_inflow', 'add_item', 'set_item_status', 'archive_item', 'set_item_match'] }
+  { id: 'Ask · chat', calls: ['classify_inflow', 'add_item', 'set_item_status', 'archive_item', 'set_item_match', 'set_item_interval'] },
+  { id: 'CLI · maintenance', calls: ['reset_money'] }                                  // the one write path that bypasses every door (deploy/reset-money.md)
 ];
 
 // verb → verb internal dispatch. confirm_action (the two-phase executor) is the
@@ -513,8 +302,11 @@ function renderReadout(active, shown) {
   } else {
     statusLabel = 'No trace selected';
     statusDetail = 'Click any node to isolate its full read/write path.';
+    // computed, so the headline can't drift from the data as verbs are added
+    const txnWriters = Object.values(WRITES).filter(t => t.includes('transactions')).length;
+    const txnReaders = (READS.transactions || []).length;
     rows = [
-      { rel: 'Widest write surface', items: 'transactions — written by 8 verbs, read by 20 derivations' },
+      { rel: 'Widest write surface', items: 'transactions — written by ' + txnWriters + ' verbs, read by ' + txnReaders + ' derivations' },
       { rel: 'Longest chain', items: 'MCP write tier → confirm_action → apply_rules → transactions → compute_balance → Flask · MCP · Ask' },
       { rel: 'Write-only sinks', items: 'audit_log   ·   api_tokens   ·   pending_actions   —   plus links & income_rules, read only by verbs' },
       { rel: 'Read-only inputs', items: 'members — the one governed table with no write verb' }
@@ -560,9 +352,21 @@ function initLegend() {
   });
 }
 
+// ── provenance line: counts computed from the edge data (never drift), schema
+//    version injected server-side into data-schema by the /trace route ──
+function fillProvenance() {
+  const prov = $('provenance');
+  if (!prov) return;
+  const tables = OBJ.reduce((n, g) => n + g.items.length, 0);
+  prov.textContent = 'Reconciled against actions.py · derivations.py — ' +
+    ALL_VERBS.length + ' verbs · ' + tables + ' tables · ' + DERIVS.length +
+    ' derivations · schema v' + (prov.dataset.schema || '?');
+}
+
 // ── boot ──
 buildColumns();
 initLegend();
+fillProvenance();
 $('clearBtn').addEventListener('click', ev => { ev.stopPropagation(); reset(); });
 canvas.addEventListener('click', reset);
 
@@ -572,6 +376,3 @@ if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
 window.addEventListener('resize', render);
 new ResizeObserver(render).observe(canvas);
 window.addEventListener('load', render);
-</script>
-</body>
-</html>
