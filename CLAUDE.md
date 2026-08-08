@@ -1672,6 +1672,19 @@ and the FRESH-START RESET (all deployed the same day).**
   Deploys: `main` `88e6d18` (Agents) → `9df0000` (Ask expansion + tooltip
   removal) → `de02dc7` (reset verb), each `--no-ff`, tree == rework, GATE PASS
   zero-diff, no migration. Suite **480** python + **90** render.
+- **reset_money RUN AGAIN (Aug 8, 2026).** Second fresh-start wipe via the same
+  CLI verb + `deploy/reset-money.md` — the Aug-6 reset's fresh bank re-claim was
+  never done (the Jul-26 `simplefin_access.url` claim kept pulling), so Alta
+  redid it clean: **keep the current banks**, let the twice-daily sync timer
+  refill the empty ledger. Rehearsed on a `/tmp` copy first, then live-cleared
+  **77 transactions, 124 splits, 61 links, 2 income_rules hit_counts zeroed**
+  (bill_payments/goal_contributions/pending_actions all 0); structure kept intact
+  (2 members, 4 bills, 1 goal, 33 pantry items). Pre-reset archive
+  `finance.db.bak-pre-reset-2026-08-08-095321` (VACUUM INTO) — also copied off-Pi
+  to the Mac `~/Ledger-archives/` (prune-proof; the Aug-6 pre-reset backup
+  archived there too). Banks refill from the Jul-26 claim on the next timer runs
+  (~18:08 same day, then 06:30 daily). No deploy — an operational data reset, not
+  a code change.
 
 **Aug 6, 2026 — ops/backup/sync hardening batch (deployed `main` `b8fa7e0`).**
 Post-reset operational work; all off-Pi tooling / read-frontend, no schema/verb/
@@ -1983,9 +1996,37 @@ then-uncommitted WIP; local `main` synced to `origin/main` afterward). `deploy.s
 origin/main` → **GATE PASS zero-diff, no migration** (schema stays v11),
 `pifinance` + `ledger-mcp` restarted, `/api/status` OK; rollback backup
 `finance.db.bak-2026-08-07-223107`. **Live at `http://raspberrypi:8080/trace`**
-over the tailnet (ungated — no login). Remaining optional future (#3, not built):
+over the tailnet (ungated — no login). **Discoverable from the Agents tab (Aug 8, 2026):** a Garden `.trace-link` card
+at the top of the Agents tab (`agentsHTML`) links to `/trace`, opening in a new
+tab so the SPA keeps its place (the map page has no back). Frontend only, render
+seam 97→98, no gate; deployed via `main` `243e315` (`--no-ff`, first parent =
+prior main `f3d086f`, tree == rework) → GATE PASS zero-diff, `/api/status` OK.
+One-time per-device hard refresh to pick up `render.js`/`style.css`.
+Remaining optional future (#3, not built):
 data-drive the map from a live `GET /api/ontology` so it needs no guard at all —
 a separate feature that needs that endpoint built first (ontology-manifest inc 2).
+
+**Agent roster pruned 14 → 6 (Aug 8, 2026), after a full codebase review.** The
+comprehensive review (six parallel domain reviewers + a security re-audit; PDF
+delivered to Alta) found the roster ~3× over-scaled for a two-person app — the
+Operating Charter governed only 7 of 14, and the two "manager" roles
+(chief-of-staff, tribunal) structurally can't supervise (an agent can't spawn an
+agent). Kept the lean set: `ledger-analyst`, `ledger-release`,
+`ledger-health-sweep`, `ledger-maintenance` (now also authors backend/security
+fixes — `patchwright` folded in), `ledger-ops`, and one red-teamer `ledger-mirage`
+(the injection/agent boundary is the newest, least-covered surface). Deleted 8:
+`security` (routine checks fold into health-sweep; deep audits on-demand),
+`chief-of-staff`, and the six other REDVAULT agents (`scout`/`picklock`/`keyring`/
+`blackout`/`patchwright`/`tribunal`) — a full pentest squad is now spun up
+on-demand, not kept standing. Also dropped the codename ceremony (plain role names).
+`agent_catalog.py` SUBAGENTS/GROUPS updated in the same change (the `redvault`
+group became `security`), `test_agents.py`'s model assertion repointed off the
+deleted `ledger-security`, and cross-references in the kept files + the Charter's
+separation-of-duties table reconciled. Frontend/tooling only — no schema/verb/
+derivation/money path → **no balance gate**; suite 526 python + 98 render green.
+Not committed/deployed (Alta's call); once deployed the in-app Agents tab shows 6.
+Other review findings (member_breakdown cent bug, two deploy/MCP P1s, `/trace`
+auth, CLAUDE.md/test-infra bloat) are catalogued in the PDF, not yet actioned.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

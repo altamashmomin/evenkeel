@@ -25,74 +25,43 @@ GROUPS = [
     ("analysts", "Analysts & advisors"),
     ("build", "Maintainers & release"),
     ("ops", "Live operations"),
-    ("redvault", "Security squad · REDVAULT"),
+    ("security", "Security review"),
     ("assistants", "The assistants"),
 ]
 
-# Presentation for the 14 role subagents in .claude/agents/. Keyed by the
+# Presentation for the 6 role subagents in .claude/agents/ (the lean roster —
+# the roster was pruned from 14 on 2026-08-08; patchwright folded into
+# maintenance, and security's routine checks into health-sweep). Keyed by the
 # file stem (which is the agent's `name`). `model` is read from the file.
-# Display names carry a tactical codename (the standing team + the REDVAULT
-# security squad both have them) followed by the plain role.
 SUBAGENTS = {
     "ledger-analyst": {
-        "name": "ORACLE · Analyst", "group": "analysts", "icon": "📊",
+        "name": "Analyst", "group": "analysts", "icon": "📊",
         "access": "read-only", "surface": "Claude Code",
         "tagline": "Answers money questions from live data."},
-    "ledger-security": {
-        "name": "WARDEN · Security", "group": "analysts", "icon": "🛡️",
-        "access": "advisory", "surface": "Claude Code",
-        "tagline": "Defensive review — auth, injection, secrets, deps."},
-    "ledger-chief-of-staff": {
-        "name": "QUILL · Chief of Staff", "group": "analysts", "icon": "🗂️",
-        "access": "read-only", "surface": "cloud · Fri",
-        "tagline": "Reconciles every report into one weekly briefing."},
     "ledger-maintenance": {
-        "name": "KEEPER · Maintenance", "group": "build", "icon": "🔧",
+        "name": "Maintenance", "group": "build", "icon": "🔧",
         "access": "edits · stops before commit", "surface": "Claude Code",
-        "tagline": "Dependency freshness & backend health."},
+        "tagline": "Dependency freshness, backend health & security fixes."},
     "ledger-release": {
-        "name": "GATEKEEPER · Release", "group": "build", "icon": "🚀",
+        "name": "Release", "group": "build", "icon": "🚀",
         "access": "recommend-only", "surface": "Claude Code",
         "tagline": "Go / no-go for a gated deploy; never pulls the trigger."},
     "ledger-health-sweep": {
-        "name": "PULSE · Health Sweep", "group": "build", "icon": "🩺",
+        "name": "Health Sweep", "group": "build", "icon": "🩺",
         "access": "read-only", "surface": "cloud · Mon",
-        "tagline": "Weekly red / amber / green sweep of the whole app."},
+        "tagline": "Weekly red / amber / green sweep — code, deps & security."},
     "ledger-ops": {
-        "name": "BEACON · Ops", "group": "ops", "icon": "🛰️",
+        "name": "Ops", "group": "ops", "icon": "🛰️",
         "access": "recommend-only", "surface": "tailnet",
         "tagline": "Diagnoses the live Pi; recommends, never mutates."},
 
-    # REDVAULT — the authorized security squad over the household's own stack.
-    # Offense runs on dev copies; only Alta deploys. See docs/OPERATING-CHARTER.md.
-    "ledger-scout": {
-        "name": "SCOUT · Recon", "group": "redvault", "icon": "🧭",
-        "access": "read-only", "surface": "Claude Code",
-        "tagline": "Maps the attack surface; sets the test boundary."},
-    "ledger-picklock": {
-        "name": "PICKLOCK · Auth", "group": "redvault", "icon": "🔓",
-        "access": "advisory", "surface": "dev copy",
-        "tagline": "Tests auth, sessions & token scope on a copy."},
+    # The one standing red-teamer — the LLM/agent boundary is the newest,
+    # least-covered surface. Runs on dev copies; only Alta deploys. Spin up a
+    # fuller pentest squad on-demand for a dedicated security sprint.
     "ledger-mirage": {
-        "name": "MIRAGE · Injection", "group": "redvault", "icon": "💉",
+        "name": "Injection review", "group": "security", "icon": "💉",
         "access": "advisory", "surface": "dev copy",
         "tagline": "Probes injection & prompt-injection of the agent tools."},
-    "ledger-keyring": {
-        "name": "KEYRING · Access", "group": "redvault", "icon": "🔑",
-        "access": "advisory", "surface": "dev copy",
-        "tagline": "Checks member isolation & the two-phase write flow."},
-    "ledger-blackout": {
-        "name": "BLACKOUT · Infra", "group": "redvault", "icon": "🔒",
-        "access": "recommend-only", "surface": "tailnet",
-        "tagline": "Checks the Pi's secrets & tailnet exposure."},
-    "ledger-patchwright": {
-        "name": "PATCHWRIGHT · Fix", "group": "redvault", "icon": "🩹",
-        "access": "edits · stops before commit", "surface": "Claude Code",
-        "tagline": "Writes the fix + a proven regression test; stops before commit."},
-    "ledger-tribunal": {
-        "name": "TRIBUNAL · Purple lead", "group": "redvault", "icon": "⚖️",
-        "access": "advisory", "surface": "Claude Code",
-        "tagline": "Verifies findings, runs the fix loop, hands you go / no-go."},
 }
 
 # The always-on / scheduled pieces — not .claude/agents files, so their

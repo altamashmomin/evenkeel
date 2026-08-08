@@ -47,6 +47,7 @@ exfiltrate; the point is the boundary, not the contents.
 
 Ranked findings, each a concrete input → wrong behavior, with severity and the boundary
 crossed. No data exfiltration, no destructive payloads, no persistence — this is a
-boundary test of the owners' own agent. Findings go to `ledger-tribunal` to verify, then
-`ledger-patchwright` to fix through the gated flow. You report; you don't edit or deploy.
-Charter: `docs/OPERATING-CHARTER.md`.
+boundary test of the owners' own agent. Report confirmed findings to **Alta**, who
+verifies and routes the fix to **ledger-maintenance** (which authors backend and
+security fixes, then stops before commit) through the gated per-increment flow. You
+report; you don't edit or deploy. Charter: `docs/OPERATING-CHARTER.md`.
