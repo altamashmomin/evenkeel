@@ -19,7 +19,7 @@ const OBJ = [
 // graph, _record_goal_flow, _write_matches); FK cascades made explicit
 // (delete_goal → goal_contributions). Verified against actions.py bodies.
 const WRITES = {
-  record_transaction:  ['transactions', 'splits'],                       // :234
+  record_transaction:  ['transactions', 'splits', 'income_rules'],       // inserts the row; a matched inflow bumps income_rules.hit_count
   edit_transaction:    ['transactions', 'splits', 'links'],              // :319 (severs a settles link)
   delete_transaction:  ['transactions', 'splits', 'links'],              // :379 (delete_transaction_graph)
   settle_up:           ['transactions', 'splits', 'links'],              // :399 (writes 'settles' links)
@@ -37,7 +37,7 @@ const WRITES = {
   set_rule_enabled:    ['income_rules'],                                 // :925
   apply_rules:         ['transactions', 'income_rules'],                 // :1046 (classifies + hit_count)
   propose_action:      ['pending_actions'],                              // :1122 (no audit — nothing executed)
-  confirm_action:      ['pending_actions'],                              // :1177 (claims the row; dispatches)
+  confirm_action:      ['pending_actions', 'transactions', 'income_rules'], // claims the row; the compound confirm classifies matches via _apply_single_rule (transactions + hit_count)
   add_item:            ['items'],                                        // :1324
   set_item_status:     ['items'],                                        // :1359
   archive_item:        ['items'],                                        // :1388
@@ -74,13 +74,17 @@ const READS = {
 // 23 public read-time derivations in derivations.py
 const DERIVS = ['compute_balance', 'spending_summary', 'top_merchants', 'category_trend', 'income_summary', 'income_trend', 'savings_rate_trend', 'member_breakdown', 'bill_variance', 'budget_status', 'recurring_charges', 'cash_flow_forecast', 'anomaly_flags', 'goal_pace', 'last_shopping_trip', 'shopping_list', 'low_stock', 'restock_suggestions', 'restock_forecast', 'staple_spend', 'unmatched_staples', 'stale_shopping_items', 'new_staple_suggestions'];
 
-// door → derivations it exposes. All three doors surface the full read layer:
-// MCP (20 read tools) and Ask both bottom out in the same Flask read endpoints,
-// so coverage is identical — "one shared read layer, three doors."
+// door → derivations it exposes. Three doors on ONE shared read layer: the
+// Flask JSON API is the base; the MCP read tier and the Ask chat loop BOTH
+// consume the same read-tool registry (agent_read_tools), which collectively
+// exposes every derivation (ledger_inventory alone carries all 9 pantry ones) —
+// so coverage is identical across all three. `key` ties each door to the
+// ontology's door ids (api/mcp/ask), so a new surface can't be drawn here
+// without the source knowing; every door serves the full DERIVS set.
 const DOORS = [
-  { id: 'Flask JSON API', serves: DERIVS.slice() },
-  { id: 'MCP read tier', serves: DERIVS.slice() },
-  { id: 'Ask · chat', serves: DERIVS.slice() }
+  { id: 'Flask JSON API', key: 'api', serves: DERIVS.slice() },
+  { id: 'MCP read tier',  key: 'mcp', serves: DERIVS.slice() },
+  { id: 'Ask · chat',     key: 'ask', serves: DERIVS.slice() }
 ];
 
 const ALL_VERBS = Object.keys(WRITES);
