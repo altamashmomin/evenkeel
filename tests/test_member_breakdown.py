@@ -98,6 +98,38 @@ class MemberBreakdownTests(unittest.TestCase):
         self.assertEqual(6000, b[1]["paid_cents"])   # unchanged by personal/inflow
         self.assertEqual(3000, b[1]["net_cents"])
 
+    def test_odd_cent_split_conserves_and_matches_balance(self):
+        # 101¢ split 50/50 does not divide to whole cents. Rounding each
+        # member's share independently leaks the residual into the payer's
+        # net (nets sum to ±1, not 0) and disagrees with compute_balance.
+        # The payer must absorb the residual, exactly as compute_balance
+        # rounds only the non-payer's share.
+        self.shared(101, paid_by=1, bp1=5000, bp2=5000)
+        b = self.by_id()
+        self.assertEqual(0, b[1]["net_cents"] + b[2]["net_cents"])  # conservation
+        self.assertEqual((101, 51, 50), (b[1]["paid_cents"], b[1]["owed_cents"],
+                                         b[1]["net_cents"]))
+        self.assertEqual((0, 50, -50), (b[2]["paid_cents"], b[2]["owed_cents"],
+                                        b[2]["net_cents"]))
+        # The pairwise figure must match compute_balance to the cent.
+        bal = derivations.compute_balance(self.db)   # all-time; only this row
+        self.assertEqual("owing", bal["state"])
+        self.assertEqual(2, bal["ower"]["id"])       # member 2 owes member 1
+        self.assertEqual(bal["amount_cents"], -b[2]["net_cents"])   # 50
+
+    def test_odd_cent_split_other_parity(self):
+        # 103¢ 50/50 rounds the non-payer's share UP (ties-to-even at .5);
+        # the payer's residual makes it conserve the other direction too.
+        self.shared(103, paid_by=1, bp1=5000, bp2=5000)
+        b = self.by_id()
+        self.assertEqual(0, b[1]["net_cents"] + b[2]["net_cents"])
+        self.assertEqual((103, 51, 52), (b[1]["paid_cents"], b[1]["owed_cents"],
+                                         b[1]["net_cents"]))
+        self.assertEqual((0, 52, -52), (b[2]["paid_cents"], b[2]["owed_cents"],
+                                        b[2]["net_cents"]))
+        self.assertEqual(derivations.compute_balance(self.db)["amount_cents"],
+                         -b[2]["net_cents"])         # 52, agrees to the cent
+
     def test_month_scoping(self):
         self.shared(6000, paid_by=1, bp1=5000, bp2=5000, month="2026-05")
         self.shared(2000, paid_by=1, bp1=5000, bp2=5000, month="2026-06")

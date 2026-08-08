@@ -454,9 +454,15 @@ def member_breakdown(db, month=None):
     Shared OUTFLOWS only: inflows never carry split rows and the query
     filters `direction='out'`, so income can't touch this — NOT
     tripwire-exempt, and the tripwire proves an added inflow leaves it
-    unchanged (`month` defaults so it's callable with just `db`). Uses
-    `round_ratio` per row, matching `compute_balance`'s exact cent rounding.
-    Active members only, like the balance."""
+    unchanged (`month` defaults so it's callable with just `db`).
+    Active members only, like the balance.
+
+    Rounding matches `compute_balance` exactly so the two surfaces never
+    disagree on the pairwise figure: within each transaction only the
+    non-payer shares are rounded (`round_ratio`), and the PAYER absorbs the
+    residual (`amount − Σ others`). Rounding every share independently would
+    leak up to a cent into the payer's net, breaking the conservation
+    (per-member nets sum to zero) this derivation and the balance both rest on."""
     members = db.execute(
         "SELECT id, username, display_name FROM members WHERE active = 1 ORDER BY id"
     ).fetchall()
@@ -468,14 +474,30 @@ def member_breakdown(db, month=None):
         """SELECT t.id AS tid, t.amount_cents, t.paid_by, s.member_id, s.share_bp
            FROM transactions t JOIN splits s ON s.transaction_id = t.id
            WHERE t.direction = 'out'""" + clause, params).fetchall()
-    counted = set()
+    # Group splits per transaction so the payer can take the rounding residual.
+    txns = {}
     for r in rows:
-        if r["member_id"] in owed:
-            owed[r["member_id"]] += round_ratio(r["amount_cents"] * r["share_bp"], 10000)
-        if r["tid"] not in counted:
-            counted.add(r["tid"])
-            if r["paid_by"] in paid:
-                paid[r["paid_by"]] += r["amount_cents"]
+        t = txns.setdefault(
+            r["tid"], {"amount": r["amount_cents"], "payer": r["paid_by"], "splits": []})
+        t["splits"].append((r["member_id"], r["share_bp"]))
+    for t in txns.values():
+        payer = t["payer"]
+        if payer in paid:
+            paid[payer] += t["amount"]
+        others_owed = 0  # Σ of the rounded non-payer shares this transaction
+        payer_is_split = False
+        for member_id, share_bp in t["splits"]:
+            if member_id == payer:
+                payer_is_split = True
+                continue
+            share = round_ratio(t["amount"] * share_bp, 10000)
+            others_owed += share
+            if member_id in owed:
+                owed[member_id] += share
+        # The payer's fair share is the residual, so per-txn shares sum to the
+        # whole — the exact complement compute_balance leaves implicit.
+        if payer_is_split and payer in owed:
+            owed[payer] += t["amount"] - others_owed
     return [{
         "member_id": m["id"], "username": m["username"], "name": m["display_name"],
         "paid_cents": paid[m["id"]], "owed_cents": owed[m["id"]],
