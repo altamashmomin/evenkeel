@@ -2024,7 +2024,14 @@ group became `security`), `test_agents.py`'s model assertion repointed off the
 deleted `ledger-security`, and cross-references in the kept files + the Charter's
 separation-of-duties table reconciled. Frontend/tooling only — no schema/verb/
 derivation/money path → **no balance gate**; suite 526 python + 98 render green.
-Not committed/deployed (Alta's call); once deployed the in-app Agents tab shows 6.
+Committed `rework` `6db9273`; **DEPLOYED to the Pi (Aug 8, 2026)** via `main`
+`a57ff79` (`--no-ff` merge, first parent = prior main `243e315`, second parent =
+`6db9273`, tree byte-identical to rework; fast-forward push — the Mac-side merge was
+run on the Mac, not the Pi). `deploy/deploy.sh origin/main 243e315` → **GATE PASS,
+zero diff, no migration** (schema stays v11), `pifinance` + `ledger-mcp` restarted
+clean, `/api/status` 200. Rollback backup `finance.db.bak-2026-08-08-133350`
+(retention pruned to newest 10). The in-app Agents tab now shows 6 (one-time
+per-device hard refresh to pick up the roster).
 Other review findings (member_breakdown cent bug, two deploy/MCP P1s, `/trace`
 auth, CLAUDE.md/test-infra bloat) are catalogued in the PDF, not yet actioned.
 
