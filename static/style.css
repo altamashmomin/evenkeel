@@ -815,6 +815,22 @@ details.key-group[open] summary.key-h::after { transform: rotate(180deg); }
   .key-row dt { justify-self: start; }
 }
 
+/* Architecture-map link (Agents tab) — a Garden card that opens /trace */
+.trace-link {
+  display: flex; align-items: center; gap: 14px;
+  margin: 0 0 18px; padding: 14px 16px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); color: var(--text); text-decoration: none;
+  transition: border-color .12s, transform .08s;
+}
+.trace-link:hover { border-color: var(--brass); }
+.trace-link:active { transform: translateY(1px); }
+.trace-ic { font-size: 22px; line-height: 1; flex: 0 0 auto; }
+.trace-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.trace-txt b { font-size: 14.5px; }
+.trace-sub { font-size: 12.5px; color: var(--muted); }
+.trace-arrow { margin-left: auto; color: var(--brass); font-weight: 700; flex: 0 0 auto; }
+
 /* Ops panel (Agents tab foot) */
 .ops-panel { margin-top: 18px; }
 .ops-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 0; }

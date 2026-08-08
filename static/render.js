@@ -1000,12 +1000,22 @@
     const note = data && data.live_status
       ? ""
       : `<p class="agent-note">Catalog view — what each one is and can do. Live health is coming.</p>`;
+    // The architecture map lives at its own page (/trace); surface it here,
+    // since this tab is where the system explains itself. Opens in a new tab so
+    // the app keeps its place (the map page has no "back" of its own).
+    const traceLink = `
+      <a class="trace-link" href="/trace" target="_blank" rel="noopener">
+        <span class="trace-ic">🗺</span>
+        <span class="trace-txt"><b>Architecture map</b><span class="trace-sub">Trace every path — caller to verb to object to derivation to door</span></span>
+        <span class="trace-arrow">↗</span>
+      </a>`;
     return `
       <div class="agents-view">
         <div class="agents-head">
           <h2>Agents</h2>
           ${note}
         </div>
+        ${traceLink}
         ${sections || `<p class="empty">No agents configured.</p>`}
         ${sections ? agentKeyHTML(glossaryList) : ""}
       </div>`;

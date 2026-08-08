@@ -794,6 +794,12 @@ check("agentsHTML renders the field once — no repeat", () => {
   assert.strictEqual((h.match(/agents-view/g) || []).length, 1, "one view wrapper");
   assert.strictEqual((h.match(/What the labels mean/g) || []).length, 1, "one Key card");
 });
+check("agentsHTML surfaces the architecture map link to /trace (new tab)", () => {
+  const h = R.agentsHTML(AGENT_CAT);
+  assert.ok(h.includes('href="/trace"'), "links to the /trace page");
+  assert.ok(h.includes('target="_blank"'), "opens a new tab so the app keeps its place");
+  assert.ok(/Architecture map/i.test(h), "labelled");
+});
 
 // ---- opsPanelHTML: the Agents-tab operations foot ----
 check("opsPanelHTML: green badge, report + activity behind collapsibles", () => {
