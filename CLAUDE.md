@@ -2006,6 +2006,28 @@ Remaining optional future (#3, not built):
 data-drive the map from a live `GET /api/ontology` so it needs no guard at all —
 a separate feature that needs that endpoint built first (ontology-manifest inc 2).
 
+**Agent roster pruned 14 → 6 (Aug 8, 2026), after a full codebase review.** The
+comprehensive review (six parallel domain reviewers + a security re-audit; PDF
+delivered to Alta) found the roster ~3× over-scaled for a two-person app — the
+Operating Charter governed only 7 of 14, and the two "manager" roles
+(chief-of-staff, tribunal) structurally can't supervise (an agent can't spawn an
+agent). Kept the lean set: `ledger-analyst`, `ledger-release`,
+`ledger-health-sweep`, `ledger-maintenance` (now also authors backend/security
+fixes — `patchwright` folded in), `ledger-ops`, and one red-teamer `ledger-mirage`
+(the injection/agent boundary is the newest, least-covered surface). Deleted 8:
+`security` (routine checks fold into health-sweep; deep audits on-demand),
+`chief-of-staff`, and the six other REDVAULT agents (`scout`/`picklock`/`keyring`/
+`blackout`/`patchwright`/`tribunal`) — a full pentest squad is now spun up
+on-demand, not kept standing. Also dropped the codename ceremony (plain role names).
+`agent_catalog.py` SUBAGENTS/GROUPS updated in the same change (the `redvault`
+group became `security`), `test_agents.py`'s model assertion repointed off the
+deleted `ledger-security`, and cross-references in the kept files + the Charter's
+separation-of-duties table reconciled. Frontend/tooling only — no schema/verb/
+derivation/money path → **no balance gate**; suite 526 python + 98 render green.
+Not committed/deployed (Alta's call); once deployed the in-app Agents tab shows 6.
+Other review findings (member_breakdown cent bug, two deploy/MCP P1s, `/trace`
+auth, CLAUDE.md/test-infra bloat) are catalogued in the PDF, not yet actioned.
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 

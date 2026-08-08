@@ -43,7 +43,7 @@ class CatalogTests(unittest.TestCase):
         models = {ag["id"]: ag["model"] for grp in agent_catalog.catalog()["groups"]
                   for ag in grp["agents"]}
         self.assertEqual("sonnet", models["ledger-analyst"])   # only one pinned
-        self.assertEqual("inherits", models["ledger-security"])  # unset -> inherits
+        self.assertEqual("inherits", models["ledger-maintenance"])  # unset -> inherits
 
     def test_glossary_explains_every_label(self):
         # Every access/surface/cadence/kind pill shown must have a plain-language
