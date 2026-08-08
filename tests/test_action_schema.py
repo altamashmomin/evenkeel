@@ -20,6 +20,7 @@ VERB_TOOL = {
     "set_item_status": "ledger_set_item_status",
     "archive_item": "ledger_archive_item",
     "set_item_match": "ledger_set_item_match",
+    "set_item_interval": "ledger_set_item_interval",
 }
 
 

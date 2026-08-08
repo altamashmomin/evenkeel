@@ -7,8 +7,10 @@ executed in-process under the caller's own session — so the write is attribute
 to the person (`ui:<name>`), validated by the verb, logged, and reversible.
 
 Tools exposed: classify_inflow (tag an inflow) and the household-pantry set —
-add_item, set_item_status, archive_item (remove), set_item_match — the pantry
-is groceries/supplies, never money, so it needs no two-phase choreography and
+add_item, set_item_status, archive_item (remove), set_item_match, and
+set_item_interval (a user-set restock cadence, "remind me every N days") — the
+pantry is groceries/supplies, never money, so it needs no two-phase choreography
+and
 gets broad conversational control (INVENTORY-DESIGN: direct writes like
 classify; even 'remove' is a reversible soft-delete). Rules (create_income_rule
 / apply_rules, two-phase) are a later increment; settle-up, transaction edit or
@@ -92,6 +94,22 @@ WRITE_TOOLS = [
         "execute": lambda caller, a: caller(
             "PUT", f"/api/inventory/{a['item_id']}",
             {"restock_match": a.get("restock_match", "")}),
+    },
+    {
+        "name": "ledger_set_item_interval",
+        "description":
+            "Set how often a STAPLE should be restocked — a reminder cadence "
+            "they set by telling you, e.g. 'remind me to restock coffee every "
+            "two weeks' → days=14, 'buy dog food monthly' → days=30. Find the "
+            "staple's id with ledger_inventory first. After this, the pantry's "
+            "restock predictions count from the last time it was marked stocked "
+            "instead of guessing from bank purchases. Logged and reversible (set "
+            "a different number to change it; clearing a cadence happens in the "
+            "app). Staples only — pantry, never money.",
+        "input_schema": actions.param_schema("set_item_interval"),
+        "execute": lambda caller, a: caller(
+            "PUT", f"/api/inventory/{a['item_id']}",
+            {"restock_interval_days": a.get("days")}),
     },
 ]
 

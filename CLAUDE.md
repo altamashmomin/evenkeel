@@ -1927,9 +1927,29 @@ prune kept newest 10). Per-device hard-refresh picks up the frontend. First
   **97** render. **Deploy: this is the first `--live` migration since #010** —
   advance `main` to rework, `deploy.sh origin/main` runs its dry-run gate (prints
   the #011 structural diff to eyeball vs notes/011), applies `#011 --live`,
-  restarts. Per-device hard-refresh picks up the frontend. Optional follow-on if
-  wanted: expose `set_item_interval` to Charlee's Ask/MCP door (a PARAM_SPECS
-  entry + agent_write_tools tool, like `set_item_match`).
+  restarts. Per-device hard-refresh picks up the frontend.
+
+**Ask-tab chat cadence for Charlee — DONE, NOT YET DEPLOYED (Aug 7, 2026).** The
+follow-on to #011: let Charlee set a restock cadence by *chatting* ("remind me to
+restock coffee every two weeks"), not just via the ⏰ editor. Scoped to her door
+only (Ask), like the other pantry writes — the MCP write tier (Alta's door) for
+this stays a later increment if ever wanted. No new verb/route/schema: it bottoms
+out in the same `set_item_interval` verb via `PUT /api/inventory/<id>` the SPA
+uses (one write path, `ui:<name>`, logged, reversible). Changes: a `PARAM_SPECS`
+entry for `set_item_interval` (item_id + days, generated schema — the verb was
+UI-only at #011); `ledger_set_item_interval` in `agent_write_tools` (writes 5→6,
+so the Ask loop offers 19 read + **6** write = 25 tools); Ask system prompt gains
+the cadence capability + example. `test_ask_write` proves the tool flips
+`restock_interval_days` through the route as `ui:avery` and that an out-of-range
+value (9999) is caught by the verb (not written) and recoverable; `test_action_schema`'s
+VERB_TOOL map + the tool-count assertions updated. Pure client of the already-gated
+inventory route → **no balance gate**; suite 510→**512** python + 97 render.
+**Deploy is a plain frontend/agent path** (no migration, schema stays v11):
+advance `main` to rework, `deploy.sh origin/main <deployed-ref>`, GATE PASS
+zero-diff, `ledger-mcp` restarts (no new MCP tool, but the restart is harmless).
+Prereq already met: `ANTHROPIC_API_KEY` on the Pi (⚠ expires ~Aug 30). No
+per-device refresh needed for this one (backend + prompt only — the ⏰ editor UI
+already shipped with #011).
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
