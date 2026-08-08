@@ -1958,6 +1958,35 @@ Prereq already met: `ANTHROPIC_API_KEY` on the Pi (⚠ expires ~Aug 30). No
 per-device refresh needed for this one (backend + prompt only — the ⏰ editor UI
 already shipped with #011).
 
+**`/trace` — the architecture Trace Web — DONE + DEPLOYED (Aug 7, 2026).** A
+static, self-contained interactive map of the ontology served at `/trace`
+(callers → verbs → objects → derivations → doors), click-to-isolate any node's
+full read/write path. Ungated like the rest of the frontend (carries no
+household data, only the code's shape); its edge logic is a same-origin script,
+so the strict `script-src 'self'` CSP holds; the shell version-stamps the script
+and injects the live schema version. **Self-verifying**: `tests/test_trace_web_data.py`
+parses the map's data and pins it to the source at BOTH levels — node membership
+(verbs↔`ontology.manifest()`, objects↔`GOVERNED_TABLES`, derivations↔`derivations.py`)
+AND the wiring (every verb→object write proven in actions.py, every
+object→derivation read proven in derivations.py, the doors↔`manifest.doors`), so
+it can't silently drift from the code. Building the edge guard surfaced + fixed
+two real edges the hand-drawn map had missed (`record_transaction`→`income_rules`
+hit_count bump; `confirm_action`→`transactions`+`income_rules` via
+`_apply_single_rule`) and a stale door count. Every guard verified to bite. The
+map reconciled to current source (29 verbs incl. `set_item_interval`/`reset_money`,
+the latter on a distinct `CLI · maintenance` caller — the one write path bypassing
+every door; footer counts computed in-page). Frontend + one ungated read route —
+no schema/verb/derivation/money path, no balance gate; suite **526** python + 97
+render. Deployed via `main` `f3d086f` (`--no-ff` merge, first parent = prior main
+`873a78d`, tree == rework, merged in an isolated worktree to avoid disturbing the
+then-uncommitted WIP; local `main` synced to `origin/main` afterward). `deploy.sh
+origin/main` → **GATE PASS zero-diff, no migration** (schema stays v11),
+`pifinance` + `ledger-mcp` restarted, `/api/status` OK; rollback backup
+`finance.db.bak-2026-08-07-223107`. **Live at `http://raspberrypi:8080/trace`**
+over the tailnet (ungated — no login). Remaining optional future (#3, not built):
+data-drive the map from a live `GET /api/ontology` so it needs no guard at all —
+a separate feature that needs that endpoint built first (ontology-manifest inc 2).
+
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
 
