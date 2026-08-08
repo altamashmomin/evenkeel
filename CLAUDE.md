@@ -1983,7 +1983,13 @@ then-uncommitted WIP; local `main` synced to `origin/main` afterward). `deploy.s
 origin/main` → **GATE PASS zero-diff, no migration** (schema stays v11),
 `pifinance` + `ledger-mcp` restarted, `/api/status` OK; rollback backup
 `finance.db.bak-2026-08-07-223107`. **Live at `http://raspberrypi:8080/trace`**
-over the tailnet (ungated — no login). Remaining optional future (#3, not built):
+over the tailnet (ungated — no login). **Discoverable from the Agents tab (Aug 8, 2026):** a Garden `.trace-link` card
+at the top of the Agents tab (`agentsHTML`) links to `/trace`, opening in a new
+tab so the SPA keeps its place (the map page has no back). Frontend only, render
+seam 97→98, no gate; deployed via `main` `243e315` (`--no-ff`, first parent =
+prior main `f3d086f`, tree == rework) → GATE PASS zero-diff, `/api/status` OK.
+One-time per-device hard refresh to pick up `render.js`/`style.css`.
+Remaining optional future (#3, not built):
 data-drive the map from a live `GET /api/ontology` so it needs no guard at all —
 a separate feature that needs that endpoint built first (ontology-manifest inc 2).
 
