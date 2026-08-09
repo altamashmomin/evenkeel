@@ -35,6 +35,8 @@ class TraceRouteTests(unittest.TestCase):
         spec.loader.exec_module(self.app_module)
         self.app_module.app.config["TESTING"] = True
         self.c = self.app_module.app.test_client()
+        with self.c.session_transaction() as s:   # the map is session-gated
+            s["user_id"] = 1
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -69,6 +71,22 @@ class TraceRouteTests(unittest.TestCase):
         # the reconciled model lives here, not in the shell
         self.assertIn("buildEdges", body)
         self.assertIn("confirm_action", body)
+
+    def test_unauthenticated_is_redirected_and_leaks_no_model(self):
+        """The map AND its script render the internal data model (verbs, tables,
+        derivations, the two-phase targets), so both are session-gated
+        (CODE-REVIEW-2026-08-08). An unauthenticated browser is redirected to the
+        SPA login and never receives the model — gating the HTML alone would leave
+        the static-served script directly fetchable."""
+        anon = self.app_module.app.test_client()
+        for path in ("/trace", "/trace-web.js"):
+            r = anon.get(path)
+            self.assertEqual(302, r.status_code, f"{path} must redirect when logged out")
+            self.assertTrue(r.headers.get("Location", "").endswith("/"),
+                            f"{path} should redirect to the SPA login")
+            body = r.get_data(as_text=True)
+            self.assertNotIn("confirm_action", body)   # no verb/model leak
+            self.assertNotIn("buildEdges", body)
 
     def test_is_csp_clean(self):
         """The one guard that matters: served under the app's strict CSP

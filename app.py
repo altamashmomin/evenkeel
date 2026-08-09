@@ -10,7 +10,7 @@ import time
 from datetime import date, datetime
 
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, request, session
+from flask import Flask, g, jsonify, redirect, request, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -103,6 +103,22 @@ def _security_headers(resp):
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
     return resp
+
+
+@app.before_request
+def _gate_trace_web():
+    """`/trace` and its script `/trace-web.js` render the internal data model —
+    every verb, table, derivation, door, and the two-phase confirm targets. That
+    is reconnaissance surface, so it is session-gated (CODE-REVIEW-2026-08-08 #P3-1;
+    the JS is static-served at the root, so gating the HTML route alone would leave
+    the model directly fetchable). The rest of the frontend shell (index, app.js,
+    render.js, style.css) stays public — it carries no model, and the SPA gates its
+    own data through the API. Session-only by design: bearer/MCP clients read the
+    model through the tools, never this page; an unauthenticated browser is sent to
+    the SPA login."""
+    p = request.path
+    if (p == "/trace" or p.startswith("/trace-web.")) and "user_id" not in session:
+        return redirect("/")
 
 
 @app.errorhandler(Exception)
@@ -1686,9 +1702,10 @@ def index():
 def trace_web():
     """The architecture Trace Web: a static, self-contained interactive map of
     the ontology (callers → verbs → objects → derivations → doors), reconciled
-    against actions.py / derivations.py. Ungated like the rest of the frontend
-    (index, app.js, render.js) — it carries no live household data, only the
-    code's shape. Its edge logic is a SAME-ORIGIN script (trace-web.js), never
+    against actions.py / derivations.py. Session-gated by `_gate_trace_web` (it
+    carries no live household data, but the code's shape is reconnaissance
+    surface — CODE-REVIEW-2026-08-08). Its edge logic is a SAME-ORIGIN script
+    (trace-web.js, also gated), never
     an inline block, so the strict `script-src 'self'` CSP that neutralised the
     P0 XSS still holds; the shell version-stamps that script exactly as index()
     stamps the SPA assets, so a deploy is picked up without a hard refresh."""
