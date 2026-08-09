@@ -2032,8 +2032,25 @@ zero diff, no migration** (schema stays v11), `pifinance` + `ledger-mcp` restart
 clean, `/api/status` 200. Rollback backup `finance.db.bak-2026-08-08-133350`
 (retention pruned to newest 10). The in-app Agents tab now shows 6 (one-time
 per-device hard refresh to pick up the roster).
-Other review findings (member_breakdown cent bug, two deploy/MCP P1s, `/trace`
-auth, CLAUDE.md/test-infra bloat) are catalogued in the PDF, not yet actioned.
+**member_breakdown cent bug — FIXED + DEPLOYED (Aug 8, 2026).** The first
+code-review finding actioned. The Analytics per-member paid/owed/net card rounded
+EVERY member's share independently, so a shared expense that didn't divide to whole
+cents (a 101¢ 50/50 split) leaked the residual into the payer's net — per-member
+nets summed to ±1 not 0, disagreeing with `compute_balance` by a cent. (The core
+who-owes-whom balance was always correct; `compute_balance` already rounded only the
+non-payer share.) Fix mirrors `compute_balance`: within each transaction round only
+the non-payer shares and let the PAYER absorb the residual, so per-txn shares sum to
+the whole. Regression tests (101¢ + 103¢, both rounding parities) proven to FAIL on
+the old code first, pinning conservation AND agreement-with-balance. Read-time
+derivation only — `member_breakdown` is NOT in the gate's snapshot and no gated
+function changed → **zero-diff balance gate PASS** (36 values, seeded dev.db,
+`a57ff79`→`rework`). Suite 526→**528** python + 98 render. Committed `rework`
+`104b074`, **DEPLOYED** via `main` `73e963f` (`--no-ff` merge, first parent = prior
+main `a57ff79`, tree == rework), `deploy.sh origin/main a57ff79` → GATE PASS
+zero-diff, no migration (schema stays v11); `pifinance` + `ledger-mcp` restarted,
+`/api/status` 200. Rollback backup `finance.db.bak-2026-08-08-224638`.
+Remaining review findings (two deploy/MCP P1s, `/trace` auth, CLAUDE.md/test-infra
+bloat) are catalogued in the PDF, not yet actioned.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
