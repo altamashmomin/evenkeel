@@ -2050,7 +2050,7 @@ function changed → **zero-diff balance gate PASS** (36 values, seeded dev.db,
 main `a57ff79`, tree == rework), `deploy.sh origin/main a57ff79` → GATE PASS
 zero-diff, no migration (schema stays v11); `pifinance` + `ledger-mcp` restarted,
 `/api/status` 200. Rollback backup `finance.db.bak-2026-08-08-224638`.
-**`/trace` auth — FIXED (Aug 8, 2026), NOT YET DEPLOYED.** Code-review finding
+**`/trace` auth — FIXED + DEPLOYED (Aug 9, 2026).** Code-review finding
 P3-1: `/trace` served the full internal data model (every verb, table, derivation,
 door, two-phase target) with no auth. Gating the HTML route alone was insufficient —
 the model actually lives in `static/trace-web.js`, static-served at the root
@@ -2065,10 +2065,12 @@ neither `confirm_action` nor `buildEdges`; existing trace tests now authenticate
 `session_transaction`. Route/auth change only — no schema, verb, derivation, or money
 path → **no balance gate** (like the cache-busting / mobile-nav frontend increments).
 Suite 528→**529** python + 98 render. Changed `app.py` (+ `redirect` import) and
-`tests/test_trace_route.py`. **Deploy: plain frontend/route path** (no migration,
-schema stays v11) — advance `main`, `deploy.sh origin/main <deployed-ref>`, GATE PASS
-zero-diff. Remaining review findings (two deploy/MCP P1s, CLAUDE.md/test-infra bloat)
-are catalogued in the PDF, not yet actioned.
+`tests/test_trace_route.py`. **DEPLOYED** via `main` `fd15244` (`--no-ff` merge, first
+parent = prior main `73e963f`, tree == rework), `deploy.sh origin/main 73e963f` →
+**GATE PASS zero-diff, no migration** (schema stays v11); `pifinance` + `ledger-mcp`
+restarted, `/api/status` OK. Rollback backup `finance.db.bak-2026-08-09-084502`.
+Remaining review findings (two deploy/MCP P1s, CLAUDE.md/test-infra bloat) are
+catalogued in the PDF, not yet actioned.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.
