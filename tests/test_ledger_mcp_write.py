@@ -65,6 +65,9 @@ class LedgerMcpWriteTierTests(unittest.TestCase):
         conn.close()
 
         os.environ["LEDGER_MCP_TOKEN"] = self.write_token
+        # Writes are OFF by default now (the operator must opt in). Enable them
+        # for the write tests; api_write reads this at call time.
+        os.environ["LEDGER_MCP_ENABLE_WRITES"] = "1"
         ledger_mcp.set_client(httpx.Client(
             transport=httpx.WSGITransport(app=self.app_module.app),
             base_url="http://ledger.test"))
@@ -72,6 +75,7 @@ class LedgerMcpWriteTierTests(unittest.TestCase):
     def tearDown(self):
         ledger_mcp.set_client(None)
         os.environ.pop("LEDGER_MCP_TOKEN", None)
+        os.environ.pop("LEDGER_MCP_ENABLE_WRITES", None)
         self.tmp.cleanup()
 
     # -- helpers --------------------------------------------------------------
@@ -201,6 +205,19 @@ class LedgerMcpWriteTierTests(unittest.TestCase):
         self.assertIn("write", msg.lower())
         # and nothing was written
         self.assertEqual("unclassified", self.income_type(txn_id))
+
+    # -- writes are OFF unless the operator opts in ---------------------------
+    def test_writes_disabled_by_default_refuses_every_write(self):
+        # The safe default: without LEDGER_MCP_ENABLE_WRITES, api_write refuses at
+        # its single choke point — a reachable port and even a read,write token are
+        # not enough to change anything (defense-in-depth on top of the tailnet ACL).
+        os.environ.pop("LEDGER_MCP_ENABLE_WRITES", None)   # an un-opted-in server
+        txn_id = self.insert_inflow()                      # token is still read,write
+        with self.assertRaises(ToolError) as ctx:
+            self.call("ledger_classify_inflow",
+                      transaction_id=txn_id, income_type="paycheck")
+        self.assertIn("LEDGER_MCP_ENABLE_WRITES", str(ctx.exception))
+        self.assertEqual("unclassified", self.income_type(txn_id))  # nothing written
 
 
 if __name__ == "__main__":

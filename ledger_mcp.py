@@ -29,6 +29,7 @@ Tailscale. No Tailscale Funnel, no public exposure (AGENT-DESIGN decision #1).
 """
 import json
 import os
+import sys
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -128,12 +129,35 @@ def api_get(path: str, params: Optional[dict] = None) -> dict:
     return resp.json()
 
 
+def _writes_enabled() -> bool:
+    """Writes are OFF unless the operator explicitly opts in — the safe default.
+
+    This transport has no inbound auth of its own; reachability IS the network
+    boundary (the tailnet and its ACL). So the write tier must not turn on just
+    because the port is reachable or the token happens to carry `write` scope: a
+    fresh, forgotten, or mis-scoped server exposes reads only. Enabling writes is
+    a deliberate act on the Pi (`LEDGER_MCP_ENABLE_WRITES=1`), independent of the
+    token — defense-in-depth on top of the tailnet ACL (deploy/mcp-tailnet-acl.md)."""
+    return os.environ.get("LEDGER_MCP_ENABLE_WRITES", "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 def api_write(method: str, path: str, body: Optional[dict] = None) -> dict:
     """Send a mutating request (PUT/POST) to the Flask API with the bearer
     token, returning the decoded JSON. Write tools need a `read,write` token —
     a `read` token is rejected 403. A 4xx from a verb (e.g. a rule conflict, or
     confirming an expired/consumed token) carries the API's own message, which
-    is written for a human, so it is surfaced verbatim for the agent to relay."""
+    is written for a human, so it is surfaced verbatim for the agent to relay.
+
+    Gated: even with a `read,write` token, every write is refused unless the
+    operator set `LEDGER_MCP_ENABLE_WRITES` on the server (see `_writes_enabled`).
+    This is the single choke point for all MCP write tools, so the check lives
+    here once."""
+    if not _writes_enabled():
+        raise LedgerAPIError(
+            "The MCP write tier is disabled on this server: LEDGER_MCP_ENABLE_WRITES "
+            "is not set. This is the safe default (reads work without it); the "
+            "operator must opt in on the Pi to allow any write. Nothing was changed.")
     token = os.environ.get("LEDGER_MCP_TOKEN", "")
     try:
         resp = get_client().request(
@@ -567,4 +591,19 @@ if __name__ == "__main__":
             "LEDGER_MCP_TOKEN is not set. Mint a token in Ledger's settings "
             "('read', or 'read,write' to enable the write tools) and export it "
             "before starting the MCP server.")
+    _host = os.environ.get("LEDGER_MCP_HOST", "127.0.0.1")
+    _port = os.environ.get("LEDGER_MCP_PORT", "8765")
+    if _host not in ("127.0.0.1", "localhost", "::1"):
+        # Binding beyond loopback exposes the tools to the network. This transport
+        # has NO inbound authentication, so the boundary is entirely the tailnet
+        # ACL — make that reliance loud and deliberate, not silent.
+        print(f"ledger-mcp: WARNING — bound to {_host}:{_port}, beyond loopback. This "
+              "transport has NO inbound auth; every client that can reach this address "
+              "can call the tools. Keep it tailnet-only (no Funnel) and restrict the "
+              "port to your own devices with a Tailscale ACL (deploy/mcp-tailnet-acl.md).",
+              file=sys.stderr)
+    print("ledger-mcp: write tier "
+          + ("ENABLED (LEDGER_MCP_ENABLE_WRITES set)" if _writes_enabled()
+             else "disabled — read-only; set LEDGER_MCP_ENABLE_WRITES=1 to enable writes"),
+          file=sys.stderr)
     mcp.run(transport="streamable-http")
