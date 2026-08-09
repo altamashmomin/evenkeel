@@ -2050,7 +2050,7 @@ function changed → **zero-diff balance gate PASS** (36 values, seeded dev.db,
 main `a57ff79`, tree == rework), `deploy.sh origin/main a57ff79` → GATE PASS
 zero-diff, no migration (schema stays v11); `pifinance` + `ledger-mcp` restarted,
 `/api/status` 200. Rollback backup `finance.db.bak-2026-08-08-224638`.
-**`/trace` auth — FIXED (Aug 8, 2026), NOT YET DEPLOYED.** Code-review finding
+**`/trace` auth — FIXED + DEPLOYED (Aug 9, 2026).** Code-review finding
 P3-1: `/trace` served the full internal data model (every verb, table, derivation,
 door, two-phase target) with no auth. Gating the HTML route alone was insufficient —
 the model actually lives in `static/trace-web.js`, static-served at the root
@@ -2065,10 +2065,45 @@ neither `confirm_action` nor `buildEdges`; existing trace tests now authenticate
 `session_transaction`. Route/auth change only — no schema, verb, derivation, or money
 path → **no balance gate** (like the cache-busting / mobile-nav frontend increments).
 Suite 528→**529** python + 98 render. Changed `app.py` (+ `redirect` import) and
-`tests/test_trace_route.py`. **Deploy: plain frontend/route path** (no migration,
-schema stays v11) — advance `main`, `deploy.sh origin/main <deployed-ref>`, GATE PASS
-zero-diff. Remaining review findings (two deploy/MCP P1s, CLAUDE.md/test-infra bloat)
-are catalogued in the PDF, not yet actioned.
+`tests/test_trace_route.py`. **DEPLOYED** via `main` `fd15244` (`--no-ff` merge, first
+parent = prior main `73e963f`, tree == rework), `deploy.sh origin/main 73e963f` →
+**GATE PASS zero-diff, no migration** (schema stays v11); `pifinance` + `ledger-mcp`
+restarted, `/api/status` OK. Rollback backup `finance.db.bak-2026-08-09-084502`.
+**Deploy + MCP P1 hardening — DONE on `rework`, NOT YET DEPLOYED (Aug 9, 2026).**
+The two code-review P1s, in two increments; tooling/deploy/MCP-server only — no
+app/schema/derivation/money path, so **no balance gate**. Suite 529→**530** + 98 render.
+- **deploy.sh footgun (P1-B).** `deploy.sh` did `git fetch` then a bare `git checkout`,
+  never advancing local `main`, so both spellings could ship stale code (bare `main` =
+  stale local branch → false GATE PASS; `origin/main` = detached HEAD leaving local
+  `main` stale → the schema-v3 revert trap), and a failed post-apply smoke check only
+  WARNed and exited 0 (masking a crash-loop till the 07:00 guardian). Fixes, all
+  preserving the backup/gate/rollback flow: (1) a **no-op/propagation-race guard** —
+  after fetch, if the resolved target SHA == the currently-deployed SHA, die instead of
+  "deploying" the running code under a misleading PASS; (2) **heal the local branch** to
+  the deployed commit on success, so a later `git checkout main` can't revert to stale
+  code; (3) the **smoke check is now FATAL** — prints the rollback and exits non-zero,
+  with a 15s startup retry loop. `pi-deploy.md` reconciled to the canonical
+  `origin/main <deployed-sha>` (was a stale `deploy.sh main` on `/home/pi`). Git logic
+  unit-tested off-Pi in a scratch repo; `bash -n` clean. **Quirk:** deploy.sh
+  self-replaces mid-run, so these take effect on the deploy AFTER the one that ships them.
+- **MCP write tier had no inbound auth (P1-A).** `ledger_mcp` ran the streamable-HTTP
+  transport with no verifier — the only boundary was the out-of-repo tailnet ACL, and a
+  `read,write` token meant any tailnet peer reaching `:8765` could drive writes. Added a
+  **safe-by-default opt-in**: `_writes_enabled()` gates the single write choke point
+  `api_write`, so **every MCP write is refused unless `LEDGER_MCP_ENABLE_WRITES` is set on
+  the server** — a reachable port or a leaked token is no longer enough to change data
+  (reads unaffected; this is MCP-door only — Charlee's Ask writes go through the session,
+  untouched). Plus a **loud startup warning** when bound beyond loopback (no inbound auth
+  → the tailnet ACL is the boundary) and a write-mode log line. `test_ledger_mcp_write`
+  proves a `read,write` token is STILL refused with the flag unset (nothing written);
+  `.env.example` + `deploy/mcp-write-tier.md` document the flag and the ACL-verify step.
+  **This is defense-in-depth, not full closure**: the primary control is still the tailnet
+  ACL (Alta's to verify live), and per-client inbound auth would need a bigger FastMCP
+  change. **⚠ Operational step on deploy: Alta must add `LEDGER_MCP_ENABLE_WRITES=1` to the
+  Pi `.env` (beside the restart) or the MCP write tier goes read-only.** Deploy is a plain
+  frontend/tooling path (no migration); deploy.sh's own change lands a deploy later (the
+  self-replace quirk). Remaining review findings (CLAUDE.md/test-infra bloat) catalogued
+  in the PDF, not yet actioned.
 
 After each increment, update this "Current position in the sequence"
 section to reflect what's done and what's next.

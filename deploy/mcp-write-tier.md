@@ -44,17 +44,35 @@ The plaintext is returned **once** — copy it. Token minting is session-only
 (a bearer token can't mint tokens), and tokens are per-person, so this write
 token is attributed to you in the audit log (`mcp:claude-code-write`).
 
-## 3. Point the MCP service at the write token
+## 3. Point the MCP service at the write token AND opt into writes
 
-In `/home/altamash/pifinance/.env` (never commit it), set `LEDGER_MCP_TOKEN`
-to the new `read,write` token, then restart:
+Two things are required — a `read,write` token is deliberately **not** enough on
+its own, so a reachable port or a leaked token can't change data. In
+`/home/altamash/pifinance/.env` (never commit it):
+
+```
+LEDGER_MCP_TOKEN=<the new read,write token>
+LEDGER_MCP_ENABLE_WRITES=1
+```
+
+`LEDGER_MCP_ENABLE_WRITES` is the server-side opt-in: without it the write tools
+are refused at the API client (they return "the write tier is disabled …"), even
+with a `read,write` token — the safe default. Then restart:
 
 ```bash
 sudo systemctl restart ledger-mcp
 ```
 
-Repoint your Claude Code / Desktop client only if the endpoint changed; the
-token lives on the Pi, not in the client.
+At startup the service logs its mode ("write tier ENABLED" / "disabled — read-only")
+and, if bound beyond loopback, a reminder that the tailnet ACL is the only inbound
+boundary. Repoint your Claude Code / Desktop client only if the endpoint changed;
+the token lives on the Pi, not in the client.
+
+> Security posture: the write tier now has **two** independent gates — the token's
+> `write` scope (enforced by Flask) and `LEDGER_MCP_ENABLE_WRITES` (this server) —
+> on top of the tailnet ACL that restricts *which devices* reach the port at all
+> (`deploy/mcp-tailnet-acl.md`). Verify that ACL is live: from a non-owner device,
+> `curl --max-time 6 http://<pi-tailnet-ip>:8765/mcp` should fail to connect.
 
 ## 4. Verify end to end (over the tailnet)
 

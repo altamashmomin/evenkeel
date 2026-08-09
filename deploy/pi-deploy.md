@@ -197,12 +197,19 @@ sudo systemctl start pifinance
 ## Future increments (after this go-live)
 
 Once `rework` work merges to `main` one increment at a time, each Pi update
-is the same single, gated command:
+is the same single, gated command (canonical form — `origin/<branch>`, which
+always resolves to the freshly-fetched remote tip; pin the gate baseline by
+naming the currently-deployed commit as `<old_ref>`):
 
 ```bash
-cd /home/pi/pifinance && deploy/deploy.sh main
+cd /home/altamash/pifinance && git fetch origin && deploy/deploy.sh origin/main <deployed-sha>
 ```
 
-`<old_ref>` defaults to the currently-deployed HEAD, so you only name the
-target. The dry-run gate runs every time; a migration that would move a cent
-never reaches the live database.
+`<old_ref>` defaults to the currently-deployed HEAD; pass it explicitly so the
+gate compares against the right baseline. The dry-run gate runs every time; a
+migration that would move a cent never reaches the live database. If the target
+resolves to the same commit that's already deployed (e.g. a fetch that raced a
+just-pushed ref), the deploy stops with a clear message rather than shipping a
+no-op under a misleading PASS. On success the local `main` branch is
+fast-forwarded to the deployed commit, so a later `git checkout main` can't
+revert the tree to stale code.

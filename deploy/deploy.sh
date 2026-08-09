@@ -10,21 +10,30 @@
 # Usage (run as the service user, from the repo root on the Pi):
 #     deploy/deploy.sh <new_ref> [<old_ref>]
 #
-#   <new_ref>  git ref to deploy (e.g. rework, main, a tag, a commit)
-#   <old_ref>  the currently-deployed ref; defaults to the current HEAD.
+#   <new_ref>  git ref to deploy. CANONICAL is `origin/<branch>` (e.g.
+#              `origin/main`) — it always resolves to the freshly-fetched remote
+#              tip, so it can never ship stale local code. A tag or a SHA works
+#              too. On success the matching local branch is fast-forwarded to the
+#              deployed commit, so a later `git checkout main` can't revert the
+#              tree to stale code (the schema-v3 footgun).
+#   <old_ref>  the currently-deployed ref; defaults to the current HEAD. Pass it
+#              explicitly to pin the gate baseline (e.g. `origin/main <deployed-sha>`).
 #              For the first go-live this is the v1.0 tag:
 #                   deploy/deploy.sh rework v1.0
+#              If <new_ref> resolves to the SAME commit as <old_ref>, the deploy
+#              stops (nothing to ship) rather than printing a misleading PASS.
 #
 # What it does, in order:
 #   1. sanity-check the repo + a clean working tree
-#   2. git fetch (tags included)
+#   2. git fetch (tags included); refuse a no-op / raced target
 #   3. back up finance.db -> finance.db.bak-<timestamp>, then prune old backups
 #      down to the newest N (DEPLOY_KEEP_BACKUPS, default 10) so re-runs don't
 #      bloat the SD card — best-effort, never aborts the deploy
 #   4. DRY-RUN gate on the backup copy (verify_live_migration.py) — abort if it
 #      moves money or errors; the live DB is still untouched here
 #   5. stop the service, checkout <new_ref>, pip install, migrate --live
-#   6. start the service and smoke-check it
+#   6. start the service and smoke-check it — a failed smoke check is FATAL
+#      (prints the rollback and exits non-zero), then heal the local branch
 # On any failure after step 5 begins, it prints the exact rollback commands.
 set -euo pipefail
 
@@ -61,7 +70,17 @@ echo
 # --- 2. fetch ----------------------------------------------------------------
 echo "-> git fetch"
 git fetch --tags --quiet origin
-git rev-parse --verify --quiet "$NEW_REF^{commit}" >/dev/null || die "unknown ref: $NEW_REF"
+TARGET_SHA="$(git rev-parse --verify --quiet "$NEW_REF^{commit}")" || die "unknown ref: $NEW_REF"
+OLD_SHA="$(git rev-parse --verify --quiet "$OLD_REF^{commit}" || true)"
+# Guard the propagation race AND the stale-local-branch trap: if the freshly
+# fetched target is the SAME commit we're already running, a fetch that raced a
+# just-pushed ref — or a bare `deploy.sh main` on a stale local branch — would
+# otherwise "deploy" the running code and print a misleading GATE PASS. Stop
+# instead of silently shipping nothing.
+if [ -n "$OLD_SHA" ] && [ "$TARGET_SHA" = "$OLD_SHA" ]; then
+    die "target $NEW_REF (${TARGET_SHA:0:9}) is identical to the currently-deployed $OLD_REF — nothing to deploy. If you just pushed, the fetch may have raced; wait a few seconds and re-run."
+fi
+echo "   target ${TARGET_SHA:0:9}  (currently deployed: ${OLD_SHA:0:9})"
 
 # --- 3. backup (hard rule 6) -------------------------------------------------
 echo "-> backing up finance.db -> $BACKUP"
@@ -165,11 +184,30 @@ sleep 2
 echo
 echo "-> service status"
 systemctl --no-pager --lines=0 status pifinance | head -4 || true
-echo "-> app reachable on :$PORT ?"
-if curl -fs "http://localhost:$PORT/api/status" >/dev/null; then
+echo "-> app reachable on :$PORT ? (waiting up to 15s for workers to come up)"
+smoke_ok=0
+for _ in $(seq 1 15); do
+    if curl -fs "http://localhost:$PORT/api/status" >/dev/null; then smoke_ok=1; break; fi
+    sleep 1
+done
+if [ "$smoke_ok" = 1 ]; then
     echo "   OK — /api/status responded"
 else
-    echo "   WARNING — /api/status did not respond; check: journalctl -u pifinance -e"
+    # The migration applied but the app is not serving. This is FATAL now: it
+    # used to only WARN and exit 0, masking a crash-loop until the next 07:00
+    # guardian run (CODE-REVIEW 2026-08-08). Print the rollback and fail loudly.
+    echo "   ERROR — /api/status did not respond; the deploy did NOT come up healthy." >&2
+    rollback
+    die "app not serving on :$PORT after deploy — roll back with the commands above (check: journalctl -u pifinance -e)"
+fi
+# Heal the local branch so a later `git checkout <branch>` lands on what we just
+# deployed, not stale local code (the footgun that reverted the tree to an old
+# schema once). Only on full success; the Pi never commits, so the local branch
+# is always an ancestor of the deployed tip. No-op for a tag/SHA deploy.
+HEAL_BRANCH="${NEW_REF#origin/}"
+if git show-ref --verify --quiet "refs/remotes/origin/$HEAL_BRANCH"; then
+    git branch --force "$HEAL_BRANCH" HEAD 2>/dev/null \
+        && echo "-> healed local branch $HEAL_BRANCH -> $(git rev-parse --short HEAD)" || true
 fi
 echo
 echo "== done. Now open the app and confirm the balance + each month's Spent"
