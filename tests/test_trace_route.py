@@ -1,9 +1,11 @@
-"""The /trace route serves the architecture Trace Web — a static interactive map
-of the ontology, wired into the app like the SPA shell. Proves: it answers 200
+"""The /trace route serves the architecture Trace Web, and /api/ontology serves
+the manifest the map draws from (data-driven: the page fetches its facts at
+load, so they can never drift from the source). Proves: /trace answers 200
 no-cache, version-stamps its same-origin script, and — the load-bearing guard —
 stays CSP-clean (no inline <script>, no external hosts), so it renders under the
-strict `script-src 'self'` CSP the app applies to every response. The sibling
-trace-web.js is served and carries the reconciled edge logic."""
+strict `script-src 'self'` CSP; both the page AND the manifest endpoint are
+gated (the code's shape is reconnaissance surface, CODE-REVIEW-2026-08-08);
+/api/ontology returns exactly ontology.manifest()."""
 import importlib.util
 import os
 import re
@@ -49,23 +51,40 @@ class TraceRouteTests(unittest.TestCase):
                          "trace-web.js is not version-stamped")
         self.assertNotIn('src="trace-web.js"', html)  # no bare (unstamped) leak
 
-    def test_schema_version_is_injected(self):
-        # the one fact the static map can't self-source is filled by the route;
-        # the placeholder must not leak, and the live version must land.
-        from schema_runtime import REQUIRED_SCHEMA_VERSION
-        html = self.c.get("/trace").get_data(as_text=True)
-        self.assertNotIn("__SCHEMA_VERSION__", html)
-        self.assertIn(f'data-schema="{REQUIRED_SCHEMA_VERSION}"', html)
-
-    def test_stamped_script_is_served_and_carries_edge_logic(self):
+    def test_stamped_script_is_served_and_fetches_the_manifest(self):
         html = self.c.get("/trace").get_data(as_text=True)
         stamped = re.search(r'(trace-web\.js\?v=\d+)', html).group(1)
         r = self.c.get("/" + stamped)
         self.assertEqual(200, r.status_code)
         body = r.get_data(as_text=True)
-        # the reconciled model lives here, not in the shell
+        # data-driven: the script fetches the manifest and builds from it; the
+        # facts themselves live server-side, not in the file
+        self.assertIn("fetch('/api/ontology')", body)
+        self.assertIn("buildModel", body)
         self.assertIn("buildEdges", body)
-        self.assertIn("confirm_action", body)
+
+    def test_ontology_endpoint_serves_the_manifest(self):
+        """GET /api/ontology returns exactly ontology.manifest() — the map's
+        single source. Gated: an anonymous GET is a 401 (JSON, no model leak),
+        matching every other /api/ read."""
+        import ontology
+        r = self.c.get("/api/ontology")
+        self.assertEqual(200, r.status_code)
+        self.assertIn("no-cache", r.headers.get("Cache-Control", ""))
+        payload = r.get_json()
+        self.assertEqual(ontology.manifest(), payload)
+        # the fields the map draws from are all present
+        for key in ("schema_version", "objects", "actions", "functions",
+                    "callers", "doors"):
+            self.assertIn(key, payload)
+
+    def test_ontology_endpoint_is_gated(self):
+        anon = self.app_module.app.test_client()
+        r = anon.get("/api/ontology")
+        self.assertEqual(401, r.status_code)
+        body = r.get_data(as_text=True)
+        self.assertNotIn("confirm_action", body)   # no model leak
+        self.assertIn("authentication required", body)
 
     def test_unauthenticated_is_redirected_and_leaks_no_model(self):
         """The map AND its script render the internal data model (verbs, tables,

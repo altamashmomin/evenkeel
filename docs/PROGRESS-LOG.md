@@ -2087,3 +2087,47 @@ increments:
   unchanged at **530 green**; **runtime ~64s → ~32s**. Dropped the now-unused
   `import subprocess` from the converted files. **All code-review findings are now
   closed** (the two deploy/MCP P1s' one remaining item is Alta's off-repo ACL check).
+
+**`GET /api/ontology` + data-driven Trace Web — DONE on `rework` (Aug 10, 2026,
+`f757174`).** The Trace Web's optional #3 (from the Aug-8 build) and
+ONTOLOGY-MANIFEST-DESIGN's increment 2, together: the manifest becomes the map's
+single source. `/trace` now fetches `/api/ontology` at load and draws whatever it
+reports, so the map's facts CANNOT drift from the code — the old hand-kept edge
+tables in `trace-web.js` and their sync guards are obsolete by construction. Only
+presentation hints remain in the script (visual grouping, preferred ordering,
+display labels, phase/sink styling, and the one FK-cascade edge — `delete_goal` →
+`goal_contributions` — that SQLite enforces rather than code; a hint that goes
+stale fails `test_trace_web_data`, now repurposed as the hints guard, incl. a DDL
+check that the FK is still real).
+- **`ontology.py` grew the edge-level facts**, each derived from source:
+  `actions[].writes_direct` (a verb's OWN footprint — body + private helpers,
+  stopping at other verbs; `writes` stays the full closure), `functions[].reads`
+  (FROM/JOIN closure through derivations' helpers), `actions[].cascades`
+  (verb→verb dispatch), and `callers` (ui/sync/mcp/ask/cli — the agent doors
+  derived by walking their HTTP calls through app.py's route table; `cli` =
+  verbs reachable from no surface, i.e. `reset_money`).
+- **Two real derivation bugs found & fixed while building it**: (1) docstring
+  prose registered as calls — `create_income_rule` was being charged with
+  `confirm_action`'s writes off the prose mention "…propose_action/confirm_action
+  (the MCP write tier)"; fixed with AST call detection over docstring-stripped
+  source, applied everywhere incl. `_two_phase_targets`. (2) Paren-less verb
+  references were missed — `actions.contribute_to_goal if cents > 0 else
+  actions.withdraw_from_goal` — fixed with a reference (not call) scan for
+  routes. Plus `reset_money` is now charged with `RESET_TABLES` (its f-string
+  DELETE loop is invisible to the text scan; the constant itself is importable
+  source, so the fact stays derived). `transactions.written_by` now honestly
+  includes `reset_money`.
+- **`/api/ontology` is `login_required`** — the code's shape is reconnaissance
+  surface (CODE-REVIEW-2026-08-08 #P3-1); this is the API-shaped equivalent of
+  `/trace`'s session gate (401 JSON; bearer read qualifies like every /api GET).
+- The map's idle readout is now fully computed (widest write surface, "never
+  read by a derivation" — which correctly surfaces links & income_rules beside
+  the three sinks — and "no write verb: members"). Provenance line reads "Live
+  from /api/ontology — 29 verbs · 14 tables · 23 derivations · schema v11".
+  Verified visually via a fetch-stubbed harness fed the real manifest: 74 nodes ·
+  233 edges (4 more honest edges than the hand map), CLI trace isolates only
+  reset_money, confirm_action shows own-writes + phase + cascades.
+- Manifest edge pins in `test_ontology` were chosen to bite on the exact bugs
+  above; `test_trace_route` covers the endpoint, its gate, and the fetch wiring.
+  Backend read route + frontend — no schema/verb/derivation/money path, **no
+  balance gate**. Suite **536** python + **98** render. NOT YET DEPLOYED.
