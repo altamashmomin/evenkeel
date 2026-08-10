@@ -81,6 +81,10 @@ check), and the MCP write tier made opt-in (`LEDGER_MCP_ENABLE_WRITES`) — all
 deployed. Then a repo-hygiene pass: this CLAUDE.md split and a shared, cached test
 fixture (suite runtime ~64s → ~32s). **All code-review findings are now closed**
 (the one open item is Alta's off-repo tailnet-ACL check for the MCP write tier).
+Then (Aug 10): **`GET /api/ontology` + the Trace Web data-driven from it** — the
+map now fetches its facts at load, so it cannot drift; two real ontology-
+derivation bugs (docstring-as-call, paren-less references) found and fixed in the
+process. On `rework` (`f757174`), suite 536+98, no gate — not yet deployed.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
