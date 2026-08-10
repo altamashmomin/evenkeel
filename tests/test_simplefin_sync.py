@@ -9,12 +9,13 @@ discarded."""
 import importlib.util
 import os
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+
+import _seedbase
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
@@ -52,13 +53,7 @@ class SimplefinSyncTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-sync-test-")
         self.db_path = Path(self.tmp.name) / "sync.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "5", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=5, months=1)
         self.access_file = Path(self.tmp.name) / "access.url"
         self.access_file.write_text(
             "https://bridge.simplefin.org/simplefin/access/test\n")

@@ -2,7 +2,6 @@
 vs actual NET spend (refund-netted via spending_summary), remaining/over/pct, and
 the unbudgeted-spend total so nothing hides."""
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -10,6 +9,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+
+import _seedbase
 import actions       # noqa: E402
 import derivations   # noqa: E402
 
@@ -21,13 +22,7 @@ class BudgetStatusTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-budget-status-")
         self.db_path = Path(self.tmp.name) / "test.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "51", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=51, months=1)
         self.db = sqlite3.connect(self.db_path)
         self.db.row_factory = sqlite3.Row
         # clean slate so spend is exactly what each test inserts

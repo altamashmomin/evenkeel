@@ -6,7 +6,6 @@ so income-sensitivity is proven here instead."""
 import importlib.util
 import os
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,6 +16,8 @@ SEED_AS_OF = "2026-07-19"
 PERIOD = "2026-03"
 sys.path.insert(0, str(REPO))
 
+import _seedbase
+
 import derivations
 
 
@@ -24,13 +25,7 @@ class CashFlowForecastTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-forecast-")
         self.db_path = Path(self.tmp.name) / "test.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "51", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=51, months=1)
         self.db = sqlite3.connect(self.db_path)
         self.db.row_factory = sqlite3.Row
         # wipe seed transactions/bills so the period is fully controlled
@@ -111,13 +106,7 @@ class CashFlowForecastRouteTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-forecast-route-")
         self.db_path = Path(self.tmp.name) / "route.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "61", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=61, months=1)
         db = sqlite3.connect(self.db_path)
         db.execute("DELETE FROM bills")          # isolate from seed bills
         db.execute("INSERT INTO bills (name, amount_cents, due_day, category, active) "

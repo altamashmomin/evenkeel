@@ -6,11 +6,12 @@ asset itself is still served with the query string present."""
 import importlib.util
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import _seedbase
 
 REPO = Path(__file__).resolve().parents[1]
 SEED_AS_OF = "2026-07-19"
@@ -20,13 +21,7 @@ class IndexCacheBustingTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-index-")
         self.db_path = Path(self.tmp.name) / "route.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "61", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=61, months=1)
         os.environ["DATABASE_PATH"] = str(self.db_path)
         os.environ.setdefault("SECRET_KEY", "index-test-secret")
         spec = importlib.util.spec_from_file_location("app_index_test", REPO / "app.py")

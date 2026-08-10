@@ -3,7 +3,6 @@
 are avery (id 1) and blake (id 2) — both can read it."""
 import importlib.util
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +10,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+
+import _seedbase
 SEED_AS_OF = "2026-07-19"
 
 import agent_catalog
@@ -63,13 +64,7 @@ class AgentsRouteTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-agents-")
         self.db_path = Path(self.tmp.name) / "route.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "61", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=61, months=1)
         os.environ["DATABASE_PATH"] = str(self.db_path)
         os.environ.setdefault("SECRET_KEY", "agents-route-secret")
         spec = importlib.util.spec_from_file_location("app_agents_test", REPO / "app.py")
