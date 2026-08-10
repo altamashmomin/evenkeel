@@ -78,8 +78,9 @@ is preserved in git and in that log). Read it for context on what is done and wh
 14→6, the `member_breakdown` odd-cent conservation bug fixed, `/trace` put behind a
 session, `deploy.sh` hardened (no-op/race guard + local-branch heal + fatal smoke
 check), and the MCP write tier made opt-in (`LEDGER_MCP_ENABLE_WRITES`) — all
-deployed. In progress: a repo-hygiene pass (this CLAUDE.md split + a shared,
-cached test fixture).
+deployed. Then a repo-hygiene pass: this CLAUDE.md split and a shared, cached test
+fixture (suite runtime ~64s → ~32s). **All code-review findings are now closed**
+(the one open item is Alta's off-repo tailnet-ACL check for the MCP write tier).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

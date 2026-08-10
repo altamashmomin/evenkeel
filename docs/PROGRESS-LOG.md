@@ -2063,8 +2063,27 @@ from Charlee's phone the port should fail to connect (deploy/mcp-tailnet-acl.md)
   change. **⚠ Operational step on deploy: Alta must add `LEDGER_MCP_ENABLE_WRITES=1` to the
   Pi `.env` (beside the restart) or the MCP write tier goes read-only.** Deploy is a plain
   frontend/tooling path (no migration); deploy.sh's own change lands a deploy later (the
-  self-replace quirk). Remaining review findings (CLAUDE.md/test-infra bloat) catalogued
-  in the PDF, not yet actioned.
+  self-replace quirk). Remaining review findings (CLAUDE.md/test-infra bloat) — now
+  actioned, see below.
 
-After each increment, update this "Current position in the sequence"
-section to reflect what's done and what's next.
+**Repo-hygiene bloat cleanups — DONE on `rework` (Aug 9, 2026).** The last two
+code-review findings (both P1-maintainability, no code/money path — no gate). Two
+increments:
+- **CLAUDE.md split (`eb9f6d1`).** CLAUDE.md was 2171 lines / 145 KB, ~95% an
+  append-only journal loaded into context every session (~36 KB) while the
+  load-bearing rules are <120 lines. Moved the "Current position in the sequence"
+  journal body to **this file, `docs/PROGRESS-LOG.md`** (history preserved in git),
+  leaving CLAUDE.md at 136 lines: the hard rules, per-increment loop, balance gate, a
+  compact current-state pointer, and the conventions. New increment records append
+  here now, not to CLAUDE.md.
+- **Shared cached test fixture (`7ee09b2`).** Every test method's `setUp` shelled out
+  to `seed_db.py` + `migrate.py` — ~1,000 subprocess spawns across the suite, most of
+  its wall time. New `tests/_seedbase.py` builds each distinct `(seed, months, as_of)`
+  template ONCE per process and file-copies it per test (byte-identical to a fresh
+  build — fixtures are deterministic — so every test sees the same data on its own
+  private copy). Converted 55 files via a one-shot transform verified by the full
+  suite; left the 7 income files (they lean on `seed_income.py`'s own arg defaults,
+  which don't map onto a shared key) and 4 bespoke-helper files untouched. Suite
+  unchanged at **530 green**; **runtime ~64s → ~32s**. Dropped the now-unused
+  `import subprocess` from the converted files. **All code-review findings are now
+  closed** (the two deploy/MCP P1s' one remaining item is Alta's off-repo ACL check).
