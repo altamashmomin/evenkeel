@@ -2130,4 +2130,4 @@ check that the FK is still real).
 - Manifest edge pins in `test_ontology` were chosen to bite on the exact bugs
   above; `test_trace_route` covers the endpoint, its gate, and the fetch wiring.
   Backend read route + frontend — no schema/verb/derivation/money path, **no
-  balance gate**. Suite **536** python + **98** render. NOT YET DEPLOYED.
+  balance gate**. Suite **536** python + **98** render. **DEPLOYED** via `main` `a6adc03` (`--no-ff` merge, first parent = prior main; merged in an isolated worktree, local `main` synced) → GATE PASS zero-diff, no migration; `pifinance` + `ledger-mcp` restarted, `/api/status` OK, and `GET /api/ontology` verified **401 unauthenticated** (the gate holds). `deploy.sh` reported an older `old ref` (`c5989e2`) and fired its **local-branch heal** — the Pi's local `main` had drifted behind the session's detached-checkout deploys; the safeguard snapped it back to `a6adc03`. Gate still valid (both sides v11, no migration). Rollback backup `finance.db.bak-2026-08-10-172646`. Hard-refresh the `/trace` tab to pick up the new script.

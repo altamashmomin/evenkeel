@@ -84,7 +84,8 @@ fixture (suite runtime ~64s → ~32s). **All code-review findings are now closed
 Then (Aug 10): **`GET /api/ontology` + the Trace Web data-driven from it** — the
 map now fetches its facts at load, so it cannot drift; two real ontology-
 derivation bugs (docstring-as-call, paren-less references) found and fixed in the
-process. On `rework` (`f757174`), suite 536+98, no gate — not yet deployed.
+process. Suite 536+98, no gate. **Deployed** (`main` `a6adc03`, GATE PASS zero-diff;
+`/api/ontology` verified 401 unauthenticated).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
