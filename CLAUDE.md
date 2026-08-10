@@ -2069,9 +2069,20 @@ Suite 528→**529** python + 98 render. Changed `app.py` (+ `redirect` import) a
 parent = prior main `73e963f`, tree == rework), `deploy.sh origin/main 73e963f` →
 **GATE PASS zero-diff, no migration** (schema stays v11); `pifinance` + `ledger-mcp`
 restarted, `/api/status` OK. Rollback backup `finance.db.bak-2026-08-09-084502`.
-**Deploy + MCP P1 hardening — DONE on `rework`, NOT YET DEPLOYED (Aug 9, 2026).**
+**Deploy + MCP P1 hardening — DONE + DEPLOYED (Aug 9, 2026).**
 The two code-review P1s, in two increments; tooling/deploy/MCP-server only — no
 app/schema/derivation/money path, so **no balance gate**. Suite 529→**530** + 98 render.
+DEPLOYED via `main` `c5989e2` (`--no-ff` merge, first parent = prior main `fd15244`,
+tree == rework), `deploy.sh origin/main fd15244` → **GATE PASS zero-diff, no
+migration** (schema stays v11); `pifinance` + `ledger-mcp` restarted, `/api/status`
+OK. Rollback backup `finance.db.bak-2026-08-09-210811`. Alta added
+`LEDGER_MCP_ENABLE_WRITES=1` to the Pi `.env` before the deploy, and the MCP log
+confirmed `write tier ENABLED` on restart (write tier preserved). This deploy ran
+the OLD deploy.sh (self-replace quirk, as expected — the no-op-guard/heal/fatal-smoke
+lines were absent from the output); the hardened deploy.sh takes effect next deploy.
+**Still pending (Alta's, off-repo): verify the tailnet ACL from a NON-owner device**
+— the Pi-local `curl :8765` returns a healthy MCP response but does NOT test the ACL;
+from Charlee's phone the port should fail to connect (deploy/mcp-tailnet-acl.md).
 - **deploy.sh footgun (P1-B).** `deploy.sh` did `git fetch` then a bare `git checkout`,
   never advancing local `main`, so both spellings could ship stale code (bare `main` =
   stale local branch → false GATE PASS; `origin/main` = detached HEAD leaving local
