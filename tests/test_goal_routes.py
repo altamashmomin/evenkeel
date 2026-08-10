@@ -4,11 +4,12 @@ import importlib.util
 import json
 import os
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import _seedbase
 
 REPO = Path(__file__).resolve().parents[1]
 SEED_AS_OF = "2026-07-19"
@@ -19,13 +20,7 @@ class GoalRouteTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(prefix="ledger-goalroute-test-")
         cls.db_path = Path(cls.tmp.name) / "route.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(cls.db_path),
-             "--seed", "29", "--months", "2", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(cls.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(cls.db_path, seed=29, months=2)
         os.environ["DATABASE_PATH"] = str(cls.db_path)
         os.environ.setdefault("SECRET_KEY", "goal-route-test-secret")
         spec = importlib.util.spec_from_file_location(

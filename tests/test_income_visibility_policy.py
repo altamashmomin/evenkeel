@@ -18,11 +18,12 @@ deliberate policy decision rather than a silent one.
 import importlib.util
 import os
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import _seedbase
 
 REPO = Path(__file__).resolve().parents[1]
 SEED_AS_OF = "2026-07-19"
@@ -36,13 +37,7 @@ class IncomeVisibilityPolicyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-income-vis-")
         self.db_path = Path(self.tmp.name) / "route.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "93", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=93, months=1)
 
         # Start from a clean slate so the household total is exactly the two
         # paychecks we seed, owned by two different members.

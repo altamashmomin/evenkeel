@@ -2,7 +2,6 @@
 actually paid (bill_payments -> transactions) vs variance, per active bill,
 for a period. Unpaid bills report None. Hand-built for exact numbers."""
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +10,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SEED_AS_OF = "2026-07-19"
 sys.path.insert(0, str(REPO))
+
+import _seedbase
 
 import derivations
 
@@ -21,13 +22,7 @@ class BillVarianceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-bill-var-test-")
         self.db_path = Path(self.tmp.name) / "test.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "69", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=69, months=1)
         self.db = sqlite3.connect(self.db_path)
         self.db.row_factory = sqlite3.Row
         for t in ("splits", "transactions", "bill_payments", "bills"):

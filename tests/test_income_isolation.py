@@ -6,7 +6,6 @@ never produces -- specifically to prove the derivation layer's explicit
 direction filters catch it even if that invariant were ever broken
 upstream, not merely benefit from splits happening to be absent today."""
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,6 +16,8 @@ REPO = Path(__file__).resolve().parents[1]
 SEED_AS_OF = "2026-07-19"
 sys.path.insert(0, str(REPO))
 
+import _seedbase
+
 import actions
 import derivations
 
@@ -25,13 +26,7 @@ class IncomeIsolationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-income-isolation-test-")
         self.db_path = Path(self.tmp.name) / "test.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "71", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=71, months=1)
         self.db = sqlite3.connect(self.db_path)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys = ON")

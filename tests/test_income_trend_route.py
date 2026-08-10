@@ -5,11 +5,12 @@ months_back is validated and clamped."""
 import importlib.util
 import os
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import _seedbase
 
 REPO = Path(__file__).resolve().parents[1]
 SEED_AS_OF = "2026-07-19"
@@ -20,13 +21,7 @@ class IncomeTrendRouteTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-inc-trend-route-")
         self.db_path = Path(self.tmp.name) / "route.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "94", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=94, months=1)
         conn = sqlite3.connect(self.db_path)
         conn.execute("DELETE FROM splits")
         conn.execute("DELETE FROM transactions")

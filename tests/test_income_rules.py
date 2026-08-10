@@ -4,7 +4,6 @@ dry_run vs. real application, hit_count observability, and the "a no-op
 isn't audited" discipline for a batch verb."""
 import json
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,6 +14,8 @@ REPO = Path(__file__).resolve().parents[1]
 SEED_AS_OF = "2026-07-19"
 sys.path.insert(0, str(REPO))
 
+import _seedbase
+
 import actions
 
 
@@ -22,13 +23,7 @@ class IncomeRuleTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-income-rules-test-")
         self.db_path = Path(self.tmp.name) / "test.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "51", "--months", "1", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=51, months=1)
         self.db = sqlite3.connect(self.db_path)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys = ON")

@@ -11,7 +11,6 @@ import importlib.util
 import json
 import os
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,6 +23,8 @@ REPO = Path(__file__).resolve().parents[1]
 SEED_AS_OF = "2026-07-19"
 
 sys.path.insert(0, str(REPO))
+
+import _seedbase
 import ledger_mcp  # noqa: E402
 import actions  # noqa: E402
 from mcp.server.fastmcp.exceptions import ToolError  # noqa: E402
@@ -38,13 +39,7 @@ class LedgerMcpWriteTierTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-mcp-write-")
         self.db_path = Path(self.tmp.name) / "route.db"
-        subprocess.run(
-            [sys.executable, str(REPO / "seed_db.py"), str(self.db_path),
-             "--seed", "72", "--months", "2", "--as-of", SEED_AS_OF],
-            check=True, capture_output=True, text=True)
-        subprocess.run(
-            [sys.executable, str(REPO / "migrate.py"), "apply", str(self.db_path)],
-            check=True, capture_output=True, text=True)
+        _seedbase.seed_into(self.db_path, seed=72, months=2)
 
         os.environ["DATABASE_PATH"] = str(self.db_path)
         os.environ.setdefault("SECRET_KEY", "mcp-write-secret")
