@@ -1,109 +1,67 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════════════════
-// EDGE TABLE — grounded in the real Ledger source (actions.py / derivations.py /
-// ledger_mcp.py / agent_read_tools.py / simplefin_sync.py). See docs/CORE-DESIGN.md
-// for the invariants this map visualizes: one write path per verb, nothing
-// derived is stored, audit_log/api_tokens/pending_actions are write-only sinks.
+// DATA-DRIVEN: every FACT on this map — verbs, objects, derivations, callers,
+// doors, write/read/cascade edges — is fetched from /api/ontology at load
+// (ontology.manifest(), computed from the source on every call), so the map
+// cannot drift from the code. What remains below are PRESENTATION HINTS only:
+// visual grouping, preferred ordering, display labels, and line styling. A
+// name the hints don't know still renders (fallback group / appended order) —
+// hints affect where a node sits, never whether it exists.
 // Types: call | write | phase | cascade | audit | read | serve
 // ───────────────────────────────────────────────────────────────────────────
-const OBJ = [
-  { g: 'People & shares',    items: ['members', 'splits'] },
-  { g: 'Money movement',     items: ['transactions', 'links', 'income_rules', 'budgets'] },
-  { g: 'Commitments',        items: ['bills', 'bill_payments', 'goals', 'goal_contributions'] },
-  { g: 'Household',          items: ['items'] },
-  { g: 'System of record',   items: ['audit_log', 'api_tokens', 'pending_actions'] }
+
+// Visual grouping of the object column. A governed table missing here lands in
+// the 'Other' fallback group — grouping is presentation, membership is data.
+const OBJ_GROUPS = [
+  { g: 'People & shares',  items: ['members', 'splits'] },
+  { g: 'Money movement',   items: ['transactions', 'links', 'income_rules', 'budgets'] },
+  { g: 'Commitments',      items: ['bills', 'bill_payments', 'goals', 'goal_contributions'] },
+  { g: 'Household',        items: ['items'] },
+  { g: 'System of record', items: ['audit_log', 'api_tokens', 'pending_actions'] }
 ];
 
-// verb → tables it mutates (INSERT/UPDATE/DELETE), excluding audit_log (drawn
-// as its own 'audit' grammar). Transitive through helpers (delete_transaction_
-// graph, _record_goal_flow, _write_matches); FK cascades made explicit
-// (delete_goal → goal_contributions). Verified against actions.py bodies.
-const WRITES = {
-  record_transaction:  ['transactions', 'splits', 'income_rules'],       // inserts the row; a matched inflow bumps income_rules.hit_count
-  edit_transaction:    ['transactions', 'splits', 'links'],              // :319 (severs a settles link)
-  delete_transaction:  ['transactions', 'splits', 'links'],              // :379 (delete_transaction_graph)
-  settle_up:           ['transactions', 'splits', 'links'],              // :399 (writes 'settles' links)
-  classify_inflow:     ['transactions'],                                 // :775 (sets income_type)
-  create_bill:         ['bills'],                                        // :567
-  update_bill:         ['bills'],                                        // :604
-  delete_bill:         ['bills'],                                        // :645 (soft delete; payments untouched)
-  mark_bill_paid:      ['transactions', 'splits', 'bill_payments'],      // :482
-  unmark_bill_paid:    ['transactions', 'splits', 'links', 'bill_payments'], // :541 (graph + payment)
-  create_goal:         ['goals'],                                        // :668
-  delete_goal:         ['goals', 'goal_contributions'],                  // :703 (contributions cascade)
-  contribute_to_goal:  ['goal_contributions'],                           // :752 (no transaction row)
-  withdraw_from_goal:  ['goal_contributions'],                           // :758
-  create_income_rule:  ['income_rules'],                                 // :899
-  set_rule_enabled:    ['income_rules'],                                 // :925
-  apply_rules:         ['transactions', 'income_rules'],                 // :1046 (classifies + hit_count)
-  propose_action:      ['pending_actions'],                              // :1122 (no audit — nothing executed)
-  confirm_action:      ['pending_actions', 'transactions', 'income_rules'], // claims the row; the compound confirm classifies matches via _apply_single_rule (transactions + hit_count)
-  add_item:            ['items'],                                        // :1324
-  set_item_status:     ['items'],                                        // :1359
-  archive_item:        ['items'],                                        // :1388
-  set_item_match:      ['items'],                                        // sets restock_match
-  set_item_interval:   ['items'],                                        // user-set restock cadence (#011)
-  set_budget:          ['budgets'],
-  remove_budget:       ['budgets'],
-  create_api_token:    ['api_tokens'],
-  revoke_api_token:    ['api_tokens'],
-  // CLI-only fresh-start wipe: DELETEs the money-movement rows + zeroes
-  // income_rules.hit_count. No route — the one verb no door can reach.
-  reset_money:         ['transactions', 'splits', 'links', 'bill_payments', 'goal_contributions', 'pending_actions', 'income_rules']
-};
-// the two verbs whose object-writes are the two-phase choreography
-const PHASE = { propose_action: ['pending_actions'], confirm_action: ['pending_actions'] };
-// propose_action is the one verb that writes no audit row (nothing executed yet)
-const NO_AUDIT = new Set(['propose_action']);
+// Display labels + column order for the manifest's caller / door ids. An id
+// the maps don't know renders under its raw id, appended after the known ones.
+const CALLER_META = { ui: 'UI route', sync: 'SimpleFIN sync', mcp: 'MCP write tier',
+                      ask: 'Ask · chat', cli: 'CLI · maintenance' };
+const CALLER_ORDER = ['ui', 'sync', 'mcp', 'ask', 'cli'];
+const DOOR_META = { api: 'Flask JSON API', mcp: 'MCP read tier', ask: 'Ask · chat' };
+const DOOR_ORDER = ['api', 'mcp', 'ask'];
 
-// table → derivations that read it (SELECT / JOIN), transitive through helper
-// derivations. From derivations.py; note links & income_rules are consumed at
-// WRITE time (by verbs), never by a derivation — so neither appears here.
-const READS = {
-  transactions:       ['compute_balance', 'spending_summary', 'top_merchants', 'category_trend', 'income_summary', 'income_trend', 'savings_rate_trend', 'member_breakdown', 'bill_variance', 'budget_status', 'recurring_charges', 'cash_flow_forecast', 'anomaly_flags', 'last_shopping_trip', 'restock_suggestions', 'restock_forecast', 'staple_spend', 'unmatched_staples', 'stale_shopping_items', 'new_staple_suggestions'],
-  splits:             ['compute_balance', 'member_breakdown'],
-  members:            ['compute_balance', 'member_breakdown'],
-  budgets:            ['budget_status'],
-  bills:              ['bill_variance', 'cash_flow_forecast'],
-  bill_payments:      ['bill_variance', 'cash_flow_forecast'],
-  goals:              ['goal_pace'],
-  goal_contributions: ['goal_pace'],
-  items:              ['shopping_list', 'low_stock', 'restock_suggestions', 'restock_forecast', 'staple_spend', 'unmatched_staples', 'stale_shopping_items', 'new_staple_suggestions']
-};
+// The two-phase choreography verbs: their pending_actions writes draw with the
+// double-line 'phase' grammar (styling; other verbs touching pending_actions —
+// reset_money's wipe — stay plain writes).
+const PHASE_VERBS = new Set(['propose_action', 'confirm_action']);
 
-// 23 public read-time derivations in derivations.py
-const DERIVS = ['compute_balance', 'spending_summary', 'top_merchants', 'category_trend', 'income_summary', 'income_trend', 'savings_rate_trend', 'member_breakdown', 'bill_variance', 'budget_status', 'recurring_charges', 'cash_flow_forecast', 'anomaly_flags', 'goal_pace', 'last_shopping_trip', 'shopping_list', 'low_stock', 'restock_suggestions', 'restock_forecast', 'staple_spend', 'unmatched_staples', 'stale_shopping_items', 'new_staple_suggestions'];
+// The one edge SQLite enforces rather than code: goals' ON DELETE CASCADE
+// wipes goal_contributions. Invisible to the manifest's source scan, so it is
+// the single hand-declared edge on the map.
+const FK_CASCADE = { delete_goal: ['goal_contributions'] };
 
-// door → derivations it exposes. Three doors on ONE shared read layer: the
-// Flask JSON API is the base; the MCP read tier and the Ask chat loop BOTH
-// consume the same read-tool registry (agent_read_tools), which collectively
-// exposes every derivation (ledger_inventory alone carries all 9 pantry ones) —
-// so coverage is identical across all three. `key` ties each door to the
-// ontology's door ids (api/mcp/ask), so a new surface can't be drawn here
-// without the source knowing; every door serves the full DERIVS set.
-const DOORS = [
-  { id: 'Flask JSON API', key: 'api', serves: DERIVS.slice() },
-  { id: 'MCP read tier',  key: 'mcp', serves: DERIVS.slice() },
-  { id: 'Ask · chat',     key: 'ask', serves: DERIVS.slice() }
+// Write-only sinks get the accent border (styling; the tables themselves come
+// from the manifest like everything else).
+const SINKS = new Set(['o:audit_log', 'o:api_tokens', 'o:pending_actions']);
+
+// Preferred display order (semantic grouping reads better than alphabetical).
+// Names missing from a hint append alphabetically — a new verb/derivation
+// appears without touching this file.
+const VERB_ORDER = [
+  'record_transaction', 'edit_transaction', 'delete_transaction', 'settle_up',
+  'classify_inflow', 'create_bill', 'update_bill', 'delete_bill',
+  'mark_bill_paid', 'unmark_bill_paid', 'create_goal', 'delete_goal',
+  'contribute_to_goal', 'withdraw_from_goal', 'create_income_rule',
+  'set_rule_enabled', 'apply_rules', 'propose_action', 'confirm_action',
+  'add_item', 'set_item_status', 'archive_item', 'set_item_match',
+  'set_item_interval', 'set_budget', 'remove_budget', 'create_api_token',
+  'revoke_api_token', 'reset_money'
 ];
-
-const ALL_VERBS = Object.keys(WRITES);
-
-// caller → verbs it can invoke (grounded in app.py routes / simplefin_sync.py /
-// ledger_mcp.py write tools / agent_write_tools.py)
-const CALLERS = [
-  { id: 'UI route', calls: ALL_VERBS.filter(v => v !== 'reset_money') },                // every verb EXCEPT reset_money has a Flask route
-  { id: 'SimpleFIN sync', calls: ['record_transaction'] },                             // rules match inside the verb
-  { id: 'MCP write tier', calls: ['classify_inflow', 'set_rule_enabled', 'propose_action', 'confirm_action'] },
-  { id: 'Ask · chat', calls: ['classify_inflow', 'add_item', 'set_item_status', 'archive_item', 'set_item_match', 'set_item_interval'] },
-  { id: 'CLI · maintenance', calls: ['reset_money'] }                                  // the one write path that bypasses every door (deploy/reset-money.md)
-];
-
-// verb → verb internal dispatch. confirm_action (the two-phase executor) is the
-// ONLY verb that calls other verbs; the money verbs inline their own SQL.
-const CASCADE = [
-  ['confirm_action', 'create_income_rule'],   // actions.py:1221
-  ['confirm_action', 'apply_rules']           // actions.py:1226
+const DERIV_ORDER = [
+  'compute_balance', 'spending_summary', 'top_merchants', 'category_trend',
+  'income_summary', 'income_trend', 'savings_rate_trend', 'member_breakdown',
+  'bill_variance', 'budget_status', 'recurring_charges', 'cash_flow_forecast',
+  'anomaly_flags', 'goal_pace', 'last_shopping_trip', 'shopping_list',
+  'low_stock', 'restock_suggestions', 'restock_forecast', 'staple_spend',
+  'unmatched_staples', 'stale_shopping_items', 'new_staple_suggestions'
 ];
 
 // ── edge styles (line grammar) ──
@@ -119,25 +77,76 @@ const STYLE = {
   phaseIn: { stroke: BG,  w: 1.6, dash: 'none',    cap: 'butt',  marker: 'none',        z: 7 }
 };
 
-// ── build the edge list ──
+// ═══════════════════════════════════════════════════════════════════════════
+// Model — built from the fetched manifest
+// ═══════════════════════════════════════════════════════════════════════════
+let MODEL = null;      // set by boot(); render() no-ops until it exists
+let EDGES = [];
+let FWD = {}, BACK = {};
+let NODE_COUNT = 0;
+
+// hint order first (filtered to what exists), then anything new, alphabetical
+function hintOrder(hint, names) {
+  const have = new Set(names);
+  const known = hint.filter(n => have.has(n));
+  const rest = names.filter(n => !hint.includes(n)).sort();
+  return known.concat(rest);
+}
+
+function buildModel(m) {
+  const verbNames = m.actions.map(a => a.name);
+  const byName = {};
+  m.actions.forEach(a => { byName[a.name] = a; });
+  const readsBy = {};
+  m.functions.forEach(f => { readsBy[f.name] = f.reads || []; });
+
+  const tables = m.objects.map(o => o.name);
+  const known = new Set(OBJ_GROUPS.flatMap(g => g.items));
+  const groups = OBJ_GROUPS
+    .map(g => ({ g: g.g, items: g.items.filter(t => tables.includes(t)) }))
+    .concat([{ g: 'Other', items: tables.filter(t => !known.has(t)).sort() }])
+    .filter(g => g.items.length);
+
+  const callerIds = hintOrder(CALLER_ORDER, Object.keys(m.callers));
+  const callers = callerIds.map(k => ({
+    key: k, id: CALLER_META[k] || k, calls: m.callers[k] || [] }));
+
+  const derivs = hintOrder(DERIV_ORDER, m.functions.map(f => f.name));
+  const doors = hintOrder(DOOR_ORDER, m.doors).map(k => ({
+    key: k, id: DOOR_META[k] || k, serves: derivs.slice() }));
+
+  return {
+    verbs: hintOrder(VERB_ORDER, verbNames),
+    byName, readsBy, groups, callers, derivs, doors,
+    tables, schema: m.schema_version,
+  };
+}
+
 function buildEdges() {
   const E = [];
-  CALLERS.forEach(c => c.calls.forEach(v => E.push({ t: 'call', a: 'c:' + c.id, b: 'v:' + v })));
-  Object.entries(WRITES).forEach(([v, os]) => os.forEach(o => {
-    const isPhase = (PHASE[v] || []).includes(o);
-    E.push({ t: isPhase ? 'phase' : 'write', a: 'v:' + v, b: 'o:' + o });
-  }));
-  ALL_VERBS.forEach(v => { if (!NO_AUDIT.has(v)) E.push({ t: 'audit', a: 'v:' + v, b: 'o:audit_log' }); });
-  Object.entries(READS).forEach(([o, ds]) => ds.forEach(d => E.push({ t: 'read', a: 'o:' + o, b: 'd:' + d })));
-  DOORS.forEach(dr => dr.serves.forEach(d => E.push({ t: 'serve', a: 'd:' + d, b: 's:' + dr.id })));
-  CASCADE.forEach(([a, b]) => E.push({ t: 'cascade', a: 'v:' + a, b: 'v:' + b, loop: true }));
+  MODEL.callers.forEach(c => c.calls.forEach(v =>
+    E.push({ t: 'call', a: 'c:' + c.id, b: 'v:' + v })));
+  MODEL.verbs.forEach(v => {
+    const a = MODEL.byName[v];
+    a.writes_direct.forEach(o => {
+      if (o === 'audit_log') return;   // drawn as its own 'audit' grammar below
+      const isPhase = PHASE_VERBS.has(v) && o === 'pending_actions';
+      E.push({ t: isPhase ? 'phase' : 'write', a: 'v:' + v, b: 'o:' + o });
+    });
+    (FK_CASCADE[v] || []).forEach(o => {
+      if (!a.writes_direct.includes(o)) E.push({ t: 'write', a: 'v:' + v, b: 'o:' + o });
+    });
+    if (a.writes_direct.includes('audit_log'))
+      E.push({ t: 'audit', a: 'v:' + v, b: 'o:audit_log' });
+    (a.cascades || []).forEach(v2 =>
+      E.push({ t: 'cascade', a: 'v:' + v, b: 'v:' + v2, loop: true }));
+  });
+  MODEL.derivs.forEach(d => (MODEL.readsBy[d] || []).forEach(o =>
+    E.push({ t: 'read', a: 'o:' + o, b: 'd:' + d })));
+  MODEL.doors.forEach(dr => dr.serves.forEach(d =>
+    E.push({ t: 'serve', a: 'd:' + d, b: 's:' + dr.id })));
   return E;
 }
-const EDGES = buildEdges();
-
-// adjacency for reachability
-const FWD = {}, BACK = {};
-EDGES.forEach((e, i) => { e._i = i; (FWD[e.a] = FWD[e.a] || []).push(e); (BACK[e.b] = BACK[e.b] || []).push(e); });
 
 function reach(start) {
   const nodes = new Set([start]), eIdx = new Set();
@@ -157,8 +166,6 @@ function reach(start) {
 const KIND = { c: 'Caller', v: 'Write verb', o: 'Object', d: 'Derivation', s: 'Door' };
 const label = id => id.slice(2);
 const SVGNS = 'http://www.w3.org/2000/svg';
-const NODE_COUNT = CALLERS.length + ALL_VERBS.length +
-  OBJ.reduce((n, g) => n + g.items.length, 0) + DERIVS.length + DOORS.length;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // State + DOM
@@ -183,17 +190,17 @@ function nodeEl(id, lbl) {
 }
 
 function buildColumns() {
-  CALLERS.forEach(c => $('col-callers').appendChild(nodeEl('c:' + c.id, c.id)));
-  ALL_VERBS.forEach(v => $('col-verbs').appendChild(nodeEl('v:' + v, v)));
-  OBJ.forEach(grp => {
+  MODEL.callers.forEach(c => $('col-callers').appendChild(nodeEl('c:' + c.id, c.id)));
+  MODEL.verbs.forEach(v => $('col-verbs').appendChild(nodeEl('v:' + v, v)));
+  MODEL.groups.forEach(grp => {
     const h = document.createElement('div');
     h.className = 'grp-head';
     h.textContent = grp.g;
     $('col-objects').appendChild(h);
     grp.items.forEach(o => $('col-objects').appendChild(nodeEl('o:' + o, o)));
   });
-  DERIVS.forEach(d => $('col-derivs').appendChild(nodeEl('d:' + d, d)));
-  DOORS.forEach(dr => $('col-doors').appendChild(nodeEl('s:' + dr.id, dr.id)));
+  MODEL.derivs.forEach(d => $('col-derivs').appendChild(nodeEl('d:' + d, d)));
+  MODEL.doors.forEach(dr => $('col-doors').appendChild(nodeEl('s:' + dr.id, dr.id)));
 }
 
 // ── node styling per render ──
@@ -214,7 +221,6 @@ function styleNode(id, active) {
   el.style.fontWeight = fw;
   el.style.opacity = on ? 1 : 0.22;
 }
-const SINKS = new Set(['o:audit_log', 'o:api_tokens', 'o:pending_actions']);
 
 // ── geometry: measure node rects relative to the canvas ──
 function measure() {
@@ -233,6 +239,7 @@ function measure() {
 const CURVE = 0.5, DIM = 0.07, SHOW_AUDIT = true;
 
 function render() {
+  if (!MODEL) return;   // resize/font observers can fire before the fetch lands
   const active = sel ? reach(sel) : null;
 
   // nodes
@@ -306,14 +313,21 @@ function renderReadout(active, shown) {
   } else {
     statusLabel = 'No trace selected';
     statusDetail = 'Click any node to isolate its full read/write path.';
-    // computed, so the headline can't drift from the data as verbs are added
-    const txnWriters = Object.values(WRITES).filter(t => t.includes('transactions')).length;
-    const txnReaders = (READS.transactions || []).length;
+    // computed from the fetched model, so the headline can't drift
+    const widest = MODEL.tables
+      .map(t => ({ t,
+        w: MODEL.verbs.filter(v => MODEL.byName[v].writes_direct.includes(t)).length,
+        r: MODEL.derivs.filter(d => (MODEL.readsBy[d] || []).includes(t)).length }))
+      .sort((a, b) => (b.w + b.r) - (a.w + a.r))[0];
+    const readTables = new Set(MODEL.derivs.flatMap(d => MODEL.readsBy[d] || []));
+    const sinks = MODEL.tables.filter(t => !readTables.has(t));
+    const orphans = MODEL.tables.filter(t =>
+      !MODEL.verbs.some(v => MODEL.byName[v].writes_direct.includes(t)));
     rows = [
-      { rel: 'Widest write surface', items: 'transactions — written by ' + txnWriters + ' verbs, read by ' + txnReaders + ' derivations' },
+      { rel: 'Widest write surface', items: widest.t + ' — written by ' + widest.w + ' verbs, read by ' + widest.r + ' derivations' },
       { rel: 'Longest chain', items: 'MCP write tier → confirm_action → apply_rules → transactions → compute_balance → Flask · MCP · Ask' },
-      { rel: 'Write-only sinks', items: 'audit_log   ·   api_tokens   ·   pending_actions   —   plus links & income_rules, read only by verbs' },
-      { rel: 'Read-only inputs', items: 'members — the one governed table with no write verb' }
+      { rel: 'Never read by a derivation', items: join(sinks) },
+      { rel: 'No write verb', items: join(orphans.map(t => t + ' — written outside the registry')) }
     ];
   }
 
@@ -356,27 +370,46 @@ function initLegend() {
   });
 }
 
-// ── provenance line: counts computed from the edge data (never drift), schema
-//    version injected server-side into data-schema by the /trace route ──
+// ── provenance: everything from the fetched manifest ──
 function fillProvenance() {
   const prov = $('provenance');
   if (!prov) return;
-  const tables = OBJ.reduce((n, g) => n + g.items.length, 0);
-  prov.textContent = 'Reconciled against actions.py · derivations.py — ' +
-    ALL_VERBS.length + ' verbs · ' + tables + ' tables · ' + DERIVS.length +
-    ' derivations · schema v' + (prov.dataset.schema || '?');
+  prov.textContent = 'Live from /api/ontology — ' +
+    MODEL.verbs.length + ' verbs · ' + MODEL.tables.length + ' tables · ' +
+    MODEL.derivs.length + ' derivations · schema v' + MODEL.schema;
 }
 
-// ── boot ──
-buildColumns();
-initLegend();
-fillProvenance();
+// ═══════════════════════════════════════════════════════════════════════════
+// Boot: fetch the manifest, build the model, then wire everything up
+// ═══════════════════════════════════════════════════════════════════════════
+async function boot() {
+  try {
+    const r = await fetch('/api/ontology');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    MODEL = buildModel(await r.json());
+  } catch (e) {
+    $('statusLabel').textContent = 'Could not load the model';
+    $('statusDetail').textContent =
+      '/api/ontology said: ' + e.message + ' — reload the page (a signed-in session is required).';
+    return;
+  }
+  EDGES = buildEdges();
+  FWD = {}; BACK = {};
+  EDGES.forEach((e, i) => { e._i = i; (FWD[e.a] = FWD[e.a] || []).push(e); (BACK[e.b] = BACK[e.b] || []).push(e); });
+  NODE_COUNT = MODEL.callers.length + MODEL.verbs.length +
+    MODEL.tables.length + MODEL.derivs.length + MODEL.doors.length;
+
+  buildColumns();
+  initLegend();
+  fillProvenance();
+  render();
+  // fonts can shift metrics; re-measure once they load and on resize
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+  window.addEventListener('resize', render);
+  new ResizeObserver(render).observe(canvas);
+  window.addEventListener('load', render);
+}
+
 $('clearBtn').addEventListener('click', ev => { ev.stopPropagation(); reset(); });
 canvas.addEventListener('click', reset);
-
-// fonts can shift metrics; re-measure once they load and on resize
-render();
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
-window.addEventListener('resize', render);
-new ResizeObserver(render).observe(canvas);
-window.addEventListener('load', render);
+boot();

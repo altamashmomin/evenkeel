@@ -118,6 +118,84 @@ class ManifestFunctionTests(unittest.TestCase):
         self.assertEqual(exempt, flagged)
 
 
+class ManifestEdgeTests(unittest.TestCase):
+    """The edge-level facts added for the data-driven Trace Web: direct writes,
+    derivation reads, cascades, and the caller map — each derived from source
+    (AST call detection, docstring-stripped; HTTP calls walked through the
+    route table). These pins were chosen to bite on the exact bugs found while
+    building the derivation: a docstring mention registering as a call, and a
+    paren-less verb reference being missed."""
+
+    def test_writes_direct_is_a_subset_of_writes(self):
+        for a in MANIFEST["actions"]:
+            self.assertTrue(set(a["writes_direct"]) <= set(a["writes"]),
+                            f"{a['name']}: writes_direct exceeds the closure")
+
+    def test_docstring_mentions_do_not_register(self):
+        # create_income_rule's docstring says "…propose_action/confirm_action
+        # (the MCP write tier)" — prose, not a call. The old regex scan charged
+        # it with confirm_action's writes; the AST scan must not.
+        by_name = {a["name"]: a for a in MANIFEST["actions"]}
+        self.assertEqual(["audit_log", "income_rules"],
+                         by_name["create_income_rule"]["writes"])
+        self.assertEqual([], by_name["create_income_rule"]["cascades"])
+
+    def test_confirm_action_is_the_only_cascader(self):
+        cascaders = {a["name"]: a["cascades"] for a in MANIFEST["actions"]
+                     if a["cascades"]}
+        self.assertEqual({"confirm_action": ["apply_rules", "create_income_rule"]},
+                         cascaders)
+
+    def test_reset_money_carries_its_dynamic_tables(self):
+        # reset_money DELETEs via an f-string loop over RESET_TABLES — the scan
+        # can't see it in text, so ontology charges the constant itself.
+        by_name = {a["name"]: a for a in MANIFEST["actions"]}
+        self.assertTrue(set(actions.RESET_TABLES)
+                        <= set(by_name["reset_money"]["writes_direct"]))
+
+    def test_propose_action_writes_no_audit(self):
+        # nothing executed at propose time — the one verb without an audit row.
+        by_name = {a["name"]: a for a in MANIFEST["actions"]}
+        self.assertNotIn("audit_log", by_name["propose_action"]["writes_direct"])
+        others = [a for a in MANIFEST["actions"]
+                  if a["name"] not in ("propose_action",)]
+        for a in others:
+            self.assertIn("audit_log", a["writes_direct"],
+                          f"{a['name']} should write an audit row")
+
+    def test_function_reads_are_governed_and_sane(self):
+        for f in MANIFEST["functions"]:
+            self.assertTrue(set(f["reads"]) <= set(actions.GOVERNED_TABLES),
+                            f"{f['name']} reads a non-governed table")
+        by_name = {f["name"]: f for f in MANIFEST["functions"]}
+        self.assertEqual(["members", "splits", "transactions"],
+                         by_name["compute_balance"]["reads"])
+
+    def test_callers_shape_and_the_paren_less_reference(self):
+        c = MANIFEST["callers"]
+        self.assertEqual({"ui", "sync", "mcp", "ask", "cli"}, set(c))
+        self.assertEqual(["record_transaction"], c["sync"])
+        # reset_money is the ONLY door-less verb; in particular the goal verbs
+        # are UI-reachable through a paren-less reference
+        # (`actions.contribute_to_goal if cents > 0 else …`), which a
+        # call-only scan missed.
+        self.assertEqual(["reset_money"], c["cli"])
+        self.assertIn("contribute_to_goal", c["ui"])
+        self.assertIn("withdraw_from_goal", c["ui"])
+        # the doors, walked through the route table
+        self.assertEqual(["classify_inflow", "confirm_action", "propose_action",
+                          "set_rule_enabled"], c["mcp"])
+        self.assertEqual(["add_item", "archive_item", "classify_inflow",
+                          "set_item_interval", "set_item_match",
+                          "set_item_status"], c["ask"])
+
+    def test_every_caller_verb_is_real(self):
+        verb_names = {a["name"] for a in MANIFEST["actions"]}
+        for surface, verbs in MANIFEST["callers"].items():
+            self.assertTrue(set(verbs) <= verb_names,
+                            f"callers[{surface}] names unknown verbs")
+
+
 class ManifestShapeTests(unittest.TestCase):
     def test_vocabularies_reference_the_constants(self):
         v = MANIFEST["vocabularies"]

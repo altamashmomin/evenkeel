@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import actions
 import agent_catalog
 import ask_loop
+import ontology
 from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
 from derivations import (anomaly_flags, bill_variance, budget_status,
@@ -29,8 +30,7 @@ from derivations import (anomaly_flags, bill_variance, budget_status,
                          savings_rate_trend, shopping_list,
                          spending_summary, stale_shopping_items, staple_spend,
                          top_merchants, unmatched_staples)
-from schema_runtime import (
-    connect_existing, require_current_schema, REQUIRED_SCHEMA_VERSION)
+from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
 
@@ -1698,6 +1698,21 @@ def index():
                        "Cache-Control": "no-cache"}
 
 
+@app.get("/api/ontology")
+@login_required
+def ontology_manifest():
+    """The ontology manifest as JSON — the whole system described as one
+    artifact, computed from source on every call (ONTOLOGY-MANIFEST-DESIGN;
+    'nothing derived is stored' applied to metadata). Gated like /trace and for
+    the same reason: it carries no household data, but the code's shape is
+    reconnaissance surface (CODE-REVIEW-2026-08-08 #P3-1) — login_required is
+    the API-shaped equivalent of the page's session gate (401 JSON, and a
+    bearer read token qualifies, matching every other GET under /api/). The
+    Trace Web is its consumer — the map draws whatever this reports, so the
+    facts can never drift from the source."""
+    return jsonify(ontology.manifest()), 200, {"Cache-Control": "no-cache"}
+
+
 @app.get("/trace")
 def trace_web():
     """The architecture Trace Web: a static, self-contained interactive map of
@@ -1713,9 +1728,6 @@ def trace_web():
         html = f.read()
     v = _asset_version("trace-web.js")
     html = html.replace('src="trace-web.js"', f'src="trace-web.js?v={v}"')
-    # inject the live schema version (the one fact the static map can't self-source);
-    # the verb/table/derivation counts are computed in-page from the edge data.
-    html = html.replace("__SCHEMA_VERSION__", str(REQUIRED_SCHEMA_VERSION))
     return html, 200, {"Content-Type": "text/html; charset=utf-8",
                        "Cache-Control": "no-cache"}
 
