@@ -527,6 +527,52 @@
       <ul class="list">${rows}</ul></div>`;
   }
 
+  /* ===== Goals tab: pace line + per-goal what-if =====
+     Pure helpers over one /api/analytics/goal-pace entry. The server projects
+     at the goal's lifetime-average rate; the what-if is the user's own number,
+     computed client-side and never stored. */
+
+  // Months to cover `remaining_cents` at `monthly_cents` per month — ceiling
+  // division in integer cents. 0 when nothing remains; null when the rate can
+  // never get there (missing, zero, or negative).
+  function goalWhatIf(remaining_cents, monthly_cents) {
+    if (remaining_cents <= 0) return 0;
+    if (!monthly_cents || monthly_cents <= 0) return null;
+    return Math.ceil(remaining_cents / monthly_cents);
+  }
+
+  // 'YYYY-MM' + n months, the same months-since-year-zero integer walk the
+  // backend's _month_window uses, so year boundaries can't drift.
+  function addMonths(ym, n) {
+    const [y, m] = ym.split("-").map(Number);
+    const idx = y * 12 + (m - 1) + n;
+    return `${String(Math.floor(idx / 12)).padStart(4, "0")}-${String((idx % 12) + 1).padStart(2, "0")}`;
+  }
+
+  // The what-if readout. anchorYM is the month to count from — the view
+  // layer's "now" (derivations stay clock-free; today enters here, like the
+  // pantry's forecast framing). "" until a usable amount is typed.
+  function goalWhatIfText(remaining_cents, monthly_cents, anchorYM) {
+    const months = goalWhatIf(remaining_cents, monthly_cents);
+    if (months == null) return "";
+    if (months === 0) return "already funded";
+    return `≈ ${months} mo — around ${monthName(addMonths(anchorYM, months))}`;
+  }
+
+  // The per-goal pace sentence under the progress bar, prose form of the
+  // analytics card's status chips.
+  function goalPaceLineHTML(p) {
+    if (!p) return "";
+    if (p.status === "complete")
+      return `<p class="goal-pace">funded 🎉</p>`;
+    if (p.status === "no_pace" || !p.monthly_rate || !p.projected_date)
+      return `<p class="goal-pace">no pace yet — log contributions to project a finish</p>`;
+    const when = monthName(p.projected_date.slice(0, 7));
+    const chip = p.status === "behind" ? " — behind target"
+               : p.status === "on_track" ? " — on track" : "";
+    return `<p class="goal-pace">at ~${amt(p.monthly_rate)}/mo, done around ${when}${chip}</p>`;
+  }
+
   /* ===== Forecast lab (scenario planning) =====
      Pure what-if arithmetic over /api/forecast/baselines. The server states
      measured facts (per-category monthly spend averages + average paycheck
@@ -1166,5 +1212,6 @@
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
            forecastScenario, forecastLine, forecastChartSVG, forecastLabHTML,
+           goalWhatIf, addMonths, goalWhatIfText, goalPaceLineHTML,
            askThreadHTML, agentsHTML, opsPanelHTML };
 });

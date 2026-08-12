@@ -499,6 +499,11 @@ main {
 .goal:last-child { margin-bottom: 0; }
 .goal-pct { font-family: var(--mono); font-weight: 700; font-size: 11px;
   color: var(--muted); margin: 6px 0 0; }
+.goal-pace { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.goal-whatif { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.goal-whatif input { flex: 0 0 128px; padding: 8px 10px; font-size: 14px; }
+.goal-whatif-out { font-size: 13px; color: var(--muted);
+  font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .contrib-log { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
 
 /* ---------- "More" bottom sheet (all tabs from any page) ---------- */

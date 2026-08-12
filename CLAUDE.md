@@ -92,7 +92,11 @@ facts only; every what-if is client-side, nothing scenario-shaped stored) + an
 Analytics-tab card with 0–200% category sliders, an income override, a
 6/12/24-mo horizon, and a hand-rolled SVG cumulative line. On
 `claude/scenario-planning-ledger-4lt781`; suite 550+111, gate PASS zero-diff
-(synthetic dev.db — re-gate on the Pi before deploy). Not deployed.
+(synthetic dev.db — re-gate on the Pi before deploy). Port increment 2 (same
+day, same branch): **Goals-tab pace line + per-goal what-if** — frontend-only
+over the already-deployed `goal_pace` endpoint (pace sentence per card; type a
+$/mo, months-to-finish recomputes client-side, never stored). Suite 550+115,
+no gate (no money path). Not deployed.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

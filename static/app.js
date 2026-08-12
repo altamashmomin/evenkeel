@@ -12,6 +12,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
         forecastScenario, forecastChartSVG, forecastLabHTML,
+        goalWhatIfText, goalPaceLineHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML } = window.Render;
 
@@ -278,7 +279,7 @@ dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.cl
 // only ever sees ITS OWN current rows — otherwise a stale pool (e.g. _txns,
 // written by Activity and never cleared) let a tap on another tab resolve to a
 // pre-edit row and Save write the stale values back (CODE-REVIEW-2026-08-07 #5).
-const ROW_STASHES = ["_dash", "_recent", "_txns", "_bills", "_goals",
+const ROW_STASHES = ["_dash", "_recent", "_txns", "_bills", "_goals", "_goalPace",
                      "_budgets", "_budgetStatus", "_inv", "_forecast"];
 
 async function render() {
@@ -515,8 +516,16 @@ async function renderBills() {
 /* ================= goals ================= */
 
 async function renderGoals() {
-  const goals = await api("/api/goals");
+  // Pace rides along: the same /api/analytics/goal-pace the analytics card
+  // reads (one derivation, every surface), matched to cards by goal_id. The
+  // pace entries also carry remaining.cents for the per-goal what-if.
+  const [goals, pace] = await Promise.all([
+    api("/api/goals"),
+    api("/api/analytics/goal-pace"),
+  ]);
   window._goals = goals;
+  window._goalPace = {};
+  (pace.goals || []).forEach((p) => { window._goalPace[p.goal_id] = p; });
   const cards = await Promise.all(goals.map(async (g) => {
     let log = "";
     if (state.openLogs.has(g.id)) {
@@ -544,6 +553,14 @@ async function renderGoals() {
           <span class="amount">${fmt(g.saved)} of ${fmt(g.target)}${eta}</span>
           <span>${Math.round(g.progress * 100)}%</span>
         </div>
+        ${goalPaceLineHTML(window._goalPace[g.id])}
+        ${window._goalPace[g.id] && window._goalPace[g.id].status !== "complete" ? `
+        <div class="goal-whatif">
+          <input type="number" min="0" step="10" inputmode="decimal"
+                 placeholder="What if $/mo…" data-goal-whatif="${g.id}"
+                 aria-label="What-if monthly contribution for ${esc(g.name)}">
+          <span class="goal-whatif-out" data-goal-whatif-out="${g.id}"></span>
+        </div>` : ""}
         <div class="goal-meta" style="margin-top:10px">
           <button class="btn small ghost" data-goal-log="${g.id}">
             ${state.openLogs.has(g.id) ? "Hide log" : "Show log"}</button>
@@ -866,6 +883,19 @@ function wireMain() {
       const id = +el.dataset.goalLog;
       state.openLogs.has(id) ? state.openLogs.delete(id) : state.openLogs.add(id);
       render();
+    }));
+  // Per-goal what-if: type a $/mo, the months-to-finish readout recomputes in
+  // place (a re-render would drop focus mid-typing). Client-side only — the
+  // typed rate is never stored anywhere.
+  $$("[data-goal-whatif]").forEach((el) =>
+    el.addEventListener("input", () => {
+      const p = (window._goalPace || {})[+el.dataset.goalWhatif];
+      const out = $(`[data-goal-whatif-out="${el.dataset.goalWhatif}"]`);
+      if (!p || !out) return;
+      const dollars = parseFloat(el.value);
+      const cents = el.value !== "" && Number.isFinite(dollars)
+        ? Math.round(dollars * 100) : null;
+      out.textContent = goalWhatIfText(p.remaining.cents, cents, thisMonthISO());
     }));
   $$("[data-goal-del]").forEach((el) =>
     el.addEventListener("click", async () => {

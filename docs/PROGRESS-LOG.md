@@ -2172,3 +2172,29 @@ design.
   fixture; old = `origin/main` a6adc03, new = working tree) since no real
   finance.db exists off-Pi — **re-run the gate against a real `dev.db` copy on
   the Pi before deploy**, per the loop. NOT DEPLOYED.
+
+**Goals tab: pace line + per-goal what-if (port increment 2) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** The handoff brief's
+"how long to reach a goal" card, mapped onto what already exists: the deployed
+`goal_pace` derivation + `/api/analytics/goal-pace` (Tier B #16, live since
+Aug 5) already carry saved/target/remaining, the lifetime-average monthly rate,
+and a projected finish — so this increment is FRONTEND-ONLY, no new backend.
+(The brief sketched a trailing-3-month rate; the deployed lifetime-average
+semantics win, per the "deployed spelling wins" rule.)
+- **Each Goals-tab card gains a pace sentence** under its progress bar —
+  "at ~$X/mo, done around <Month Year> — on track/behind target", "funded 🎉",
+  or "no pace yet — log contributions to project a finish" — from
+  `goalPaceLineHTML`, the prose form of the analytics card's status chips.
+  `renderGoals` now fetches `/api/analytics/goal-pace` alongside `/api/goals`
+  (one derivation, every surface) and matches entries by goal_id.
+- **A per-goal what-if input**: type a $/mo and the readout recomputes in place
+  ("≈ N mo — around <Month Year>"), patched without a re-render so typing keeps
+  focus. Pure helpers in render.js, node seam-tested: `goalWhatIf`
+  (ceiling division in integer cents; 0 = funded, null = unreachable),
+  `addMonths` (the backend's months-since-year-zero walk, so year boundaries
+  can't drift), `goalWhatIfText`. The typed rate is never stored; "now" enters
+  at the view layer (`thisMonthISO`), derivations stay clock-free. The
+  standalone card's optional APY input was skipped per the brief (fights the
+  card layout).
+- Suite **550 python + 115 render** green. Frontend-only — no schema, verb,
+  derivation, or money path — **no balance gate**, per precedent. NOT DEPLOYED.

@@ -898,6 +898,44 @@ check("app.js: every bare call resolves — no call to a name that exists nowher
     + `or a missing window.Render import): ${unresolved.join(", ")}`);
 });
 
+// ---- Goals tab: pace line + per-goal what-if ----
+check("goalWhatIf is ceiling division; 0 when funded; null when unreachable", () => {
+  assert.strictEqual(R.goalWhatIf(100000, 25000), 4);
+  assert.strictEqual(R.goalWhatIf(100001, 25000), 5);   // partial month rounds UP
+  assert.strictEqual(R.goalWhatIf(0, 25000), 0);
+  assert.strictEqual(R.goalWhatIf(-50, 25000), 0);      // overfunded is funded
+  assert.strictEqual(R.goalWhatIf(100000, 0), null);
+  assert.strictEqual(R.goalWhatIf(100000, -100), null);
+  assert.strictEqual(R.goalWhatIf(100000, null), null);
+});
+check("addMonths crosses year boundaries like the backend's month window", () => {
+  assert.strictEqual(R.addMonths("2026-08", 4), "2026-12");
+  assert.strictEqual(R.addMonths("2026-08", 5), "2027-01");
+  assert.strictEqual(R.addMonths("2026-12", 25), "2029-01");
+  assert.strictEqual(R.addMonths("2026-01", 0), "2026-01");
+});
+check("goalWhatIfText: readout forms", () => {
+  assert.strictEqual(R.goalWhatIfText(100000, 25000, "2026-08"),
+    "≈ 4 mo — around December 2026");
+  assert.strictEqual(R.goalWhatIfText(0, 25000, "2026-08"), "already funded");
+  assert.strictEqual(R.goalWhatIfText(100000, null, "2026-08"), "");
+  assert.strictEqual(R.goalWhatIfText(100000, 0, "2026-08"), "");
+});
+check("goalPaceLineHTML: complete / no_pace / projected forms", () => {
+  assert.ok(/funded/.test(R.goalPaceLineHTML({ status: "complete" })));
+  assert.ok(/no pace yet/.test(R.goalPaceLineHTML({ status: "no_pace",
+    monthly_rate: null, projected_date: null })));
+  const line = R.goalPaceLineHTML({ status: "on_track",
+    monthly_rate: { cents: 25000, display: "$250.00" },
+    projected_date: "2027-05-14" });
+  assert.ok(line.includes("at ~$250.00/mo"), "rate in the sentence");
+  assert.ok(line.includes("May 2027"), "projected month in the sentence");
+  assert.ok(line.includes("on track"));
+  assert.ok(/behind target/.test(R.goalPaceLineHTML({ status: "behind",
+    monthly_rate: { cents: 100 }, projected_date: "2027-01-02" })));
+  assert.strictEqual(R.goalPaceLineHTML(null), "", "no pace entry, no line");
+});
+
 // ---- Forecast lab: pure what-if math over /api/forecast/baselines ----
 const FC_BASE = {
   anchor: "2026-07", months_back: 6,
