@@ -22,7 +22,8 @@ from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
 from derivations import (anomaly_flags, bill_variance, budget_status,
                          cash_flow_forecast, category_trend,
-                         compute_balance as derive_balance, goal_pace,
+                         compute_balance as derive_balance, forecast_baselines,
+                         goal_pace,
                          income_summary, last_shopping_trip,
                          income_trend, low_stock, member_breakdown,
                          new_staple_suggestions,
@@ -1227,6 +1228,42 @@ def goal_pace_view():
             "projected_date": g["projected_date"],
             "status": g["status"],
         } for g in goal_pace(db, as_of)],
+    })
+
+
+@app.get("/api/forecast/baselines")
+@login_required
+def forecast_baselines_view():
+    """The Forecast lab's inputs: per-category average monthly NET spend and
+    average monthly paycheck income over a trailing window, from the
+    `forecast_baselines` derivation. The lab's what-if math — 0–200% category
+    sliders, the income override, the 6/12/24-month horizon — runs entirely
+    client-side over these measured facts; no scenario is ever posted or
+    stored. `anchor` defaults to the current period, `months_back` clamps to
+    a sane window (like the trend endpoints). Money as {cents, display}.
+    Pure read."""
+    db = get_db()
+    anchor = request.args.get("anchor") or current_period()
+    ym = anchor.split("-")
+    if len(ym) != 2 or not (ym[0].isdigit() and ym[1].isdigit()
+                            and 1 <= int(ym[1]) <= 12):
+        return bad_request("anchor must be YYYY-MM")
+    try:
+        months_back = int(request.args.get("months_back", 6))
+    except (TypeError, ValueError):
+        return bad_request("months_back must be an integer")
+    months_back = max(1, min(months_back, 24))
+    b = forecast_baselines(db, months_back=months_back, anchor=anchor)
+    return jsonify({
+        "anchor": b["anchor"],
+        "months_back": months_back,
+        "months": b["months"],
+        "income_avg": money(b["income_avg_cents"]),
+        "categories": [{
+            "category": c["category"],
+            "avg": money(c["avg_cents"]),
+            "total": money(c["total_cents"]),
+        } for c in b["categories"]],
     })
 
 

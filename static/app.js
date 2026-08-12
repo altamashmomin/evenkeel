@@ -11,6 +11,9 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         memberBreakdownHTML, billVarianceHTML, budgetStatusHTML, savingsRateTrendHTML,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
+        forecastScenario, forecastChartSVG, forecastLabHTML,
+        forecastTargetHTML, forecastOptimize,
+        goalWhatIfText, goalPaceLineHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML } = window.Render;
 
@@ -37,6 +40,11 @@ const state = {
   openLogs: new Set(),
 
   ask: { messages: [], pending: false },   // Ask tab: client-held chat history
+
+  // Forecast lab: the levers only — projections are recomputed from the
+  // baselines on every input, never stored. income "" = use the baseline;
+  // target "" = no savings target set.
+  forecast: { mults: {}, income: "", horizon: 12, target: "" },
 };
 
 function userById(id) {
@@ -273,8 +281,8 @@ dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.cl
 // only ever sees ITS OWN current rows — otherwise a stale pool (e.g. _txns,
 // written by Activity and never cleared) let a tap on another tab resolve to a
 // pre-edit row and Save write the stale values back (CODE-REVIEW-2026-08-07 #5).
-const ROW_STASHES = ["_dash", "_recent", "_txns", "_bills", "_goals",
-                     "_budgets", "_budgetStatus", "_inv"];
+const ROW_STASHES = ["_dash", "_recent", "_txns", "_bills", "_goals", "_goalPace",
+                     "_budgets", "_budgetStatus", "_inv", "_forecast"];
 
 async function render() {
   const main = $("#main");
@@ -510,8 +518,16 @@ async function renderBills() {
 /* ================= goals ================= */
 
 async function renderGoals() {
-  const goals = await api("/api/goals");
+  // Pace rides along: the same /api/analytics/goal-pace the analytics card
+  // reads (one derivation, every surface), matched to cards by goal_id. The
+  // pace entries also carry remaining.cents for the per-goal what-if.
+  const [goals, pace] = await Promise.all([
+    api("/api/goals"),
+    api("/api/analytics/goal-pace"),
+  ]);
   window._goals = goals;
+  window._goalPace = {};
+  (pace.goals || []).forEach((p) => { window._goalPace[p.goal_id] = p; });
   const cards = await Promise.all(goals.map(async (g) => {
     let log = "";
     if (state.openLogs.has(g.id)) {
@@ -539,6 +555,14 @@ async function renderGoals() {
           <span class="amount">${fmt(g.saved)} of ${fmt(g.target)}${eta}</span>
           <span>${Math.round(g.progress * 100)}%</span>
         </div>
+        ${goalPaceLineHTML(window._goalPace[g.id])}
+        ${window._goalPace[g.id] && window._goalPace[g.id].status !== "complete" ? `
+        <div class="goal-whatif">
+          <input type="number" min="0" step="10" inputmode="decimal"
+                 placeholder="What if $/mo…" data-goal-whatif="${g.id}"
+                 aria-label="What-if monthly contribution for ${esc(g.name)}">
+          <span class="goal-whatif-out" data-goal-whatif-out="${g.id}"></span>
+        </div>` : ""}
         <div class="goal-meta" style="margin-top:10px">
           <button class="btn small ghost" data-goal-log="${g.id}">
             ${state.openLogs.has(g.id) ? "Hide log" : "Show log"}</button>
@@ -563,7 +587,7 @@ async function renderAnalytics() {
   // reads a Tier A endpoint — no math here, the server computed it all.
   const m = state.month;
   const [trend, comp, members, bills, savings, forecast, anomalies, recurring, goals,
-         budgetStatus, budgetList, categories] =
+         budgetStatus, budgetList, categories, fcBaselines] =
     await Promise.all([
       api(`/api/income/trend?anchor=${m}&months_back=6`),
       api(`/api/analytics/spending-composition?month=${m}`),
@@ -577,11 +601,15 @@ async function renderAnalytics() {
       api(`/api/analytics/budget-status?period=${m}`),
       api(`/api/budgets`),                       // ids, for the remove handler
       api(`/api/categories`),                    // the add form's picker
+      api(`/api/forecast/baselines?anchor=${m}&months_back=6`),
     ]);
   // Stashed for the budget action handlers: the shown rows (index-addressed) and
   // the id-carrying list (category→id for remove). Same pattern as window._inv.
   window._budgetStatus = budgetStatus.budgets || [];
   window._budgets = budgetList || [];
+  // The Forecast lab's measured baselines: kept so slider input can recompute
+  // the projection client-side without refetching the whole tab.
+  window._forecast = fcBaselines;
   // Drill into the biggest category this month — a trend without a picker.
   let catCard = "";
   const top = (comp.by_category || [])[0];
@@ -607,7 +635,62 @@ async function renderAnalytics() {
     ${recurringChargesHTML(recurring)}
     ${memberBreakdownHTML(members)}
     ${billVarianceHTML(bills)}
-    ${goalPaceHTML(goals)}`;
+    ${goalPaceHTML(goals)}
+    ${forecastLabHTML(fcBaselines, forecastScenarioState())}`;
+}
+
+/* ---- Forecast lab (scenario planning) ----
+   The levers live in state.forecast; the math is render.js's pure
+   forecastScenario over the stashed baselines. Slider/typing events patch the
+   card's numbers in place — a full render() mid-drag would refetch the whole
+   tab and break the drag. */
+
+// state.forecast -> the canonical scenario shape the pure helpers take.
+function forecastScenarioState() {
+  const f = state.forecast;
+  const toCents = (txt) => {
+    const dollars = parseFloat(txt);
+    return txt !== "" && Number.isFinite(dollars) && dollars >= 0
+      ? Math.round(dollars * 100) : null;
+  };
+  return {
+    mults: f.mults,
+    incomeCents: toCents(f.income),
+    incomeText: f.income,
+    targetCents: toCents(f.target),
+    targetText: f.target,
+    horizon: f.horizon,
+  };
+}
+
+// Recompute the projection and patch the card's live numbers: headline,
+// sub, chart, and each slider's percent + scaled $/mo (matched by index —
+// the DOM rows render in baselines order, which is what forecastScenario
+// maps over).
+function refreshForecastLab() {
+  if (!window._forecast) return;
+  const scenario = forecastScenarioState();
+  const p = forecastScenario(window._forecast, scenario);
+  const head = $("#fc-headline");
+  if (!head) return;
+  const end = p.cumulative[p.cumulative.length - 1];
+  head.textContent = (p.net_cents > 0 ? "+" : p.net_cents < 0 ? "−" : "") +
+                     fmt(Math.abs(p.net_cents) / 100);
+  head.className = p.net_cents >= 0 ? "pos" : "neg";
+  $("#fc-sub").textContent =
+    `${end >= 0 ? "keeps" : "runs down"} ${fmt(Math.abs(end) / 100)} ` +
+    `over ${state.forecast.horizon} months at these levers`;
+  $("#fc-chart").innerHTML = forecastChartSVG(p.cumulative);
+  const pcts = $$("[data-fc-pct]"), scaleds = $$("[data-fc-scaled]");
+  p.rows.forEach((row, i) => {
+    if (pcts[i]) pcts[i].textContent = `${row.mult}%`;
+    if (scaleds[i]) scaleds[i].textContent = fmt(row.scaled_cents / 100);
+  });
+  $$("[data-fc-horizon]").forEach((b) =>
+    b.classList.toggle("on", +b.dataset.fcHorizon === state.forecast.horizon));
+  const targetWrap = $("#fc-target-wrap");
+  if (targetWrap)
+    targetWrap.innerHTML = forecastTargetHTML(p, scenario.targetCents);
 }
 
 // Budgets (Analytics Tier C): set/edit upserts one category's monthly limit;
@@ -812,12 +895,70 @@ function wireMain() {
       state.openLogs.has(id) ? state.openLogs.delete(id) : state.openLogs.add(id);
       render();
     }));
+  // Per-goal what-if: type a $/mo, the months-to-finish readout recomputes in
+  // place (a re-render would drop focus mid-typing). Client-side only — the
+  // typed rate is never stored anywhere.
+  $$("[data-goal-whatif]").forEach((el) =>
+    el.addEventListener("input", () => {
+      const p = (window._goalPace || {})[+el.dataset.goalWhatif];
+      const out = $(`[data-goal-whatif-out="${el.dataset.goalWhatif}"]`);
+      if (!p || !out) return;
+      const dollars = parseFloat(el.value);
+      const cents = el.value !== "" && Number.isFinite(dollars)
+        ? Math.round(dollars * 100) : null;
+      out.textContent = goalWhatIfText(p.remaining.cents, cents, thisMonthISO());
+    }));
   $$("[data-goal-del]").forEach((el) =>
     el.addEventListener("click", async () => {
       if (!confirm("Delete this goal and its contribution log?")) return;
       await api(`/api/goals/${el.dataset.goalDel}`, { method: "DELETE" });
       render();
     }));
+
+  // Forecast lab: every lever mutates state.forecast then patches the card
+  // in place (see refreshForecastLab). Reset re-renders — sliders need their
+  // positions put back, and a single click can afford the refetch.
+  $$("[data-fc-cat]").forEach((el) =>
+    el.addEventListener("input", () => {
+      state.forecast.mults[el.dataset.fcCat] = +el.value;
+      refreshForecastLab();
+    }));
+  $("#fc-income")?.addEventListener("input", (e) => {
+    state.forecast.income = e.target.value;
+    refreshForecastLab();
+  });
+  $$("[data-fc-horizon]").forEach((el) =>
+    el.addEventListener("click", () => {
+      state.forecast.horizon = +el.dataset.fcHorizon;
+      refreshForecastLab();
+    }));
+  $("#fc-target")?.addEventListener("input", (e) => {
+    state.forecast.target = e.target.value;
+    refreshForecastLab();
+  });
+  // Suggest cuts: the greedy optimizer returns a new mult map; making it the
+  // REAL slider state (values patched in the DOM, not re-rendered) is the
+  // honesty mechanism — every suggested cut is visible and undoable per
+  // slider. No target typed = nothing to optimize toward.
+  $("#fc-suggest")?.addEventListener("click", () => {
+    const scenario = forecastScenarioState();
+    if (scenario.targetCents == null || !window._forecast) return;
+    const result = forecastOptimize(window._forecast, scenario,
+                                    scenario.targetCents);
+    state.forecast.mults = result.mults;
+    const sliders = $$("[data-fc-cat]");
+    (window._forecast.categories || []).forEach((c, i) => {
+      if (sliders[i])
+        sliders[i].value = result.mults[c.category] != null
+          ? result.mults[c.category] : 100;
+    });
+    refreshForecastLab();
+  });
+  $("#fc-reset")?.addEventListener("click", () => {
+    state.forecast = { mults: {}, income: "", horizon: state.forecast.horizon,
+                       target: state.forecast.target };
+    render();
+  });
 
   // Inventory: tap a status chip to cycle it; check items off the shopping
   // list ("Got it" = bought = stocked); remove a staple; quick-add either kind.

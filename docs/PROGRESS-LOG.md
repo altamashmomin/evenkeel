@@ -2131,3 +2131,108 @@ check that the FK is still real).
   above; `test_trace_route` covers the endpoint, its gate, and the fetch wiring.
   Backend read route + frontend — no schema/verb/derivation/money path, **no
   balance gate**. Suite **536** python + **98** render. NOT YET DEPLOYED.
+
+**Forecast lab (scenario planning, port increment 1) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** First Ledger increment
+from the "Sorting Finances" handoff (Alta & Charlee's standalone scenario
+dashboards, per the Aug-12 Cowork brief): the Cash-Flow-Forecaster's what-if
+mechanics become an Analytics-tab card. Rebuilt in-repo from the brief's spec —
+the Cowork session's "already landed" tree was uncommitted and never left its
+container, so nothing could be salvaged; this is a fresh build against the same
+design.
+- **`derivations.forecast_baselines(db, months_back=6, anchor=None)`** — the
+  lab's measured facts ONLY: per-category average monthly NET spend (through
+  `spending_summary`, so refund-netted exactly like every other surface) plus
+  average monthly paycheck income (through `income_summary`), over the trailing
+  window ending at `anchor` (defaults to the latest data month — clock-free,
+  like the trend derivations). Averages `round_ratio` over the FULL window
+  length (an empty month drags the run rate down — honest); categories whose
+  window total isn't positive are omitted (a refund-dominated category has no
+  run rate to put a lever on). EXEMPT in the derivation tripwire — counts
+  paycheck income by construction, same bounded refund exemption as
+  `category_trend` — with its income-sensitivity contract proven in
+  `test_forecast_baselines` instead.
+- **`GET /api/forecast/baselines`** — anchor validated / months_back clamped
+  like the trend endpoints; `{cents, display}` at the JSON edge. Pure read, and
+  deliberately the ONLY server half: no scenario is ever posted or stored
+  (invariant 4) — the what-ifs live and die client-side.
+- **Frontend: the Forecast-lab card** at the bottom of Analytics: 0–200%
+  per-category sliders over the baselines, an income override input (blank =
+  baseline average), a 6/12/24-month horizon, and a hand-rolled SVG cumulative
+  kept/lost line (zero axis always in frame; deficit dives below it). All math
+  is pure in `render.js` — `forecastScenario` (integer cents client-side too),
+  `forecastLine` (geometry), `forecastChartSVG`, `forecastLabHTML` — node
+  seam-tested (15 new checks incl. an attribute-breakout XSS probe on category
+  names). `app.js` keeps the levers in `state.forecast` and patches the card's
+  numbers in place on input (`refreshForecastLab`) — a full re-render mid-drag
+  would refetch the tab and break the drag; Reset is the one full re-render.
+  Honest copy on the card: "nothing here is saved, and it's not a prediction."
+- Suite **550 python + 111 render** green. **Balance gate PASS — zero diff**
+  (42 values), run in the cloud against a synthetic dev.db (seed 42 + income
+  fixture; old = `origin/main` a6adc03, new = working tree) since no real
+  finance.db exists off-Pi — **re-run the gate against a real `dev.db` copy on
+  the Pi before deploy**, per the loop. NOT DEPLOYED.
+
+**Goals tab: pace line + per-goal what-if (port increment 2) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** The handoff brief's
+"how long to reach a goal" card, mapped onto what already exists: the deployed
+`goal_pace` derivation + `/api/analytics/goal-pace` (Tier B #16, live since
+Aug 5) already carry saved/target/remaining, the lifetime-average monthly rate,
+and a projected finish — so this increment is FRONTEND-ONLY, no new backend.
+(The brief sketched a trailing-3-month rate; the deployed lifetime-average
+semantics win, per the "deployed spelling wins" rule.)
+- **Each Goals-tab card gains a pace sentence** under its progress bar —
+  "at ~$X/mo, done around <Month Year> — on track/behind target", "funded 🎉",
+  or "no pace yet — log contributions to project a finish" — from
+  `goalPaceLineHTML`, the prose form of the analytics card's status chips.
+  `renderGoals` now fetches `/api/analytics/goal-pace` alongside `/api/goals`
+  (one derivation, every surface) and matches entries by goal_id.
+- **A per-goal what-if input**: type a $/mo and the readout recomputes in place
+  ("≈ N mo — around <Month Year>"), patched without a re-render so typing keeps
+  focus. Pure helpers in render.js, node seam-tested: `goalWhatIf`
+  (ceiling division in integer cents; 0 = funded, null = unreachable),
+  `addMonths` (the backend's months-since-year-zero walk, so year boundaries
+  can't drift), `goalWhatIfText`. The typed rate is never stored; "now" enters
+  at the view layer (`thisMonthISO`), derivations stay clock-free. The
+  standalone card's optional APY input was skipped per the brief (fights the
+  card layout).
+- Suite **550 python + 115 render** green. Frontend-only — no schema, verb,
+  derivation, or money path — **no balance gate**, per precedent. NOT DEPLOYED.
+
+**Savings target + "Suggest cuts" optimizer in the Forecast lab (port
+increment 3, the last planned one) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** The standalone
+Savings-optimizer's mechanics, riding the lab: the sliders ARE the levers, so
+this is FRONTEND-ONLY — no new backend, no new endpoint.
+- **A savings-target input** in the lab card (state.forecast.target, "" = none):
+  typing patches a status line — "on pace — $X/mo clears the $Y target" /
+  "short by $Z/mo" — and a goal-bar-styled progress bar (net/target, clamped
+  to [0,100]% so a deficit shows empty, not negative). `forecastTargetHTML`,
+  pure and seam-tested.
+- **"Suggest cuts"**: `forecastOptimize(baselines, scenario, targetCents)` —
+  greedy client-side walk over categories by baseline descending, lowering each
+  lever to 75%, then a second pass to 50%, until the scenario's net clears the
+  target. Only ever LOWERS (a hand-set 30% stays 30%), stops the moment the
+  target is met, and gives up honestly (`achieved: false`, everything at the
+  floor) when even 50% across the board can't reach it. The result becomes the
+  REAL slider state — values patched into the DOM — so every suggested cut is
+  visible and individually undoable; that's the honesty mechanism the brief
+  asked for ("what-ifs over baselines, not commands"). Reset keeps the target
+  (it's the user's goal; the levers are the levers).
+- Seam tests cover the greedy math (hits target & stops early, on-target no-op,
+  never raises a lever, honest give-up with exact floor net, income-override
+  interplay) plus the status-line forms and bar clamping. Suite **550 python +
+  123 render** green. Frontend-only — **no balance gate**. NOT DEPLOYED.
+
+**Port scope note (from the Aug-12 handoff brief, recorded so nobody re-opens
+them):** NOT ported, deliberately — the standalone fixed-cost ledger
+(bills + member attribution already are this; porting would duplicate nouns),
+the named pay-scenario buttons (the lab's income override covers the mechanics;
+personal pay figures stay out of the repo — a named-presets frontend add can
+come later if Alta asks), "Elephant in the room" (Alta removed it from the
+standalone; anomaly surfacing exists as Tier B #15), and the compare-any-two
+panel (existing analytics cards cover it; revisit only on request). Data facts
+worth keeping: Charlee's BofA account only receives ~half her $3,296.32
+biweekly pay Jan–Jun (if that account ever syncs in, income figures change
+materially); Alta's confirmed fixed amounts live in the brief for seeding
+bills if asked.

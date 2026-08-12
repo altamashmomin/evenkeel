@@ -527,6 +527,230 @@
       <ul class="list">${rows}</ul></div>`;
   }
 
+  /* ===== Goals tab: pace line + per-goal what-if =====
+     Pure helpers over one /api/analytics/goal-pace entry. The server projects
+     at the goal's lifetime-average rate; the what-if is the user's own number,
+     computed client-side and never stored. */
+
+  // Months to cover `remaining_cents` at `monthly_cents` per month — ceiling
+  // division in integer cents. 0 when nothing remains; null when the rate can
+  // never get there (missing, zero, or negative).
+  function goalWhatIf(remaining_cents, monthly_cents) {
+    if (remaining_cents <= 0) return 0;
+    if (!monthly_cents || monthly_cents <= 0) return null;
+    return Math.ceil(remaining_cents / monthly_cents);
+  }
+
+  // 'YYYY-MM' + n months, the same months-since-year-zero integer walk the
+  // backend's _month_window uses, so year boundaries can't drift.
+  function addMonths(ym, n) {
+    const [y, m] = ym.split("-").map(Number);
+    const idx = y * 12 + (m - 1) + n;
+    return `${String(Math.floor(idx / 12)).padStart(4, "0")}-${String((idx % 12) + 1).padStart(2, "0")}`;
+  }
+
+  // The what-if readout. anchorYM is the month to count from — the view
+  // layer's "now" (derivations stay clock-free; today enters here, like the
+  // pantry's forecast framing). "" until a usable amount is typed.
+  function goalWhatIfText(remaining_cents, monthly_cents, anchorYM) {
+    const months = goalWhatIf(remaining_cents, monthly_cents);
+    if (months == null) return "";
+    if (months === 0) return "already funded";
+    return `≈ ${months} mo — around ${monthName(addMonths(anchorYM, months))}`;
+  }
+
+  // The per-goal pace sentence under the progress bar, prose form of the
+  // analytics card's status chips.
+  function goalPaceLineHTML(p) {
+    if (!p) return "";
+    if (p.status === "complete")
+      return `<p class="goal-pace">funded 🎉</p>`;
+    if (p.status === "no_pace" || !p.monthly_rate || !p.projected_date)
+      return `<p class="goal-pace">no pace yet — log contributions to project a finish</p>`;
+    const when = monthName(p.projected_date.slice(0, 7));
+    const chip = p.status === "behind" ? " — behind target"
+               : p.status === "on_track" ? " — on track" : "";
+    return `<p class="goal-pace">at ~${amt(p.monthly_rate)}/mo, done around ${when}${chip}</p>`;
+  }
+
+  /* ===== Forecast lab (scenario planning) =====
+     Pure what-if arithmetic over /api/forecast/baselines. The server states
+     measured facts (per-category monthly spend averages + average paycheck
+     income); everything speculative happens here, client-side, in integer
+     cents, and none of it is ever posted back or stored. */
+
+  // scenario: { mults: {category: pct 0..200}, incomeCents: int|null (null =
+  // baseline income), horizon: months }. Returns the projected month: each
+  // category scaled by its slider, the income lever applied, the monthly net,
+  // and the cumulative kept/lost line over the horizon.
+  function forecastScenario(baselines, scenario) {
+    const s = scenario || {};
+    const mults = s.mults || {};
+    const rows = (baselines.categories || []).map((c) => {
+      const mult = mults[c.category] != null ? +mults[c.category] : 100;
+      return {
+        category: c.category, avg_cents: c.avg.cents, mult,
+        scaled_cents: Math.round(c.avg.cents * mult / 100),
+      };
+    });
+    const spend = rows.reduce((sum, r) => sum + r.scaled_cents, 0);
+    const income = s.incomeCents != null
+      ? s.incomeCents
+      : (baselines.income_avg ? baselines.income_avg.cents : 0);
+    const net = income - spend;
+    const horizon = s.horizon || 12;
+    const cumulative = [];
+    for (let i = 1; i <= horizon; i++) cumulative.push(net * i);
+    return { income_cents: income, spend_cents: spend, net_cents: net,
+             rows, cumulative };
+  }
+
+  // Pure geometry for the cumulative line: month-index/cents -> SVG coords
+  // (y grows downward). The y-domain always includes 0 so the zero axis stays
+  // in frame and a deficit line visibly dives below it. Kept separate from
+  // the SVG string so the scaling math is unit-tested directly.
+  function forecastLine(cumulative, dims) {
+    const { w, h, padL, padR, padT, padB } = dims;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+    const lo = Math.min(0, ...cumulative), hi = Math.max(0, ...cumulative);
+    const span = Math.max(1, hi - lo);
+    const n = cumulative.length;
+    const x = (i) => padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+    const y = (v) => padT + ((hi - v) / span) * plotH;
+    return { zeroY: y(0),
+             points: cumulative.map((v, i) => ({ x: x(i), y: y(v) })) };
+  }
+
+  function forecastChartSVG(cumulative, dims) {
+    if (!cumulative.length) return "";
+    const W = 320, H = 132;
+    const d = dims || { w: W, h: H, padL: 6, padR: 6, padT: 14, padB: 18 };
+    const { zeroY, points } = forecastLine(cumulative, d);
+    const r = (v) => Math.round(v * 10) / 10;
+    const pts = points.map((p) => `${r(p.x)},${r(p.y)}`).join(" ");
+    const last = points[points.length - 1];
+    const end = cumulative[cumulative.length - 1];
+    const cls = end >= 0 ? "pos" : "neg";
+    const ticks = [...new Set([1, Math.ceil(cumulative.length / 2),
+                               cumulative.length])];
+    const labels = ticks.map((m) => {
+      const p = points[m - 1];
+      return `<text class="chart-x" x="${r(p.x)}" y="${d.h - 4}" text-anchor="middle">${m}mo</text>`;
+    }).join("");
+    return `
+      <svg class="chart-svg" viewBox="0 0 ${d.w} ${d.h}" role="img"
+           aria-label="Cumulative amount kept over the horizon">
+        <line class="chart-grid" x1="${d.padL}" y1="${r(zeroY)}" x2="${d.w - d.padR}" y2="${r(zeroY)}"/>
+        <polyline class="fc-line ${cls}" points="${pts}"/>
+        <circle class="fc-dot ${cls}" cx="${r(last.x)}" cy="${r(last.y)}" r="3"/>
+        ${labels}
+      </svg>`;
+  }
+
+  // Savings-target status: how the scenario's monthly net stands against the
+  // typed target. "" when no target is set. The bar reuses the goal-bar look;
+  // width clamps to [0,100]% (a deficit shows an empty bar, not a negative one).
+  function forecastTargetHTML(p, targetCents) {
+    if (targetCents == null) return "";
+    const pct = targetCents > 0
+      ? Math.max(0, Math.min(1, p.net_cents / targetCents)) : 1;
+    const met = p.net_cents >= targetCents;
+    const line = met
+      ? `on pace — ${fmt(p.net_cents / 100)}/mo clears the ${fmt(targetCents / 100)} target`
+      : `short by ${fmt((targetCents - p.net_cents) / 100)}/mo of the ${fmt(targetCents / 100)} target`;
+    return `<p class="fc-target-line ${met ? "pos" : "neg"}">${line}</p>
+      <div class="goal-bar"><i style="width:${(pct * 100).toFixed(1)}%"></i></div>`;
+  }
+
+  // "Suggest cuts": greedy walk over the categories by baseline descending
+  // (the order the server already returns), lowering each lever to 75%, then a
+  // second pass to 50%, until the scenario's net clears the target. Only ever
+  // LOWERS a lever (a hand-set 30% stays 30%), stops the moment the target is
+  // met, and gives up honestly — `achieved: false` with every lever at the
+  // floor — when even that can't reach it. Returns a NEW mult map (the caller
+  // sets it as real slider state, so every suggestion is visible and
+  // individually undoable); these are what-ifs over baselines, not commands.
+  function forecastOptimize(baselines, scenario, targetCents) {
+    const s = scenario || {};
+    const mults = { ...(s.mults || {}) };
+    const net = () => forecastScenario(baselines, { ...s, mults }).net_cents;
+    let current = net();
+    for (const floor of [75, 50]) {
+      for (const c of baselines.categories || []) {
+        if (current >= targetCents)
+          return { mults, net_cents: current, achieved: true };
+        const cur = mults[c.category] != null ? mults[c.category] : 100;
+        if (cur > floor) {
+          mults[c.category] = floor;
+          current = net();
+        }
+      }
+    }
+    return { mults, net_cents: current, achieved: current >= targetCents };
+  }
+
+  // The Forecast-lab card. scenario additionally carries incomeText (the raw
+  // override string, so the input round-trips what was typed). All the ids /
+  // data-attrs are the patch points app.js updates in place on slider input —
+  // a full re-render mid-drag would break the drag.
+  function forecastLabHTML(baselines, scenario) {
+    const cats = baselines.categories || [];
+    const baseIncome = baselines.income_avg ? baselines.income_avg.cents : 0;
+    if (!cats.length && !baseIncome) {
+      return `<div class="card"><p class="eyebrow">Forecast lab</p>
+        <p class="empty">Not enough history yet to project from.</p></div>`;
+    }
+    const s = scenario || {};
+    const p = forecastScenario(baselines, s);
+    const horizon = s.horizon || 12;
+    const months = baselines.months || [];
+    const end = p.cumulative[p.cumulative.length - 1];
+    const sliders = p.rows.map((row) => `
+      <div class="fc-row">
+        <div class="fc-top">
+          <span class="fc-name">${esc(row.category)}</span>
+          <span class="fc-val"><span data-fc-pct>${row.mult}%</span> · <span class="amount" data-fc-scaled>${fmt(row.scaled_cents / 100)}</span>/mo</span>
+        </div>
+        <input type="range" min="0" max="200" step="5" value="${row.mult}"
+               data-fc-cat="${esc(row.category)}"
+               aria-label="${esc(row.category)} spending level, percent of the ${fmt(row.avg_cents / 100)} average">
+      </div>`).join("");
+    const horizonBtns = [6, 12, 24].map((m) =>
+      `<button type="button" data-fc-horizon="${m}"${m === horizon ? ' class="on"' : ""}>${m} mo</button>`).join("");
+    return `<div class="card" id="forecast-lab">
+      <p class="eyebrow">Forecast lab</p>
+      <p class="chart-headline"><span id="fc-headline" class="${p.net_cents >= 0 ? "pos" : "neg"}">${signedCents(p.net_cents)}</span> /mo</p>
+      <p class="chart-sub" id="fc-sub">${end >= 0 ? "keeps" : "runs down"} ${fmt(Math.abs(end) / 100)} over ${horizon} months at these levers</p>
+      <div id="fc-chart">${forecastChartSVG(p.cumulative)}</div>
+      <div class="seg fc-horizon">${horizonBtns}</div>
+      <div class="fc-row fc-income">
+        <div class="fc-top">
+          <span class="fc-name">Income</span>
+          <span class="fc-val">avg <span class="amount">${fmt(baseIncome / 100)}</span>/mo</span>
+        </div>
+        <input type="number" id="fc-income" inputmode="decimal" min="0" step="1"
+               placeholder="${(baseIncome / 100).toFixed(2)}"
+               value="${esc(s.incomeText || "")}"
+               aria-label="Assume monthly income, dollars">
+      </div>
+      <div class="fc-row fc-target">
+        <div class="fc-top">
+          <span class="fc-name">Savings target</span>
+          <input type="number" id="fc-target" inputmode="decimal" min="0" step="25"
+                 placeholder="$/mo" value="${esc(s.targetText || "")}"
+                 aria-label="Monthly savings target, dollars">
+        </div>
+        <div id="fc-target-wrap">${forecastTargetHTML(p, s.targetCents != null ? s.targetCents : null)}</div>
+        <button class="btn ghost small" id="fc-suggest" type="button"
+                title="Lower the biggest categories to 75%, then 50%, until the target clears — what-ifs only, undo any slider">
+          Suggest cuts</button>
+      </div>
+      ${sliders}
+      <p class="fc-note">What-ifs over your last ${months.length || "few"}-month averages — nothing here is saved, and it's not a prediction.</p>
+      <button class="btn ghost small" id="fc-reset" type="button">Reset levers</button>
+    </div>`;
+  }
+
   // The Ask tab's chat thread. Pure function of the client-held messages
   // ([{role:'user'|'assistant', content}]) plus a pending flag. Content is
   // escaped and rendered as plain text (newlines preserved by CSS white-space);
@@ -1041,5 +1265,8 @@
            budgetStatusHTML,
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
+           forecastScenario, forecastLine, forecastChartSVG, forecastLabHTML,
+           forecastTargetHTML, forecastOptimize,
+           goalWhatIf, addMonths, goalWhatIfText, goalPaceLineHTML,
            askThreadHTML, agentsHTML, opsPanelHTML };
 });

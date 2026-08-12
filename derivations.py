@@ -382,6 +382,55 @@ def cash_flow_forecast(db, period=None):
     }
 
 
+def forecast_baselines(db, months_back=6, anchor=None):
+    """Per-category average monthly NET spend plus average monthly true
+    income over a trailing window — the Forecast lab's measured facts
+    (scenario planning). The lab's what-ifs (0–200% category sliders, the
+    income override, the horizon) are CLIENT-side arithmetic over these
+    numbers; the server states only what was measured, nothing speculative
+    is ever stored (invariant 4), and this stays a pure read.
+
+    Composes `spending_summary` per month (so category spend is refund-
+    NETTED exactly as every other surface) and `income_summary` (true
+    income = paychecks only) over the window ending at `anchor`, which
+    defaults to the latest data month — clock-free and deterministic, like
+    the trend derivations. Averages divide the window TOTAL by the full
+    window length with `round_ratio` (an empty month drags the average
+    down — honest: this is the run rate over the whole window, not over
+    active months). Categories whose window total isn't positive are
+    omitted: a refund-dominated category has no monthly run rate worth
+    putting a lever on. Integer cents throughout.
+
+    EXEMPT in the derivation tripwire: the income baseline counts paycheck
+    inflows by construction (built on income_summary), and category spend
+    reads refund inflows on purpose via spending_summary — the same
+    bounded exemption as category_trend."""
+    if anchor is None:
+        anchor = _latest_data_month(db)
+    if anchor is None:
+        return {"anchor": None, "months": [], "income_avg_cents": 0,
+                "categories": []}
+    months = _month_window(anchor, months_back)
+    income_total = 0
+    cat_totals = {}
+    for month in months:
+        income_total += income_summary(db, month)["true_income_cents"]
+        for entry in spending_summary(db, month)[month]["by_category"]:
+            cat_totals[entry["category"]] = (
+                cat_totals.get(entry["category"], 0) + entry["amount_cents"])
+    categories = [
+        {"category": name, "total_cents": total,
+         "avg_cents": round_ratio(total, len(months))}
+        for name, total in cat_totals.items() if total > 0]
+    categories.sort(key=lambda c: (-c["avg_cents"], c["category"]))
+    return {
+        "anchor": anchor,
+        "months": months,
+        "income_avg_cents": round_ratio(income_total, len(months)),
+        "categories": categories,
+    }
+
+
 def goal_pace(db, as_of=None):
     """Per-goal completion-date projection at the LIFETIME-AVERAGE contribution
     rate (analytics Tier B #16): net saved ÷ days since the first contribution
