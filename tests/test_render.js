@@ -898,4 +898,108 @@ check("app.js: every bare call resolves — no call to a name that exists nowher
     + `or a missing window.Render import): ${unresolved.join(", ")}`);
 });
 
+// ---- Forecast lab: pure what-if math over /api/forecast/baselines ----
+const FC_BASE = {
+  anchor: "2026-07", months_back: 6,
+  months: ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"],
+  income_avg: { cents: 500000, display: "$5,000.00" },
+  categories: [
+    { category: "Housing", avg: { cents: 200000, display: "$2,000.00" },
+      total: { cents: 1200000, display: "$12,000.00" } },
+    { category: "Groceries", avg: { cents: 60000, display: "$600.00" },
+      total: { cents: 360000, display: "$3,600.00" } },
+  ],
+};
+
+check("forecastScenario defaults: every lever at 100%, baseline income", () => {
+  const p = R.forecastScenario(FC_BASE, {});
+  assert.deepStrictEqual(p.rows.map((r) => r.mult), [100, 100]);
+  assert.strictEqual(p.spend_cents, 260000);
+  assert.strictEqual(p.income_cents, 500000);
+  assert.strictEqual(p.net_cents, 240000);
+  assert.strictEqual(p.cumulative.length, 12);       // default horizon
+  assert.strictEqual(p.cumulative[0], 240000);       // net * 1
+  assert.strictEqual(p.cumulative[11], 240000 * 12); // net * 12
+});
+check("forecastScenario scales categories by their slider", () => {
+  const p = R.forecastScenario(FC_BASE, { mults: { Housing: 50, Groceries: 0 } });
+  assert.deepStrictEqual(p.rows.map((r) => r.scaled_cents), [100000, 0]);
+  assert.strictEqual(p.net_cents, 500000 - 100000);
+});
+check("forecastScenario income override replaces the baseline; null keeps it", () => {
+  const over = R.forecastScenario(FC_BASE, { incomeCents: 100000 });
+  assert.strictEqual(over.income_cents, 100000);
+  assert.strictEqual(over.net_cents, 100000 - 260000);   // a deficit now
+  const keep = R.forecastScenario(FC_BASE, { incomeCents: null });
+  assert.strictEqual(keep.income_cents, 500000);
+});
+check("forecastScenario honors the horizon", () => {
+  const p = R.forecastScenario(FC_BASE, { horizon: 24 });
+  assert.strictEqual(p.cumulative.length, 24);
+});
+check("forecastScenario rounds scaled cents (integer money client-side too)", () => {
+  const base = { income_avg: { cents: 0 }, categories: [
+    { category: "X", avg: { cents: 333, display: "" }, total: { cents: 333, display: "" } }] };
+  const p = R.forecastScenario(base, { mults: { X: 50 } });
+  assert.strictEqual(p.rows[0].scaled_cents, 167);   // 166.5 -> 167
+});
+
+const FC_DIMS = { w: 320, h: 132, padL: 6, padR: 6, padT: 14, padB: 18 };
+check("forecastLine keeps the zero axis in frame and a surplus line rising", () => {
+  const g = R.forecastLine([100, 200, 300], FC_DIMS);
+  assert.ok(g.zeroY >= FC_DIMS.padT && g.zeroY <= FC_DIMS.h - FC_DIMS.padB,
+    "zero axis outside the plot");
+  // y grows downward: a rising cumulative line ends ABOVE where it starts
+  assert.ok(g.points[2].y < g.points[0].y);
+  // and never crosses below the zero axis
+  g.points.forEach((p) => assert.ok(p.y <= g.zeroY + 0.001));
+});
+check("forecastLine deficit dips below the zero axis", () => {
+  const g = R.forecastLine([-100, -200], FC_DIMS);
+  g.points.forEach((p) => assert.ok(p.y > g.zeroY));
+});
+check("forecastLine spreads x across the plot; single point centers", () => {
+  const g = R.forecastLine([5, 10, 15], FC_DIMS);
+  assert.strictEqual(g.points[0].x, FC_DIMS.padL);
+  assert.strictEqual(g.points[2].x, FC_DIMS.w - FC_DIMS.padR);
+  const one = R.forecastLine([5], FC_DIMS);
+  assert.ok(Math.abs(one.points[0].x - FC_DIMS.w / 2) < 1);
+});
+check("forecastChartSVG colors by the ending sign; empty -> no chart", () => {
+  assert.ok(/fc-line pos/.test(R.forecastChartSVG([100, 200])));
+  assert.ok(/fc-line neg/.test(R.forecastChartSVG([100, -50])));
+  assert.strictEqual(R.forecastChartSVG([]), "");
+});
+
+check("forecastLabHTML renders one slider per category at its lever", () => {
+  const html = R.forecastLabHTML(FC_BASE, { mults: { Housing: 75 }, horizon: 12 });
+  const sliders = html.match(/type="range"/g) || [];
+  assert.strictEqual(sliders.length, 2);
+  assert.ok(html.includes('value="75"'), "moved lever round-trips to its slider");
+  assert.ok(/data-fc-horizon="12" class="on"/.test(html), "horizon button lit");
+  // Housing at 75% -> spend 150000+60000, net 500000-210000 = +$2,900/mo
+  assert.ok(html.includes("+$2,900.00"), "headline shows the moved-lever net");
+  assert.ok(!html.includes("+$2,400.00"), "not the default-lever net");
+});
+check("forecastLabHTML is honest about surplus vs deficit", () => {
+  const up = R.forecastLabHTML(FC_BASE, {});
+  assert.ok(/keeps .* over 12 months/.test(up));
+  const down = R.forecastLabHTML(FC_BASE, { incomeCents: 0, incomeText: "0" });
+  assert.ok(/runs down .* over 12 months/.test(down));
+});
+check("forecastLabHTML empty baselines -> honest empty card", () => {
+  const html = R.forecastLabHTML({ income_avg: { cents: 0 }, categories: [] }, {});
+  assert.ok(/Not enough history/.test(html));
+  assert.ok(!/type="range"/.test(html));
+});
+check("hostile category name cannot break out of a slider attribute", () => {
+  const evil = 'Rent" onmouseover=alert(1) x="';
+  const base = { income_avg: { cents: 1000, display: "$10.00" }, categories: [
+    { category: evil, avg: { cents: 500, display: "$5.00" },
+      total: { cents: 500, display: "$5.00" } }] };
+  const html = R.forecastLabHTML(base, {});
+  assert.ok(!/"\s+onmouseover=/.test(html),
+    "hostile category broke out of the attribute into a live handler");
+});
+
 console.log(`render tests passed (${passed} checks)`);

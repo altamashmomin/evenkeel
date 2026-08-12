@@ -11,6 +11,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         memberBreakdownHTML, billVarianceHTML, budgetStatusHTML, savingsRateTrendHTML,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
+        forecastScenario, forecastChartSVG, forecastLabHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML } = window.Render;
 
@@ -37,6 +38,10 @@ const state = {
   openLogs: new Set(),
 
   ask: { messages: [], pending: false },   // Ask tab: client-held chat history
+
+  // Forecast lab: the levers only — projections are recomputed from the
+  // baselines on every input, never stored. income "" = use the baseline.
+  forecast: { mults: {}, income: "", horizon: 12 },
 };
 
 function userById(id) {
@@ -274,7 +279,7 @@ dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.cl
 // written by Activity and never cleared) let a tap on another tab resolve to a
 // pre-edit row and Save write the stale values back (CODE-REVIEW-2026-08-07 #5).
 const ROW_STASHES = ["_dash", "_recent", "_txns", "_bills", "_goals",
-                     "_budgets", "_budgetStatus", "_inv"];
+                     "_budgets", "_budgetStatus", "_inv", "_forecast"];
 
 async function render() {
   const main = $("#main");
@@ -563,7 +568,7 @@ async function renderAnalytics() {
   // reads a Tier A endpoint — no math here, the server computed it all.
   const m = state.month;
   const [trend, comp, members, bills, savings, forecast, anomalies, recurring, goals,
-         budgetStatus, budgetList, categories] =
+         budgetStatus, budgetList, categories, fcBaselines] =
     await Promise.all([
       api(`/api/income/trend?anchor=${m}&months_back=6`),
       api(`/api/analytics/spending-composition?month=${m}`),
@@ -577,11 +582,15 @@ async function renderAnalytics() {
       api(`/api/analytics/budget-status?period=${m}`),
       api(`/api/budgets`),                       // ids, for the remove handler
       api(`/api/categories`),                    // the add form's picker
+      api(`/api/forecast/baselines?anchor=${m}&months_back=6`),
     ]);
   // Stashed for the budget action handlers: the shown rows (index-addressed) and
   // the id-carrying list (category→id for remove). Same pattern as window._inv.
   window._budgetStatus = budgetStatus.budgets || [];
   window._budgets = budgetList || [];
+  // The Forecast lab's measured baselines: kept so slider input can recompute
+  // the projection client-side without refetching the whole tab.
+  window._forecast = fcBaselines;
   // Drill into the biggest category this month — a trend without a picker.
   let catCard = "";
   const top = (comp.by_category || [])[0];
@@ -607,7 +616,53 @@ async function renderAnalytics() {
     ${recurringChargesHTML(recurring)}
     ${memberBreakdownHTML(members)}
     ${billVarianceHTML(bills)}
-    ${goalPaceHTML(goals)}`;
+    ${goalPaceHTML(goals)}
+    ${forecastLabHTML(fcBaselines, forecastScenarioState())}`;
+}
+
+/* ---- Forecast lab (scenario planning) ----
+   The levers live in state.forecast; the math is render.js's pure
+   forecastScenario over the stashed baselines. Slider/typing events patch the
+   card's numbers in place — a full render() mid-drag would refetch the whole
+   tab and break the drag. */
+
+// state.forecast -> the canonical scenario shape the pure helpers take.
+function forecastScenarioState() {
+  const f = state.forecast;
+  const dollars = parseFloat(f.income);
+  return {
+    mults: f.mults,
+    incomeCents: f.income !== "" && Number.isFinite(dollars) && dollars >= 0
+      ? Math.round(dollars * 100) : null,
+    incomeText: f.income,
+    horizon: f.horizon,
+  };
+}
+
+// Recompute the projection and patch the card's live numbers: headline,
+// sub, chart, and each slider's percent + scaled $/mo (matched by index —
+// the DOM rows render in baselines order, which is what forecastScenario
+// maps over).
+function refreshForecastLab() {
+  if (!window._forecast) return;
+  const p = forecastScenario(window._forecast, forecastScenarioState());
+  const head = $("#fc-headline");
+  if (!head) return;
+  const end = p.cumulative[p.cumulative.length - 1];
+  head.textContent = (p.net_cents > 0 ? "+" : p.net_cents < 0 ? "−" : "") +
+                     fmt(Math.abs(p.net_cents) / 100);
+  head.className = p.net_cents >= 0 ? "pos" : "neg";
+  $("#fc-sub").textContent =
+    `${end >= 0 ? "keeps" : "runs down"} ${fmt(Math.abs(end) / 100)} ` +
+    `over ${state.forecast.horizon} months at these levers`;
+  $("#fc-chart").innerHTML = forecastChartSVG(p.cumulative);
+  const pcts = $$("[data-fc-pct]"), scaleds = $$("[data-fc-scaled]");
+  p.rows.forEach((row, i) => {
+    if (pcts[i]) pcts[i].textContent = `${row.mult}%`;
+    if (scaleds[i]) scaleds[i].textContent = fmt(row.scaled_cents / 100);
+  });
+  $$("[data-fc-horizon]").forEach((b) =>
+    b.classList.toggle("on", +b.dataset.fcHorizon === state.forecast.horizon));
 }
 
 // Budgets (Analytics Tier C): set/edit upserts one category's monthly limit;
@@ -818,6 +873,28 @@ function wireMain() {
       await api(`/api/goals/${el.dataset.goalDel}`, { method: "DELETE" });
       render();
     }));
+
+  // Forecast lab: every lever mutates state.forecast then patches the card
+  // in place (see refreshForecastLab). Reset re-renders — sliders need their
+  // positions put back, and a single click can afford the refetch.
+  $$("[data-fc-cat]").forEach((el) =>
+    el.addEventListener("input", () => {
+      state.forecast.mults[el.dataset.fcCat] = +el.value;
+      refreshForecastLab();
+    }));
+  $("#fc-income")?.addEventListener("input", (e) => {
+    state.forecast.income = e.target.value;
+    refreshForecastLab();
+  });
+  $$("[data-fc-horizon]").forEach((el) =>
+    el.addEventListener("click", () => {
+      state.forecast.horizon = +el.dataset.fcHorizon;
+      refreshForecastLab();
+    }));
+  $("#fc-reset")?.addEventListener("click", () => {
+    state.forecast = { mults: {}, income: "", horizon: state.forecast.horizon };
+    render();
+  });
 
   // Inventory: tap a status chip to cycle it; check items off the shopping
   // list ("Got it" = bought = stocked); remove a staple; quick-add either kind.

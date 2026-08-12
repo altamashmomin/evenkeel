@@ -85,6 +85,14 @@ Then (Aug 10): **`GET /api/ontology` + the Trace Web data-driven from it** — t
 map now fetches its facts at load, so it cannot drift; two real ontology-
 derivation bugs (docstring-as-call, paren-less references) found and fixed in the
 process. On `rework` (`f757174`), suite 536+98, no gate — not yet deployed.
+Then (Aug 12): **the Forecast lab** — port increment 1 from Alta & Charlee's
+standalone scenario dashboards (the "Sorting Finances" Cowork handoff):
+`derivations.forecast_baselines` + `GET /api/forecast/baselines` (measured
+facts only; every what-if is client-side, nothing scenario-shaped stored) + an
+Analytics-tab card with 0–200% category sliders, an income override, a
+6/12/24-mo horizon, and a hand-rolled SVG cumulative line. On
+`claude/scenario-planning-ledger-4lt781`; suite 550+111, gate PASS zero-diff
+(synthetic dev.db — re-gate on the Pi before deploy). Not deployed.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

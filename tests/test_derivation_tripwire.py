@@ -81,6 +81,11 @@ EXEMPT = {
                      "through spending_summary — so category spend is refund-"
                      "NETTED (same bounded exemption as category_trend); a "
                      "refund can legitimately clear an anomaly.",
+    "forecast_baselines": "the Forecast lab's measured facts — average "
+                          "monthly paycheck income (built on income_summary, "
+                          "counts inflows by construction) plus refund-NETTED "
+                          "per-category averages via spending_summary (the "
+                          "same bounded exemption as category_trend).",
     "budget_status": "category budgets vs actual net spend, read through "
                      "spending_summary — so 'actual' is refund-NETTED (same "
                      "bounded exemption as category_trend); a refund can "

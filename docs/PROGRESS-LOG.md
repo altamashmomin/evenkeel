@@ -2131,3 +2131,44 @@ check that the FK is still real).
   above; `test_trace_route` covers the endpoint, its gate, and the fetch wiring.
   Backend read route + frontend — no schema/verb/derivation/money path, **no
   balance gate**. Suite **536** python + **98** render. NOT YET DEPLOYED.
+
+**Forecast lab (scenario planning, port increment 1) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** First Ledger increment
+from the "Sorting Finances" handoff (Alta & Charlee's standalone scenario
+dashboards, per the Aug-12 Cowork brief): the Cash-Flow-Forecaster's what-if
+mechanics become an Analytics-tab card. Rebuilt in-repo from the brief's spec —
+the Cowork session's "already landed" tree was uncommitted and never left its
+container, so nothing could be salvaged; this is a fresh build against the same
+design.
+- **`derivations.forecast_baselines(db, months_back=6, anchor=None)`** — the
+  lab's measured facts ONLY: per-category average monthly NET spend (through
+  `spending_summary`, so refund-netted exactly like every other surface) plus
+  average monthly paycheck income (through `income_summary`), over the trailing
+  window ending at `anchor` (defaults to the latest data month — clock-free,
+  like the trend derivations). Averages `round_ratio` over the FULL window
+  length (an empty month drags the run rate down — honest); categories whose
+  window total isn't positive are omitted (a refund-dominated category has no
+  run rate to put a lever on). EXEMPT in the derivation tripwire — counts
+  paycheck income by construction, same bounded refund exemption as
+  `category_trend` — with its income-sensitivity contract proven in
+  `test_forecast_baselines` instead.
+- **`GET /api/forecast/baselines`** — anchor validated / months_back clamped
+  like the trend endpoints; `{cents, display}` at the JSON edge. Pure read, and
+  deliberately the ONLY server half: no scenario is ever posted or stored
+  (invariant 4) — the what-ifs live and die client-side.
+- **Frontend: the Forecast-lab card** at the bottom of Analytics: 0–200%
+  per-category sliders over the baselines, an income override input (blank =
+  baseline average), a 6/12/24-month horizon, and a hand-rolled SVG cumulative
+  kept/lost line (zero axis always in frame; deficit dives below it). All math
+  is pure in `render.js` — `forecastScenario` (integer cents client-side too),
+  `forecastLine` (geometry), `forecastChartSVG`, `forecastLabHTML` — node
+  seam-tested (15 new checks incl. an attribute-breakout XSS probe on category
+  names). `app.js` keeps the levers in `state.forecast` and patches the card's
+  numbers in place on input (`refreshForecastLab`) — a full re-render mid-drag
+  would refetch the tab and break the drag; Reset is the one full re-render.
+  Honest copy on the card: "nothing here is saved, and it's not a prediction."
+- Suite **550 python + 111 render** green. **Balance gate PASS — zero diff**
+  (42 values), run in the cloud against a synthetic dev.db (seed 42 + income
+  fixture; old = `origin/main` a6adc03, new = working tree) since no real
+  finance.db exists off-Pi — **re-run the gate against a real `dev.db` copy on
+  the Pi before deploy**, per the loop. NOT DEPLOYED.
