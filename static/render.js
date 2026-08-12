@@ -647,6 +647,48 @@
       </svg>`;
   }
 
+  // Savings-target status: how the scenario's monthly net stands against the
+  // typed target. "" when no target is set. The bar reuses the goal-bar look;
+  // width clamps to [0,100]% (a deficit shows an empty bar, not a negative one).
+  function forecastTargetHTML(p, targetCents) {
+    if (targetCents == null) return "";
+    const pct = targetCents > 0
+      ? Math.max(0, Math.min(1, p.net_cents / targetCents)) : 1;
+    const met = p.net_cents >= targetCents;
+    const line = met
+      ? `on pace — ${fmt(p.net_cents / 100)}/mo clears the ${fmt(targetCents / 100)} target`
+      : `short by ${fmt((targetCents - p.net_cents) / 100)}/mo of the ${fmt(targetCents / 100)} target`;
+    return `<p class="fc-target-line ${met ? "pos" : "neg"}">${line}</p>
+      <div class="goal-bar"><i style="width:${(pct * 100).toFixed(1)}%"></i></div>`;
+  }
+
+  // "Suggest cuts": greedy walk over the categories by baseline descending
+  // (the order the server already returns), lowering each lever to 75%, then a
+  // second pass to 50%, until the scenario's net clears the target. Only ever
+  // LOWERS a lever (a hand-set 30% stays 30%), stops the moment the target is
+  // met, and gives up honestly — `achieved: false` with every lever at the
+  // floor — when even that can't reach it. Returns a NEW mult map (the caller
+  // sets it as real slider state, so every suggestion is visible and
+  // individually undoable); these are what-ifs over baselines, not commands.
+  function forecastOptimize(baselines, scenario, targetCents) {
+    const s = scenario || {};
+    const mults = { ...(s.mults || {}) };
+    const net = () => forecastScenario(baselines, { ...s, mults }).net_cents;
+    let current = net();
+    for (const floor of [75, 50]) {
+      for (const c of baselines.categories || []) {
+        if (current >= targetCents)
+          return { mults, net_cents: current, achieved: true };
+        const cur = mults[c.category] != null ? mults[c.category] : 100;
+        if (cur > floor) {
+          mults[c.category] = floor;
+          current = net();
+        }
+      }
+    }
+    return { mults, net_cents: current, achieved: current >= targetCents };
+  }
+
   // The Forecast-lab card. scenario additionally carries incomeText (the raw
   // override string, so the input round-trips what was typed). All the ids /
   // data-attrs are the patch points app.js updates in place on slider input —
@@ -690,6 +732,18 @@
                placeholder="${(baseIncome / 100).toFixed(2)}"
                value="${esc(s.incomeText || "")}"
                aria-label="Assume monthly income, dollars">
+      </div>
+      <div class="fc-row fc-target">
+        <div class="fc-top">
+          <span class="fc-name">Savings target</span>
+          <input type="number" id="fc-target" inputmode="decimal" min="0" step="25"
+                 placeholder="$/mo" value="${esc(s.targetText || "")}"
+                 aria-label="Monthly savings target, dollars">
+        </div>
+        <div id="fc-target-wrap">${forecastTargetHTML(p, s.targetCents != null ? s.targetCents : null)}</div>
+        <button class="btn ghost small" id="fc-suggest" type="button"
+                title="Lower the biggest categories to 75%, then 50%, until the target clears — what-ifs only, undo any slider">
+          Suggest cuts</button>
       </div>
       ${sliders}
       <p class="fc-note">What-ifs over your last ${months.length || "few"}-month averages — nothing here is saved, and it's not a prediction.</p>
@@ -1212,6 +1266,7 @@
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
            forecastScenario, forecastLine, forecastChartSVG, forecastLabHTML,
+           forecastTargetHTML, forecastOptimize,
            goalWhatIf, addMonths, goalWhatIfText, goalPaceLineHTML,
            askThreadHTML, agentsHTML, opsPanelHTML };
 });

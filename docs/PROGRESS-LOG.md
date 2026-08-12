@@ -2198,3 +2198,41 @@ semantics win, per the "deployed spelling wins" rule.)
   card layout).
 - Suite **550 python + 115 render** green. Frontend-only — no schema, verb,
   derivation, or money path — **no balance gate**, per precedent. NOT DEPLOYED.
+
+**Savings target + "Suggest cuts" optimizer in the Forecast lab (port
+increment 3, the last planned one) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** The standalone
+Savings-optimizer's mechanics, riding the lab: the sliders ARE the levers, so
+this is FRONTEND-ONLY — no new backend, no new endpoint.
+- **A savings-target input** in the lab card (state.forecast.target, "" = none):
+  typing patches a status line — "on pace — $X/mo clears the $Y target" /
+  "short by $Z/mo" — and a goal-bar-styled progress bar (net/target, clamped
+  to [0,100]% so a deficit shows empty, not negative). `forecastTargetHTML`,
+  pure and seam-tested.
+- **"Suggest cuts"**: `forecastOptimize(baselines, scenario, targetCents)` —
+  greedy client-side walk over categories by baseline descending, lowering each
+  lever to 75%, then a second pass to 50%, until the scenario's net clears the
+  target. Only ever LOWERS (a hand-set 30% stays 30%), stops the moment the
+  target is met, and gives up honestly (`achieved: false`, everything at the
+  floor) when even 50% across the board can't reach it. The result becomes the
+  REAL slider state — values patched into the DOM — so every suggested cut is
+  visible and individually undoable; that's the honesty mechanism the brief
+  asked for ("what-ifs over baselines, not commands"). Reset keeps the target
+  (it's the user's goal; the levers are the levers).
+- Seam tests cover the greedy math (hits target & stops early, on-target no-op,
+  never raises a lever, honest give-up with exact floor net, income-override
+  interplay) plus the status-line forms and bar clamping. Suite **550 python +
+  123 render** green. Frontend-only — **no balance gate**. NOT DEPLOYED.
+
+**Port scope note (from the Aug-12 handoff brief, recorded so nobody re-opens
+them):** NOT ported, deliberately — the standalone fixed-cost ledger
+(bills + member attribution already are this; porting would duplicate nouns),
+the named pay-scenario buttons (the lab's income override covers the mechanics;
+personal pay figures stay out of the repo — a named-presets frontend add can
+come later if Alta asks), "Elephant in the room" (Alta removed it from the
+standalone; anomaly surfacing exists as Tier B #15), and the compare-any-two
+panel (existing analytics cards cover it; revisit only on request). Data facts
+worth keeping: Charlee's BofA account only receives ~half her $3,296.32
+biweekly pay Jan–Jun (if that account ever syncs in, income figures change
+materially); Alta's confirmed fixed amounts live in the brief for seeding
+bills if asked.

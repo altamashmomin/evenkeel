@@ -12,6 +12,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
         forecastScenario, forecastChartSVG, forecastLabHTML,
+        forecastTargetHTML, forecastOptimize,
         goalWhatIfText, goalPaceLineHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML } = window.Render;
@@ -41,8 +42,9 @@ const state = {
   ask: { messages: [], pending: false },   // Ask tab: client-held chat history
 
   // Forecast lab: the levers only — projections are recomputed from the
-  // baselines on every input, never stored. income "" = use the baseline.
-  forecast: { mults: {}, income: "", horizon: 12 },
+  // baselines on every input, never stored. income "" = use the baseline;
+  // target "" = no savings target set.
+  forecast: { mults: {}, income: "", horizon: 12, target: "" },
 };
 
 function userById(id) {
@@ -646,12 +648,17 @@ async function renderAnalytics() {
 // state.forecast -> the canonical scenario shape the pure helpers take.
 function forecastScenarioState() {
   const f = state.forecast;
-  const dollars = parseFloat(f.income);
+  const toCents = (txt) => {
+    const dollars = parseFloat(txt);
+    return txt !== "" && Number.isFinite(dollars) && dollars >= 0
+      ? Math.round(dollars * 100) : null;
+  };
   return {
     mults: f.mults,
-    incomeCents: f.income !== "" && Number.isFinite(dollars) && dollars >= 0
-      ? Math.round(dollars * 100) : null,
+    incomeCents: toCents(f.income),
     incomeText: f.income,
+    targetCents: toCents(f.target),
+    targetText: f.target,
     horizon: f.horizon,
   };
 }
@@ -662,7 +669,8 @@ function forecastScenarioState() {
 // maps over).
 function refreshForecastLab() {
   if (!window._forecast) return;
-  const p = forecastScenario(window._forecast, forecastScenarioState());
+  const scenario = forecastScenarioState();
+  const p = forecastScenario(window._forecast, scenario);
   const head = $("#fc-headline");
   if (!head) return;
   const end = p.cumulative[p.cumulative.length - 1];
@@ -680,6 +688,9 @@ function refreshForecastLab() {
   });
   $$("[data-fc-horizon]").forEach((b) =>
     b.classList.toggle("on", +b.dataset.fcHorizon === state.forecast.horizon));
+  const targetWrap = $("#fc-target-wrap");
+  if (targetWrap)
+    targetWrap.innerHTML = forecastTargetHTML(p, scenario.targetCents);
 }
 
 // Budgets (Analytics Tier C): set/edit upserts one category's monthly limit;
@@ -921,8 +932,31 @@ function wireMain() {
       state.forecast.horizon = +el.dataset.fcHorizon;
       refreshForecastLab();
     }));
+  $("#fc-target")?.addEventListener("input", (e) => {
+    state.forecast.target = e.target.value;
+    refreshForecastLab();
+  });
+  // Suggest cuts: the greedy optimizer returns a new mult map; making it the
+  // REAL slider state (values patched in the DOM, not re-rendered) is the
+  // honesty mechanism — every suggested cut is visible and undoable per
+  // slider. No target typed = nothing to optimize toward.
+  $("#fc-suggest")?.addEventListener("click", () => {
+    const scenario = forecastScenarioState();
+    if (scenario.targetCents == null || !window._forecast) return;
+    const result = forecastOptimize(window._forecast, scenario,
+                                    scenario.targetCents);
+    state.forecast.mults = result.mults;
+    const sliders = $$("[data-fc-cat]");
+    (window._forecast.categories || []).forEach((c, i) => {
+      if (sliders[i])
+        sliders[i].value = result.mults[c.category] != null
+          ? result.mults[c.category] : 100;
+    });
+    refreshForecastLab();
+  });
   $("#fc-reset")?.addEventListener("click", () => {
-    state.forecast = { mults: {}, income: "", horizon: state.forecast.horizon };
+    state.forecast = { mults: {}, income: "", horizon: state.forecast.horizon,
+                       target: state.forecast.target };
     render();
   });
 

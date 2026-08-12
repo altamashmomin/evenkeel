@@ -1030,6 +1030,62 @@ check("forecastLabHTML empty baselines -> honest empty card", () => {
   assert.ok(/Not enough history/.test(html));
   assert.ok(!/type="range"/.test(html));
 });
+// ---- Savings target + "Suggest cuts" optimizer ----
+check("forecastTargetHTML: on-pace / short forms; no target, no block", () => {
+  const p = R.forecastScenario(FC_BASE, {});            // net +240000
+  assert.ok(/on pace/.test(R.forecastTargetHTML(p, 200000)));
+  const short = R.forecastTargetHTML(p, 300000);
+  assert.ok(/short by \$600\.00\/mo/.test(short));
+  assert.ok(/width:80\.0%/.test(short), "bar shows net/target share");
+  assert.strictEqual(R.forecastTargetHTML(p, null), "");
+});
+check("forecastTargetHTML clamps the bar on a deficit", () => {
+  const p = R.forecastScenario(FC_BASE, { incomeCents: 0 });  // deep deficit
+  assert.ok(/width:0\.0%/.test(R.forecastTargetHTML(p, 100000)));
+});
+check("forecastOptimize hits the target and stops early", () => {
+  // Default net +240000. Target 340000: cutting Housing (200000) to 75%
+  // frees 50000 -> 290000, still short; to Groceries 75% -> +15000 =
+  // 305000, short; second pass Housing 50% -> +50000 = 355000, done —
+  // Groceries never dropped to 50.
+  const r = R.forecastOptimize(FC_BASE, {}, 340000);
+  assert.strictEqual(r.achieved, true);
+  assert.ok(r.net_cents >= 340000);
+  assert.strictEqual(r.mults.Housing, 50);
+  assert.strictEqual(r.mults.Groceries, 75);
+});
+check("forecastOptimize leaves levers alone when already on target", () => {
+  const r = R.forecastOptimize(FC_BASE, { mults: { Housing: 90 } }, 100000);
+  assert.strictEqual(r.achieved, true);
+  assert.deepStrictEqual(r.mults, { Housing: 90 }, "nothing moved");
+});
+check("forecastOptimize never raises a hand-set lever", () => {
+  const r = R.forecastOptimize(FC_BASE, { mults: { Housing: 30 } }, 10000000);
+  assert.strictEqual(r.mults.Housing, 30, "30% stayed 30%");
+});
+check("forecastOptimize gives up honestly when the floor can't reach", () => {
+  // Even everything at 50%: spend 130000, net 370000 < 400000.
+  const r = R.forecastOptimize(FC_BASE, {}, 400000);
+  assert.strictEqual(r.achieved, false);
+  assert.strictEqual(r.mults.Housing, 50);
+  assert.strictEqual(r.mults.Groceries, 50);
+  assert.strictEqual(r.net_cents, 370000);
+});
+check("forecastOptimize respects the income override", () => {
+  const r = R.forecastOptimize(FC_BASE, { incomeCents: 300000 }, 100000);
+  // 300000 - 260000 = 40000 short of 100000; Housing to 75% -> +50000 = 90000,
+  // short; Groceries 75% -> +15000 = 105000, achieved.
+  assert.strictEqual(r.achieved, true);
+  assert.strictEqual(r.net_cents, 105000);
+});
+check("forecastLabHTML renders the target input and Suggest cuts", () => {
+  const html = R.forecastLabHTML(FC_BASE, { targetCents: 300000, targetText: "3000" });
+  assert.ok(html.includes('id="fc-target"'));
+  assert.ok(html.includes('value="3000"'), "typed target round-trips");
+  assert.ok(/Suggest cuts/.test(html));
+  assert.ok(/short by/.test(html), "status line rendered against the target");
+});
+
 check("hostile category name cannot break out of a slider attribute", () => {
   const evil = 'Rent" onmouseover=alert(1) x="';
   const base = { income_avg: { cents: 1000, display: "$10.00" }, categories: [

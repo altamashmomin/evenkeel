@@ -96,7 +96,11 @@ Analytics-tab card with 0–200% category sliders, an income override, a
 day, same branch): **Goals-tab pace line + per-goal what-if** — frontend-only
 over the already-deployed `goal_pace` endpoint (pace sentence per card; type a
 $/mo, months-to-finish recomputes client-side, never stored). Suite 550+115,
-no gate (no money path). Not deployed.
+no gate (no money path). Port increment 3: **savings target + "Suggest cuts"
+optimizer** riding the lab's sliders (greedy 75%→50% walk, only lowers, honest
+give-up; suggestions land as real slider state, undoable per slider) —
+frontend-only, suite 550+123. That completes the planned port scope (the
+brief's not-ported list is recorded in the log). None of it deployed yet.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

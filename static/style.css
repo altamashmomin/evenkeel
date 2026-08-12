@@ -617,6 +617,12 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   font-variant-numeric: tabular-nums; }
 .fc-row input[type="range"] { width: 100%; margin: 6px 0 0; }
 .fc-income input { margin-top: 6px; }
+.fc-target input { flex: 0 0 128px; padding: 8px 10px; font-size: 14px; }
+.fc-target .fc-top { align-items: center; }
+.fc-target-line { font-size: 13px; margin: 8px 0 6px; color: var(--muted); }
+.fc-target-line.pos { color: var(--ok); }
+.fc-target-line.neg { color: var(--danger); }
+.fc-target .btn { margin-top: 10px; }
 .fc-note { font-size: 12px; color: var(--muted); margin: 14px 0 10px; }
 
 /* Ask tab — chat */
