@@ -87,7 +87,10 @@ async function showApp() {
 }
 
 // The Garden greeting: a time-of-day hello + the household's avatars.
+// Called once at login, then kept fresh (see the clock wiring near boot())
+// so a tab left open doesn't say "Good afternoon" at 10pm.
 function renderHeader() {
+  if (!state.users) return; // not logged in yet — nothing to render
   const h = new Date().getHours();
   const part = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   $("#greet-kicker").textContent = `${part} 🌿`;
@@ -1236,5 +1239,15 @@ $("#form-settle").addEventListener("submit", async (ev) => {
     $("#settle-error").textContent = e.message;
   }
 });
+
+// Keep the greeting's time-of-day bucket current for a tab left open across
+// noon/6pm — recheck on tab focus (covers the common case instantly) and on
+// an interval as a fallback for tabs that never lose visibility. Wired once,
+// unconditionally, at top level (not inside showApp(), which can re-run on
+// a logout/login cycle and would otherwise stack duplicate timers).
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) renderHeader();
+});
+setInterval(renderHeader, 5 * 60 * 1000);
 
 boot();
