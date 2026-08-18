@@ -85,7 +85,9 @@ Then (Aug 10): **`GET /api/ontology` + the Trace Web data-driven from it** — t
 map now fetches its facts at load, so it cannot drift; two real ontology-
 derivation bugs (docstring-as-call, paren-less references) found and fixed in the
 process. Suite 536+98, no gate. **Deployed** (`main` `a6adc03`, GATE PASS zero-diff;
-`/api/ontology` verified 401 unauthenticated).
+`/api/ontology` verified 401 unauthenticated). Then (Aug 18): the Pi's
+`ANTHROPIC_API_KEY` rotated on schedule — new expiry 2026-09-17, ops guardian
+green (see PROGRESS-LOG).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

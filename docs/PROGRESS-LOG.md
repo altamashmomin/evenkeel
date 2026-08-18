@@ -741,7 +741,8 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
   read-only shared registry) + loop routing, mocked-client tests assert the
   db row flips; (2) `POST /api/ask` write-enabled + updated system prompt; (3)
   Ask-tab "tagged ✓" UI feedback. No schema/migration/gate (existing verb).
-  Prereq: `ANTHROPIC_API_KEY` already on the Pi (⚠ expires ~Aug 30, 2026).
+  Prereq: `ANTHROPIC_API_KEY` already on the Pi (rotated Aug 18, 2026;
+  expires 2026-09-17).
   - **Inc 1 done (Aug 2, 2026).** `agent_write_tools.py` — one-tool surface
     (`ledger_classify_inflow`), kept out of the read-only shared registry,
     executing via an injected caller against the same `PUT …/classify` route
@@ -787,8 +788,8 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
     "never changes" gone), `/app.js` reads `tools_used`→`tagged` (stale
     "Read-only" gone), `/style.css` has `.ask-tagged`; app healthy. **Charlee
     can now tag inflows by chatting in the Ask tab** — write path is
-    session-based and live wherever `ANTHROPIC_API_KEY` is set (⚠ expires
-    ~Aug 30). **CONFIRMED LIVE (Aug 2, 2026): Charlee tagged a real deposit
+    session-based and live wherever `ANTHROPIC_API_KEY` is set (rotated
+    Aug 18, 2026; expires 2026-09-17). **CONFIRMED LIVE (Aug 2, 2026): Charlee tagged a real deposit
     through the Ask tab on her phone** — the full chat→tag path works end to end
     for the priority user. Ask-tab tagging is DONE and in use.
 
@@ -943,7 +944,7 @@ shortcut pill, 5-slot nav unchanged) → chat input → later inference/predicti
   loop/route count bumps. Pure clients of gated endpoints → no balance gate;
   suite 346→350 python + 48 render. `ask_smoke.py` migrates to v8, so a live
   pantry question ("add coffee, we're low") is runnable with an
-  `ANTHROPIC_API_KEY` (⚠ Pi key expires ~Aug 30). **The pantry MVP (INVENTORY-
+  `ANTHROPIC_API_KEY` (Pi key rotated Aug 18, 2026; expires 2026-09-17). **The pantry MVP (INVENTORY-
   DESIGN steps 1–4) is now CODE-COMPLETE** — tap OR talk.
 - **DEPLOYED TO THE PI (Aug 3, 2026) — pantry MVP is LIVE.** Advanced `main`
   to rework's tree via `--no-ff` merge `0eb0301` (first parent = old main
@@ -1917,7 +1918,8 @@ inventory route → **no balance gate**; suite 510→**512** python + 97 render.
 **Deploy is a plain frontend/agent path** (no migration, schema stays v11):
 advance `main` to rework, `deploy.sh origin/main <deployed-ref>`, GATE PASS
 zero-diff, `ledger-mcp` restarts (no new MCP tool, but the restart is harmless).
-Prereq already met: `ANTHROPIC_API_KEY` on the Pi (⚠ expires ~Aug 30). No
+Prereq already met: `ANTHROPIC_API_KEY` on the Pi (rotated Aug 18, 2026;
+expires 2026-09-17). No
 per-device refresh needed for this one (backend + prompt only — the ⏰ editor UI
 already shipped with #011).
 
@@ -2131,3 +2133,15 @@ check that the FK is still real).
   above; `test_trace_route` covers the endpoint, its gate, and the fetch wiring.
   Backend read route + frontend — no schema/verb/derivation/money path, **no
   balance gate**. Suite **536** python + **98** render. **DEPLOYED** via `main` `a6adc03` (`--no-ff` merge, first parent = prior main; merged in an isolated worktree, local `main` synced) → GATE PASS zero-diff, no migration; `pifinance` + `ledger-mcp` restarted, `/api/status` OK, and `GET /api/ontology` verified **401 unauthenticated** (the gate holds). `deploy.sh` reported an older `old ref` (`c5989e2`) and fired its **local-branch heal** — the Pi's local `main` had drifted behind the session's detached-checkout deploys; the safeguard snapped it back to `a6adc03`. Gate still valid (both sides v11, no migration). Rollback backup `finance.db.bak-2026-08-10-172646`. Hard-refresh the `/trace` tab to pick up the new script.
+
+**ANTHROPIC_API_KEY rotated (Aug 18, 2026).** The Pi's Ask-tab key (set
+Jul 31, expiring ~Aug 30) was replaced on schedule: new key minted in the
+Anthropic Console (billing/credits carried over), `.env` updated
+(`ANTHROPIC_API_KEY` + `ASK_KEY_EXPIRES=2026-09-17`), `pifinance` and
+`ledger-mcp` restarted, and the ops guardian re-run — **all green**
+(heartbeat `~/pifinance-ops/ops-status.txt`; the guardian lives OUT of the
+repo per its out-of-tree install, and the installed unit pins
+`OPS_STATUS_FILE` there explicitly). Old key retired in the Console.
+**Next rotation due ~Sep 17, 2026** — the guardian ambers 14 days out.
+Doc-only; the stale "expires ~Aug 30" warnings in this log and
+AGENT-DESIGN were corrected in place.
