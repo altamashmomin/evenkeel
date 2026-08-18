@@ -87,7 +87,9 @@ derivation bugs (docstring-as-call, paren-less references) found and fixed in th
 process. Suite 536+98, no gate. **Deployed** (`main` `a6adc03`, GATE PASS zero-diff;
 `/api/ontology` verified 401 unauthenticated). Then (Aug 18): the Pi's
 `ANTHROPIC_API_KEY` rotated on schedule — new expiry 2026-09-17, ops guardian
-green (see PROGRESS-LOG).
+green (see PROGRESS-LOG). And the Cowork scenario-planner port was SET
+ASIDE — `claude/scenario-planning-ledger-4lt781` stays parked on origin,
+unmerged (#14/#16 already cover the roadmap).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

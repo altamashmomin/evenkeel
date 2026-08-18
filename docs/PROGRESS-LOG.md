@@ -2145,3 +2145,18 @@ repo per its out-of-tree install, and the installed unit pins
 **Next rotation due ~Sep 17, 2026** — the guardian ambers 14 days out.
 Doc-only; the stale "expires ~Aug 30" warnings in this log and
 AGENT-DESIGN were corrected in place.
+
+**Forecast lab — SET ASIDE (Aug 18, 2026); scenario branch stays parked.**
+The Cowork scenario-planner port (the Aug-12 "Sorting Finances" integration:
+`forecast_baselines` + `/api/forecast/baselines` + the Analytics slider card,
+plus goal-pace what-ifs and the savings optimizer, rebuilt on current code as
+`claude/scenario-planning-ledger-4lt781`, ports 1-3) does NOT land — Alta's
+call, made with Tier B fully shipped: #14 (cash-flow forecast) and #16 (goal
+pace) already cover the forward-looking roadmap, so the what-if slider lab is
+surplus. Nothing to remove from `rework` (it never merged); the origin branch
+remains parked, unmerged, as the archive — revive by rebasing it and running
+the suite + zero-diff gate. Two superseded copies exist only in the local
+"Ledger copy" clone (branches `forecast-lab` / `stale-doc-commits`, built
+against a ~115-commit-stale base); its untracked
+`docs/FORECAST-INTEGRATION-BRIEF.md` carries real pay/fixed-cost figures —
+never push or commit that file as-is.
