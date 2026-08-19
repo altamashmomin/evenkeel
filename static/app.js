@@ -15,7 +15,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         forecastTargetHTML, forecastOptimize,
         goalWhatIfText, goalPaceLineHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
-        moreSheetHTML } = window.Render;
+        moreSheetHTML, recatSheetHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -276,6 +276,60 @@ function openMoreSheet() {
 // Tap the backdrop (outside the sheet body) to dismiss.
 dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.close(); });
 
+// Recategorize sheet: the transactions behind one Home "Spent" row, as a
+// checklist you move into another category. The read is /api/activity's new
+// category filter (spending only, this month); the write reuses the
+// edit-transaction verb per checked id — one audited edit each, splits and
+// balance untouched (a category-only edit relabels, nothing more).
+const dlgRecat = $("#dlg-recat");
+async function openRecatSheet(category) {
+  const month = (window._dash && window._dash.month) || state.month;
+  const data = await api(
+    `/api/activity?filter=spending&month=${encodeURIComponent(month)}` +
+    `&category=${encodeURIComponent(category)}`);
+  $("#recat-body").innerHTML = recatSheetHTML(
+    category, monthName(month), data.transactions);
+  const moveBtn = $("#recat-move");
+  const input = $("#recat-category");
+  const checks = () => $$(".recat-check");
+  // Move is enabled only when at least one row is checked AND a target
+  // category is typed (and it's not the category you're already in).
+  const syncMove = () => {
+    if (!moveBtn) return;
+    const target = (input?.value || "").trim();
+    const anyChecked = checks().some((c) => c.checked);
+    moveBtn.disabled = !(anyChecked && target && target !== category);
+  };
+  $("#recat-select-all")?.addEventListener("change", (e) => {
+    checks().forEach((c) => { c.checked = e.target.checked; });
+    syncMove();
+  });
+  checks().forEach((c) => c.addEventListener("change", () => {
+    // Keep select-all honest: it's checked only when every row is.
+    const all = $("#recat-select-all");
+    if (all) all.checked = checks().every((x) => x.checked);
+    syncMove();
+  }));
+  input?.addEventListener("input", syncMove);
+  $("#recat-cancel")?.addEventListener("click", () => dlgRecat.close());
+  moveBtn?.addEventListener("click", async () => {
+    const target = input.value.trim();
+    const ids = checks().filter((c) => c.checked)
+                        .map((c) => +c.dataset.recatId);
+    if (!ids.length || !target) return;
+    moveBtn.disabled = true;
+    // One edit per transaction — the deployed write path. Sequential so a
+    // mid-batch failure surfaces without half the UI racing ahead.
+    for (const id of ids)
+      await api(`/api/transactions/${id}`, {
+        method: "PUT", body: { category: target } });
+    dlgRecat.close();
+    render();
+  });
+  dlgRecat.showModal();
+}
+dlgRecat?.addEventListener("click", (e) => { if (e.target === dlgRecat) dlgRecat.close(); });
+
 // Per-tab row stashes the tap/edit handlers read (findTxn, bill/goal/budget
 // edit, the pantry match editor). Cleared at the top of every render so a tab
 // only ever sees ITS OWN current rows — otherwise a stale pool (e.g. _txns,
@@ -335,13 +389,18 @@ async function renderDashboard() {
   const spentPill = vsLastMonth(trend.series);
   window._dash = d;
   const maxCat = Math.max(1, ...d.by_category.map((c) => c.amount));
+  // Each row taps through to the recategorize sheet for that category+month —
+  // a button, not a div, so it's keyboard-reachable; the chevron is the
+  // affordance that it's actionable.
   const cats = d.by_category.length
     ? d.by_category.map((c) => `
-        <div class="cat-row">
+        <button type="button" class="cat-row" data-spent-cat="${esc(c.category)}"
+                aria-label="Recategorize spending tagged ${esc(c.category)}">
           <span class="cat-name">${esc(c.category)}</span>
           <span class="cat-bar"><i style="width:${(c.amount / maxCat) * 100}%"></i></span>
           <span class="amt amount">${fmt(c.amount)}</span>
-        </div>`).join("")
+          <span class="cat-go" aria-hidden="true">›</span>
+        </button>`).join("")
     : `<p class="empty">Nothing spent yet this month.</p>`;
 
   const today = new Date().getDate();
@@ -860,6 +919,9 @@ function wireMain() {
     }));
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
+  // Home "Spent" rows → the recategorize sheet for that category this month.
+  $$("[data-spent-cat]").forEach((el) =>
+    el.addEventListener("click", () => openRecatSheet(el.dataset.spentCat)));
   // Budgets (Analytics Tier C): edit/remove by row index; add via the small form.
   $$("[data-budget-edit]").forEach((el) =>
     el.addEventListener("click", () => editBudget(+el.dataset.budgetEdit)));

@@ -529,6 +529,11 @@ def activity():
     filt = request.args.get("filter", "all")     # all | spending | income
     if filt not in ("all", "spending", "income"):
         return bad_request("filter must be all, spending, or income")
+    # Optional exact-category filter — the drill-in behind a "Spent by
+    # category" row (the recategorize sheet reads exactly this). Matched
+    # verbatim against the stored tag, so an empty value means "no filter",
+    # not "the empty category".
+    category = request.args.get("category") or None
 
     clauses, params = [], []
     if month:
@@ -538,6 +543,9 @@ def activity():
         clauses.append("direction = 'out'")
     elif filt == "income":
         clauses.append("direction = 'in'")
+    if category is not None:
+        clauses.append("category = ?")
+        params.append(category)
     q = "SELECT * FROM transactions"
     if clauses:
         q += " WHERE " + " AND ".join(clauses)
@@ -554,6 +562,7 @@ def activity():
     return jsonify({
         "month": month,
         "filter": filt,
+        "category": category,
         "transactions": [
             {**txn_to_json(db, r, shares),
              "direction": r["direction"], "income_type": r["income_type"]}

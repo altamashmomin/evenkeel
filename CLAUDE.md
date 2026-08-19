@@ -101,6 +101,16 @@ optimizer** riding the lab's sliders (greedy 75%→50% walk, only lowers, honest
 give-up; suggestions land as real slider state, undoable per slider) —
 frontend-only, suite 550+123. That completes the planned port scope (the
 brief's not-ported list is recorded in the log). None of it deployed yet.
+Scenario port merged to `main` (Aug 12, PR #10, `8074ffa`) — still awaiting the
+Pi deploy. Then (Aug 19): **recategorize from the Home "Spent" section** — tap a
+spent-category row → a bottom sheet lists that category's txns this month as a
+checklist (with select-all) → move them into a new/existing category. Since
+categories are emergent transaction tags (no `categories` table), "create a
+category" = retag: frontend + the existing `edit_transaction` verb, NO schema
+change. `/api/activity` gained an optional exact `category` filter. A
+category-only edit relabels only (splits/balance/month-total unchanged, proven).
+On `claude/recategorize-from-spent-4lt781`; suite 554+127, gate PASS zero-diff
+(synthetic dev.db — re-gate on the Pi before deploy). Not deployed.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

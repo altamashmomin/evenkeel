@@ -1255,8 +1255,50 @@
     return `<p class="sheet-title">All tabs</p><div class="more-grid">${tiles}</div>`;
   }
 
+  // The recategorize bottom sheet: the transactions behind one "Spent by
+  // category" row, as a checklist you can move into another category. Pure
+  // function of (category, month label, the filtered spending txns) — the
+  // move itself is app.js looping the edit-transaction verb over the checked
+  // ids, so nothing here writes. Reclassifying only relabels: amounts,
+  // splits, and the balance are untouched, which the copy states plainly.
+  // The category input shares the app's #category-list datalist (existing
+  // names) and accepts a brand-new one; a new name simply appears in the
+  // breakdown once spend lands in it.
+  function recatSheetHTML(category, monthLabel, txns) {
+    const rows = (txns || []).map((t) => `
+      <label class="recat-row">
+        <input type="checkbox" class="recat-check" data-recat-id="${t.id}" checked>
+        <span class="ic">${catEmoji(t.category)}</span>
+        <span class="grow">
+          <span class="title">${esc(t.description)}</span>
+          <span class="sub">${esc(shortDate((t.date || "").slice(0, 10)))}</span>
+        </span>
+        <span class="amt amount">${fmt(t.amount)}</span>
+      </label>`).join("");
+    const body = txns && txns.length
+      ? `<label class="recat-all">
+           <input type="checkbox" id="recat-select-all" checked>
+           <span>Select all ${txns.length}</span>
+         </label>
+         <div class="recat-list">${rows}</div>
+         <label class="lbl">Move selected to</label>
+         <input id="recat-category" list="category-list" autocomplete="off"
+                placeholder="New or existing category…"
+                aria-label="Move selected transactions to this category">
+         <div class="dlg-actions">
+           <button class="btn ghost" type="button" id="recat-cancel">Cancel</button>
+           <span class="spacer"></span>
+           <button class="btn primary" type="button" id="recat-move" disabled>Move</button>
+         </div>
+         <p class="recat-note">Reclassifying only relabels — amounts, splits, and who owes whom don't change.</p>`
+      : `<p class="empty">No spending tagged “${esc(category)}” in ${esc(monthLabel)}.</p>
+         <div class="dlg-actions"><span class="spacer"></span>
+           <button class="btn ghost" type="button" id="recat-cancel">Close</button></div>`;
+    return `<p class="sheet-title">Recategorize · ${esc(category)} · ${esc(monthLabel)}</p>${body}`;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
-           moreSheetHTML,
+           moreSheetHTML, recatSheetHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,
