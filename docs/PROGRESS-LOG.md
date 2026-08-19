@@ -2272,3 +2272,20 @@ reclassify, frontend + the existing edit-transaction verb, NO schema change.
   categories stay emergent tags. Suite **554 python + 127 render** green;
   **balance gate PASS — zero diff** (42 values, synthetic dev.db — re-gate on
   the Pi before deploy). NOT DEPLOYED.
+
+**DEPLOYED to the Pi — `origin/main` @ `0824348` (Aug 19, 2026), gate PASS
+zero-diff.** Alta ran `deploy/deploy.sh origin/main` on the Raspberry Pi; the
+live balance gate against the real `finance.db` passed zero-diff. This one
+deploy brought the deployed tree from `a6adc03` up to `0824348`, taking live
+everything that had been merged-but-not-deployed:
+- the **scenario-planning port** (PR #10, `8074ffa`) — the Forecast lab
+  (`forecast_baselines` + `/api/forecast/baselines` + the Analytics card),
+  the Goals-tab pace line + per-goal what-if, and the savings target +
+  "Suggest cuts" optimizer;
+- **recategorize from the Home "Spent" section** (PR #16, `0824348`) — the
+  optional `category` filter on `/api/activity` + the recategorize bottom
+  sheet that retags a category's transactions via `edit_transaction`.
+No migrations in either (schema stays **v11**); the zero-diff live gate
+confirms the deploy changed no money figure. `origin/main` == the deployed
+tree again. All the "NOT DEPLOYED" markers in the entries above are now
+closed.

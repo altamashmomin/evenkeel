@@ -110,7 +110,12 @@ category" = retag: frontend + the existing `edit_transaction` verb, NO schema
 change. `/api/activity` gained an optional exact `category` filter. A
 category-only edit relabels only (splits/balance/month-total unchanged, proven).
 On `claude/recategorize-from-spent-4lt781`; suite 554+127, gate PASS zero-diff
-(synthetic dev.db — re-gate on the Pi before deploy). Not deployed.
+(synthetic dev.db — re-gate on the Pi before deploy). **DEPLOYED (Aug 19):**
+Alta ran `deploy.sh origin/main` on the Pi — one deploy took the tree from
+`a6adc03` to `0824348`, shipping BOTH the scenario port (PR #10) and
+recategorize (PR #16) live; live real-data gate PASS zero-diff, schema still
+v11. `origin/main` == the deployed tree again; nothing merged-but-undeployed
+remains.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
