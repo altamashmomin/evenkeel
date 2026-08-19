@@ -2236,3 +2236,39 @@ worth keeping: Charlee's BofA account only receives ~half her $3,296.32
 biweekly pay Jan–Jun (if that account ever syncs in, income figures change
 materially); Alta's confirmed fixed amounts live in the brief for seeding
 bills if asked.
+
+**Recategorize from the Home "Spent" section — DONE on
+`claude/recategorize-from-spent-4lt781` (Aug 19, 2026).** Alta wanted to create
+categories directly from the Home page's "Spent in <month>" breakdown, tied to
+where the values come from. Since categories in Ledger are emergent transaction
+tags (no `categories` table — `/api/categories` merges 16 defaults with
+`SELECT DISTINCT category FROM transactions`), "create a category" = retag the
+transactions behind a spent row. Chosen approach (confirmed with Alta):
+reclassify, frontend + the existing edit-transaction verb, NO schema change.
+- **Read: `/api/activity` gains an optional exact `category` filter** (echoed in
+  the response as `category`, null when absent; matched verbatim so "" means no
+  filter). Extends the endpoint that already owns "a month's spending
+  transactions" rather than adding a new one; `/api/activity` is explicitly not
+  byte-frozen (only `/api/transactions` is), so parity is safe.
+- **Write: reuses `edit_transaction`** — each checked transaction gets one
+  partial `{category}` edit through the deployed `PUT /api/transactions/<id>`,
+  one audit row each. A category-only edit relabels only: splits carry forward
+  to the same values, so the balance and the month's spend total are unchanged
+  — proven in `test_transaction_verbs.test_recategorize_leaves_balance_and_
+  month_total_unchanged` (only the per-category distribution shifts).
+- **Frontend**: the Home "Spent" rows become keyboard-reachable buttons
+  (`data-spent-cat`, a `›` affordance) that open a recategorize bottom sheet
+  (`dlg-recat`) — the category's spending txns this month as a checklist with a
+  **select-all**, a category input sharing the app's `#category-list` datalist
+  (existing names or a brand-new one), and a Move button enabled only when
+  something's checked and a different target is typed. Moving loops the edits
+  and re-renders; a new name simply appears in the breakdown once spend lands.
+  Pure `recatSheetHTML` builder in render.js, node seam-tested (incl. an
+  attribute-breakout XSS probe on the category name); honest copy on the sheet
+  ("Reclassifying only relabels — amounts, splits, and who owes whom don't
+  change").
+- CORE-DESIGN check: no schema change, the one write path (`edit_transaction`)
+  stays the only writer, nothing derived stored, no member-count assumption;
+  categories stay emergent tags. Suite **554 python + 127 render** green;
+  **balance gate PASS — zero diff** (42 values, synthetic dev.db — re-gate on
+  the Pi before deploy). NOT DEPLOYED.

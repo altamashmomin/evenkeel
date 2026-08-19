@@ -102,6 +102,31 @@ class TransactionVerbTests(unittest.TestCase):
         self.assertEqual(1234, detail["changed"]["amount_cents"])
         self.assertEqual([], detail["severed_settles_links"])
 
+    def test_recategorize_leaves_balance_and_month_total_unchanged(self):
+        # The Home "Spent" recategorize flow moves transactions between
+        # categories via a category-only edit_transaction. Relabeling must not
+        # move the who-owes-whom balance or the month's spend total — only the
+        # per-category distribution shifts. This is the safety claim the
+        # frontend makes ("amounts, splits, and who owes whom don't change").
+        txn_id = self.a_manual_row()   # shared 50/50 Groceries row
+        month = date.today().strftime("%Y-%m")
+        before_balance = derivations.compute_balance(self.db)["amount_cents"]
+        before_total = derivations.spending_summary(
+            self.db, month)[month]["total_cents"]
+
+        row = actions.edit_transaction(
+            self.db, "ui:avery", txn_id, {"category": "Dining"})
+        self.assertEqual("Dining", row["category"])
+
+        after_balance = derivations.compute_balance(self.db)["amount_cents"]
+        after = derivations.spending_summary(self.db, month)[month]
+        self.assertEqual(before_balance, after_balance, "balance moved")
+        self.assertEqual(before_total, after["total_cents"], "month total moved")
+        # The spend genuinely moved categories: now under Dining, not Groceries.
+        by_cat = {c["category"]: c["amount_cents"] for c in after["by_category"]}
+        self.assertEqual(5000, by_cat.get("Dining"))
+        self.assertNotIn("Groceries", by_cat)
+
     def test_edit_without_share_carries_forward_existing_payer_share(self):
         txn_id = self.a_manual_row()
         # Give the row a lopsided share first.

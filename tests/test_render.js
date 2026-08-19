@@ -898,6 +898,44 @@ check("app.js: every bare call resolves — no call to a name that exists nowher
     + `or a missing window.Render import): ${unresolved.join(", ")}`);
 });
 
+// ---- Recategorize sheet (Home "Spent" drill-in) ----
+const RECAT_TXNS = [
+  { id: 7, date: "2026-08-03", amount: 42.5, description: "ShopRite", category: "Groceries" },
+  { id: 9, date: "2026-08-12", amount: 8.25, description: "Corner deli", category: "Groceries" },
+];
+check("recatSheetHTML lists each txn with a checked box carrying its id", () => {
+  const html = R.recatSheetHTML("Groceries", "August 2026", RECAT_TXNS);
+  assert.ok(html.includes('data-recat-id="7"'));
+  assert.ok(html.includes('data-recat-id="9"'));
+  const boxes = html.match(/class="recat-check"[^>]*checked/g) || [];
+  assert.strictEqual(boxes.length, 2, "both rows start checked");
+  assert.ok(html.includes("ShopRite") && html.includes("Corner deli"));
+  assert.ok(html.includes("$42.50"), "amount formatted as money");
+});
+check("recatSheetHTML has select-all, a category input, and a disabled Move", () => {
+  const html = R.recatSheetHTML("Groceries", "August 2026", RECAT_TXNS);
+  assert.ok(html.includes('id="recat-select-all"'));
+  assert.ok(/Select all 2/.test(html));
+  assert.ok(html.includes('list="category-list"'), "shares the app datalist");
+  assert.ok(/id="recat-move"[^>]*disabled/.test(html), "Move starts disabled");
+  assert.ok(/only relabels/.test(html), "honest copy present");
+});
+check("recatSheetHTML empty state has no checklist or Move", () => {
+  const html = R.recatSheetHTML("Travel", "August 2026", []);
+  assert.ok(/No spending tagged/.test(html));
+  assert.ok(!/recat-check/.test(html));
+  assert.ok(!/id="recat-move"/.test(html));
+});
+check("recatSheetHTML neutralizes a hostile category (title + empty copy)", () => {
+  // The breakout signature is a BARE quote closing an attribute followed by a
+  // handler; esc turns it into inert &quot;, so it must never survive.
+  const evil = 'Groceries" onmouseover=alert(1) x="';
+  assert.ok(!/"\s+onmouseover=/.test(R.recatSheetHTML(evil, "August 2026", RECAT_TXNS)),
+    "hostile category broke out in the populated sheet");
+  assert.ok(!/"\s+onmouseover=/.test(R.recatSheetHTML(evil, "August 2026", [])),
+    "hostile category broke out in the empty sheet");
+});
+
 // ---- Goals tab: pace line + per-goal what-if ----
 check("goalWhatIf is ceiling division; 0 when funded; null when unreachable", () => {
   assert.strictEqual(R.goalWhatIf(100000, 25000), 4);
