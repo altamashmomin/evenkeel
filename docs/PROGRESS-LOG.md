@@ -2366,3 +2366,36 @@ it is. New read-only surface that explains `compute_balance` line by line.
   zero-diff** (synthetic dev.db — re-gate on the Pi before deploy). Also
   browser-smoke-verified (dialog renders, headline matches balance, no console
   errors). NOT DEPLOYED.
+
+**Transfer-neutral fix, increment T1 — `transactions.is_transfer` + derivation
+exclusion — DONE on `claude/transfer-flag-t1-4lt781` (Aug 20, 2026).** First half
+of the fix for SimpleFIN mis-signs: sync sets `direction` from the amount's SIGN,
+so a credit-card "Payment Thank You" posts positive and lands as income when it's
+really a transfer between the household's own accounts (and its funding leg is
+not spend). Chosen model: a direction-agnostic **`is_transfer` flag** (not
+overloading `income_type`, which is inflow-only — a transfer has an outflow leg
+too), so one predicate `is_transfer = 0` excludes a flagged row from spend,
+income, AND the balance.
+- **Migration `012_transfer_flag.py`** — `ALTER TABLE transactions ADD COLUMN
+  is_transfer INTEGER NOT NULL DEFAULT 0`, guarded-idempotent; `REQUIRED_SCHEMA_
+  VERSION` 11 → 12.
+- **`AND is_transfer = 0`** added to `compute_balance`, `spending_summary` (both
+  legs), `income_summary` (gross, true_income, unclassified-nag count),
+  `member_breakdown`, and `settle_breakdown` (so it still reconciles to
+  compute_balance). Left the merchant/pantry inference derivations (top_merchants,
+  recurring_charges, restock_*, …) untouched on purpose — they're display/inference,
+  not the money invariants the gate checks; can be revisited if a transfer OUTFLOW
+  ever needs hiding from those.
+- **No verb sets the flag yet** — that's T2 (`set_transfer` + "Mark as transfer"
+  UI). So this increment is **gate zero-diff by enumeration**: every row defaults
+  to 0, so every money number is byte-identical. `notes/012-gate-expectation.seed.json`
+  enumerates the sole diff (schema_version 11→12); **GATE PASS** matching it
+  exactly (real-data run on the synthetic dev.db: old=origin/main v11 vs new=T1
+  migrated copy). `txn_to_json` is a curated dict, so the new column can't leak
+  into the byte-frozen /api/transactions shape (parity intact).
+- Tests: `test_transfer_flag` (flag drops a row out of income/spend/balance/
+  member-breakdown/settle-breakdown; column exists NOT NULL DEFAULT 0; non-transfer
+  rows unchanged); `test_migrations` auto-covers v12 + idempotency; tripwire +
+  income-isolation green (the new column doesn't perturb inflow-invariance). Suite
+  **561 python + 113 render** green. NOT DEPLOYED. **T2 next: the `set_transfer`
+  verb + route + neutral-rendering UI.**

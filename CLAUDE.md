@@ -135,7 +135,17 @@ history). `GET /api/settle/breakdown` + a viewer-aware ledger in `dlg-settle`.
 A live browser smoke caught a reconciliation gap the unit tests missed (seed
 settlements without links) → the carryover fix. On
 `claude/settle-breakdown-4lt781`; suite 554+113, gate PASS zero-diff (synthetic
-dev.db — re-gate on the Pi before deploy). Not deployed.
+dev.db). DEPLOYED (Aug 20, PR #20, tree `cd878ad`→`9016b30`, live gate PASS
+zero-diff, schema still v11). Then (Aug 20): **transfer-neutral fix, increment
+T1** — for SimpleFIN mis-signs (a credit-card "Payment Thank You" posts positive
+→ lands as income when it's really a transfer). Migration `012_transfer_flag`
+adds a direction-agnostic `is_transfer` flag (NOT NULL DEFAULT 0); the money
+derivations (`compute_balance`, `spending_summary`, `income_summary`,
+`member_breakdown`, `settle_breakdown`) gain `AND is_transfer = 0`. Schema v11 →
+**v12**. No verb sets it yet (that's T2), so **gate PASS by enumeration** — the
+sole diff is schema_version 11→12 (`notes/012-gate-expectation.seed.json`); every
+money number byte-identical. On `claude/transfer-flag-t1-4lt781`; suite 561+113.
+Not deployed. **T2 next: the `set_transfer` verb + "Mark as transfer" UI.**
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
