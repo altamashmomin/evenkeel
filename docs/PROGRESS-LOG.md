@@ -2316,3 +2316,14 @@ in git history + the standalone "Sorting Finances" dashboards still exist).
   smoke of the Analytics tab confirms the lab card is gone, the cash-flow card
   remains, and nothing calls `/forecast/baselines`. No schema, no money-write
   path touched. NOT DEPLOYED.
+
+**DEPLOYED to the Pi — `origin/main` @ `cd878ad` (Aug 20, 2026), gate PASS
+zero-diff.** Alta ran `deploy/deploy.sh origin/main` on the Raspberry Pi; the
+live balance gate against the real `finance.db` passed zero-diff. This deploy
+took the tree from `0824348` to `cd878ad` — the **Forecast-lab removal**
+(PR #18) plus the intervening docs-only commit (`3356c26`, the previous deploy
+record, no code). Frontend + read-surface only, no migrations (schema stays
+**v11**); the zero-diff live gate confirms no money figure moved. The Analytics
+tab no longer shows the Forecast lab; everything else (Budgets, Cash-flow
+forecast, Savings-rate trend, Goals what-if, recategorize) is unchanged.
+`origin/main` == the deployed tree again; nothing merged-but-undeployed remains.

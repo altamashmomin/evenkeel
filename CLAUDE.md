@@ -122,7 +122,10 @@ Analytics-tab scenario what-if card (sliders/income override/horizon/target/
 `forecast_baselines` + `/api/forecast/baselines` + the whole lab frontend;
 KEPT the Goals what-if, recategorize, the cash-flow card, and pantry
 `restock_forecast`. On `claude/remove-forecast-lab-4lt781`; suite 540+106, gate
-PASS zero-diff. NOT deployed yet.
+PASS zero-diff. **DEPLOYED (Aug 20, PR #18):** Alta ran `deploy.sh origin/main`
+on the Pi, tree `0824348`→`cd878ad`, live real-data gate PASS zero-diff, schema
+still v11. `origin/main` == the deployed tree; nothing merged-but-undeployed
+remains.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
