@@ -125,7 +125,17 @@ KEPT the Goals what-if, recategorize, the cash-flow card, and pantry
 PASS zero-diff. **DEPLOYED (Aug 20, PR #18):** Alta ran `deploy.sh origin/main`
 on the Pi, tree `0824348`→`cd878ad`, live real-data gate PASS zero-diff, schema
 still v11. `origin/main` == the deployed tree; nothing merged-but-undeployed
-remains.
+remains. Then (Aug 20): **settle-up breakdown** — a "why is it this amount"
+disclosure in the settle dialog. `derivations.settle_breakdown` takes the
+authoritative figure from `compute_balance` and itemizes the unsettled shared
+expenses behind it; a `carryover_cents` residual (signed_balance − Σ open
+lines) guarantees **lines + carryover == the balance to the cent** even on
+legacy/seed data whose settlements link no rows (0 on clean `settle_up`
+history). `GET /api/settle/breakdown` + a viewer-aware ledger in `dlg-settle`.
+A live browser smoke caught a reconciliation gap the unit tests missed (seed
+settlements without links) → the carryover fix. On
+`claude/settle-breakdown-4lt781`; suite 554+113, gate PASS zero-diff (synthetic
+dev.db — re-gate on the Pi before deploy). Not deployed.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

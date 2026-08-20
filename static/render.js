@@ -616,6 +616,61 @@
     return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 
+  // Settle-up breakdown: why the balance is the number it is, told from the
+  // viewer's side (meId). Pure function of the /api/settle/breakdown payload
+  // plus who's looking. The server already reconciled the signed lines to the
+  // balance to the cent; this only presents them. `owed.cents` per line is
+  // signed (+ = the SECOND member owes the first), and `owed_to_first/second`
+  // are the two directional subtotals — remapped here into "owed to you" vs
+  // "you owe" so each user reads their own perspective.
+  function settleBreakdownHTML(bd, meId) {
+    const members = bd.members || [];
+    const lines = bd.lines || [];
+    const other = members.find((m) => m.id !== meId) || members[1] || { name: "them" };
+    if (bd.state !== "owing") {
+      return `<p class="settle-net">Nothing outstanding — you're square.</p>`;
+    }
+    // Headline is authoritative (from compute_balance via ower/owed/amount),
+    // so it always matches the settle-up figure even when a carryover exists.
+    const iAmOwer = bd.ower && bd.ower.id === meId;
+    const netLine = iAmOwer
+      ? `<b class="neg">You owe ${esc(other.name)} ${bd.amount.display}</b>`
+      : `<b class="pos">${esc(other.name)} owes you ${bd.amount.display}</b>`;
+    // Open-line subtotals, mapped to the viewer's side.
+    const first = members[0];
+    const meIsFirst = first && meId === first.id;
+    const owedToMe = meIsFirst ? bd.owed_to_first.cents : bd.owed_to_second.cents;
+    const iOwe = meIsFirst ? bd.owed_to_second.cents : bd.owed_to_first.cents;
+    const rows = lines.map((ln) => {
+      const mine = ln.paid_by && ln.paid_by.id === meId;   // I paid => they owe me
+      const amt = Math.abs((ln.owed && ln.owed.cents) || 0) / 100;
+      const tag = mine
+        ? `<span class="amt amount pos">+${fmt(amt)}</span>`
+        : `<span class="amt amount neg">−${fmt(amt)}</span>`;
+      return `<li>
+        <div class="grow"><div class="title">${esc(ln.description)}</div>
+          <div class="sub">${esc(shortDate((ln.date || "").slice(0, 10)))} · ${esc(ln.paid_by ? ln.paid_by.name : "?")} paid ${esc(ln.amount.display)} · your ${ln.share_pct}%</div></div>
+        ${tag}</li>`;
+    }).join("");
+    // The carryover line only appears when history the settle-links don't
+    // cover exists — it keeps the itemization honest instead of over-counting.
+    const carry = (bd.carryover && bd.carryover.cents) || 0;
+    const carryRow = carry === 0 ? "" : `<li class="settle-carry">
+        <div class="grow"><div class="title">Earlier balance</div>
+          <div class="sub">from before your last recorded settle-up</div></div>
+        <span class="amt amount">${bd.carryover.display}</span></li>`;
+    const ledger = lines.length || carry
+      ? `<details class="settle-ledger">
+           <summary>See the ${lines.length} expense${lines.length === 1 ? "" : "s"} behind this</summary>
+           <ul class="list">${rows}${carryRow}</ul>
+         </details>`
+      : "";
+    return `
+      <p class="settle-net">${netLine}</p>
+      <p class="settle-sub">${esc(other.name)} covered ${fmt(owedToMe / 100)} of your share · you covered ${fmt(iOwe / 100)} of theirs</p>
+      ${ledger}`;
+  }
+
   // Whole days between two ISO dates (b − a), calendar-based (parsed at local
   // midnight so DST can't shift the count). Positive when b is later.
   function daysBetween(aISO, bISO) {
@@ -1120,7 +1175,7 @@
   }
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
-           moreSheetHTML, recatSheetHTML,
+           moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,

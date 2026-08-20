@@ -23,6 +23,7 @@ from actions import (active_members, current_period, payer_share_pct,
 from derivations import (anomaly_flags, bill_variance, budget_status,
                          cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
+                         settle_breakdown,
                          income_summary, last_shopping_trip,
                          income_trend, low_stock, member_breakdown,
                          new_staple_suggestions,
@@ -1447,6 +1448,42 @@ def categories():
 @login_required
 def balance():
     return jsonify(compute_balance(get_db()))
+
+
+@app.get("/api/settle/breakdown")
+@login_required
+def settle_breakdown_view():
+    """Line-by-line explanation of the settle-up amount (the 'why is it this
+    number' disclosure), from the `settle_breakdown` derivation. Each line is
+    one unsettled shared expense with its signed owed delta; the signed lines
+    sum to the same figure /api/balance shows, by construction. Money as
+    {cents, display}; `owed` per line is SIGNED (+ = the second member owes the
+    first, matching the balance's sign). Pure read."""
+    db = get_db()
+    bd = settle_breakdown(db)
+    name_of = {m["id"]: m["display_name"] for m in bd["members"]}
+    return jsonify({
+        "state": bd["state"],
+        "amount": money(bd["amount_cents"]),
+        "ower": None if bd["ower"] is None
+                else {"id": bd["ower"]["id"], "name": bd["ower"]["display_name"]},
+        "owed": None if bd["owed"] is None
+                else {"id": bd["owed"]["id"], "name": bd["owed"]["display_name"]},
+        "owed_to_first": money(bd["owed_to_first_cents"]),
+        "owed_to_second": money(bd["owed_to_second_cents"]),
+        "carryover": money(bd["carryover_cents"]),
+        "members": [{"id": m["id"], "name": m["display_name"]} for m in bd["members"]],
+        "lines": [{
+            "transaction_id": ln["transaction_id"],
+            "date": ln["date"],
+            "description": ln["description"],
+            "category": ln["category"],
+            "amount": money(ln["amount_cents"]),
+            "paid_by": {"id": ln["paid_by"], "name": name_of.get(ln["paid_by"], "?")},
+            "share_pct": ln["share_bp"] / 100,
+            "owed": money(ln["owed_cents"]),
+        } for ln in bd["lines"]],
+    })
 
 
 # ---------------------------------------------------------------- bills
