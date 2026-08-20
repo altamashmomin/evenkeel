@@ -394,6 +394,18 @@ main {
 .type-btn.on { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); color: var(--ok); }
 .type-btn:active { transform: translateY(1px); }
 
+/* "Mark as transfer" toggle (classify + edit dialogs) and the neutral
+   rendering of a transfer row in the feed. */
+.transfer-toggle {
+  width: 100%; margin-top: 14px; padding: 11px 12px; border-radius: 8px;
+  border: 1px dashed var(--line); background: transparent; color: var(--muted);
+  font-size: 13.5px; cursor: pointer; text-align: center;
+}
+.transfer-toggle:active { transform: translateY(1px); }
+.transfer-toggle.on { border-style: solid; border-color: var(--brass);
+  color: var(--brass-dim); }
+.transfer-amt { color: var(--muted); }
+
 .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 22px 8px; }
 
 /* ---------- balance hero (signature) ---------- */

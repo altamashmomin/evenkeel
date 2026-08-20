@@ -144,8 +144,18 @@ derivations (`compute_balance`, `spending_summary`, `income_summary`,
 `member_breakdown`, `settle_breakdown`) gain `AND is_transfer = 0`. Schema v11 →
 **v12**. No verb sets it yet (that's T2), so **gate PASS by enumeration** — the
 sole diff is schema_version 11→12 (`notes/012-gate-expectation.seed.json`); every
-money number byte-identical. On `claude/transfer-flag-t1-4lt781`; suite 561+113.
-Not deployed. **T2 next: the `set_transfer` verb + "Mark as transfer" UI.**
+money number byte-identical. On `claude/transfer-flag-t1-4lt781`; suite 561+113
+(merged to main, PR #22, `0b0b93c`; not yet deployed). Then **increment T2** —
+the mechanism: verb `set_transfer(db, actor, txn_id, is_transfer)` (flag-only,
+reversible, rejects settlements, audited; registered in CORE-DESIGN.md) + `PUT
+/api/transactions/<id>/transfer` + `/api/activity` gaining `is_transfer` and
+hiding transfers from the spending/income filters + a "Mark as transfer" toggle
+in the classify & edit dialogs (the weak "Transfer" income-type button dropped)
++ neutral 🔁 rendering. On `claude/transfer-flag-t2-4lt781`; suite 571+113, gate
+PASS zero-diff (no schema change), browser-smoke verified (marking the real
+"Payment Thank You" case dropped gross income $270.36→$0, row went neutral). Not
+deployed. That completes the transfer-neutral fix; T3 (auto-tag / account-aware
+sync) is optional/deferred.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

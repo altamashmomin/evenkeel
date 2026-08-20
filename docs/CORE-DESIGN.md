@@ -222,6 +222,7 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `update_bill` | UI | — | Edits name/amount/due day/category; audit records the before-image and changed fields |
 | `delete_bill` | UI | — | Soft delete (`active=0`) during the bounded transition, matching `delete_goal`'s posture; history (past payments) is untouched |
 | `classify_inflow` | UI, MCP direct | row must be `direction='in'` | Lands with the income build |
+| `set_transfer` | UI | row exists; not a settlement | Marks/unmarks a transaction as a transfer between the household's own accounts (`is_transfer` flag, migration #012). A transfer is neither income nor spend and isn't part of who-owes-whom — every money derivation excludes `is_transfer=1`. Corrects a SimpleFIN mis-sign (a credit-card "Payment Thank You" posting positive → read as income). Flag-only (no split mutation), so fully reversible; audit before/after |
 | `create_income_rule` | UI, MCP two-phase | conflict check against existing rules | Two-phase via `pending_actions` when the caller is an agent |
 | `set_rule_enabled` | UI, MCP direct | — | No delete; disabled rules keep history |
 | `apply_rules` | UI, MCP two-phase | — | Dry-run preview first, per AGENT-DESIGN |

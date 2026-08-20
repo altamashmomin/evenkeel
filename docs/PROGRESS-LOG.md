@@ -2399,3 +2399,34 @@ income, AND the balance.
   income-isolation green (the new column doesn't perturb inflow-invariance). Suite
   **561 python + 113 render** green. NOT DEPLOYED. **T2 next: the `set_transfer`
   verb + route + neutral-rendering UI.**
+
+**Transfer-neutral fix, increment T2 — `set_transfer` verb + "Mark as transfer"
+UI — DONE on `claude/transfer-flag-t2-4lt781` (Aug 20, 2026).** Second half: the
+mechanism that sets the T1 flag, so a mis-signed row can actually be corrected.
+- **Verb `set_transfer(db, actor, txn_id, is_transfer)`** — validate (row exists;
+  not a settlement), flip the flag, audit before/after. FLAG-ONLY (no split
+  mutation), so fully reversible: unmark and the row returns to spend/income/
+  balance exactly as before. Registered in CORE-DESIGN.md's action table (the
+  `test_all_actions_registered` guard).
+- **`PUT /api/transactions/<id>/transfer`** — thin caller; response extends
+  txn_to_json with direction/income_type/is_transfer (new endpoint, frozen
+  listing shape untouched).
+- **`/api/activity`** now carries `is_transfer` per row and EXCLUDES transfers
+  from the `spending`/`income` filters (they're neither — they stay visible under
+  `all`, rendered neutrally).
+- **Frontend**: `txnRow` renders a transfer neutrally (🔁, grey amount, a
+  "transfer" chip — no green +/spend styling). The classify dialog drops the weak
+  "Transfer" income-type button (a transfer isn't income) and gains a "Mark as
+  transfer" toggle; the edit dialog gains the same toggle for outflow legs.
+  `setTransfer()` PUTs the route and re-renders. Legacy `income_type='transfer'`
+  rows still display.
+- Tests: `test_set_transfer` (verb: mark/unmark reversible, settlement rejected,
+  audit, flag-only leaves splits; route: marks + drops out of the income filter,
+  stays under `all`, 404/401). `test_activity_route` updated for the new field.
+  Suite **571 python + 113 render** green.
+- **Balance gate PASS — zero diff** (no schema change; old=origin/main v12 vs
+  new=T2, same derivations, nothing flagged by the gate). **Browser-smoke
+  verified end-to-end**: marking the real "Payment Thank You - Web" case dropped
+  gross income $270.36 → $0 and flipped the row to neutral, no console errors.
+  NOT DEPLOYED. That completes the transfer-neutral fix (T1 + T2); T3
+  (auto-tag-by-rule / account-type-aware sync) remains OPTIONAL/deferred.
