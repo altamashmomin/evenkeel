@@ -43,7 +43,8 @@ def compute_balance(db, as_of=None):
         """SELECT t.amount_cents, t.paid_by, s.member_id, s.share_bp
            FROM transactions t
            JOIN splits s ON s.transaction_id = t.id
-           WHERE s.member_id != t.paid_by AND t.direction = 'out'""" + date_clause,
+           WHERE s.member_id != t.paid_by AND t.direction = 'out'
+               AND t.is_transfer = 0""" + date_clause,
         params).fetchall()
     for row in rows:
         owed_cents = round_ratio(row["amount_cents"] * row["share_bp"], 10000)
@@ -114,7 +115,7 @@ def settle_breakdown(db, as_of=None):
            FROM transactions t
            JOIN splits s ON s.transaction_id = t.id
            WHERE s.member_id != t.paid_by AND t.direction = 'out'
-               AND t.source != 'settlement'
+               AND t.source != 'settlement' AND t.is_transfer = 0
                AND NOT EXISTS (
                    SELECT 1 FROM links l
                    WHERE l.link_type = 'settles' AND l.to_id = t.id)"""
@@ -182,12 +183,14 @@ def spending_summary(db, month=None):
                 SELECT substr(txn_date, 1, 7) AS month, category,
                        amount_cents AS signed_cents
                   FROM transactions
-                 WHERE source != 'settlement' AND direction = 'out'{month_clause}
+                 WHERE source != 'settlement' AND direction = 'out'
+                       AND is_transfer = 0{month_clause}
                 UNION ALL
                 SELECT substr(txn_date, 1, 7) AS month, category,
                        -amount_cents AS signed_cents
                   FROM transactions
-                 WHERE direction = 'in' AND income_type = 'refund'{month_clause}
+                 WHERE direction = 'in' AND income_type = 'refund'
+                       AND is_transfer = 0{month_clause}
             )
             GROUP BY month, category
             ORDER BY month, total_cents DESC, category""",
@@ -237,7 +240,7 @@ def income_summary(db, month=None):
                COALESCE(SUM(CASE WHEN income_type = 'unclassified'
                                  THEN 1 ELSE 0 END), 0) AS unclassified
            FROM transactions
-           WHERE direction = 'in'""" + clause, params).fetchone()
+           WHERE direction = 'in' AND is_transfer = 0""" + clause, params).fetchone()
     gross_cents = row["gross"]
     true_income_cents = row["true_income"]
 
@@ -561,7 +564,8 @@ def member_breakdown(db, month=None):
     rows = db.execute(
         """SELECT t.id AS tid, t.amount_cents, t.paid_by, s.member_id, s.share_bp
            FROM transactions t JOIN splits s ON s.transaction_id = t.id
-           WHERE t.direction = 'out'""" + clause, params).fetchall()
+           WHERE t.direction = 'out' AND t.is_transfer = 0""" + clause,
+        params).fetchall()
     # Group splits per transaction so the payer can take the rounding residual.
     txns = {}
     for r in rows:
