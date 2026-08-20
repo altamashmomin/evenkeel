@@ -832,6 +832,46 @@ def classify_inflow(db, actor, txn_id, income_type):
     return row
 
 
+def set_transfer(db, actor, txn_id, is_transfer):
+    """Mark a transaction as a transfer between the household's own accounts —
+    or unmark it (transfer-neutral fix, increment T2).
+
+    A transfer is NEITHER income NOR spend and is not part of who-owes-whom, so
+    every money derivation excludes is_transfer=1 (added in T1). This is how a
+    mis-signed row gets corrected: a credit-card 'Payment Thank You' posts as a
+    POSITIVE amount, so sync files it as direction='in' and it reads as income —
+    marking it a transfer takes it out of income; marking its funding leg (the
+    checking-side debit) takes that out of spend.
+
+    validate — the row exists (NotFound); it is NOT a settlement (a settlement
+    IS the balance-zeroing mechanism, never a transfer). `is_transfer` is
+    coerced to 0/1.
+    edit — one transaction: the flag column + the audit row (before/after).
+    Deliberately FLAG-ONLY — it does NOT touch split rows, so the action is
+    fully reversible: unmark and the row returns to spend/income/balance
+    exactly as before (the derivations simply stop ignoring it). A transfer
+    keeping stale split rows is harmless because every money derivation filters
+    is_transfer=1 out (T1).
+    side effects — none.
+    Returns the updated row."""
+    flag = 1 if is_transfer else 0
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        if existing["source"] == "settlement":
+            raise ActionError("a settlement cannot be marked a transfer")
+        db.execute(
+            "UPDATE transactions SET is_transfer = ? WHERE id = ?", (flag, txn_id))
+        row = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        _write_audit(
+            db, actor, "set_transfer", f"transaction:{txn_id}",
+            {"before": existing["is_transfer"], "after": flag})
+    return row
+
+
 RULE_TYPES = INCOME_TYPES - {"unclassified"}
 # A rule assigns a real type; "leave it unclassified" isn't something a
 # rule needs to say — that's simply the state a non-match leaves a row in.

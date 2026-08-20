@@ -540,9 +540,12 @@ def activity():
         clauses.append("substr(txn_date, 1, 7) = ?")
         params.append(month)
     if filt == "spending":
-        clauses.append("direction = 'out'")
+        # Transfers are neither spend nor income, so the filtered views hide
+        # them (they stay visible under 'all'); the 'all' feed shows every real
+        # movement, transfers included but rendered neutrally.
+        clauses.append("direction = 'out' AND is_transfer = 0")
     elif filt == "income":
-        clauses.append("direction = 'in'")
+        clauses.append("direction = 'in' AND is_transfer = 0")
     if category is not None:
         clauses.append("category = ?")
         params.append(category)
@@ -565,7 +568,8 @@ def activity():
         "category": category,
         "transactions": [
             {**txn_to_json(db, r, shares),
-             "direction": r["direction"], "income_type": r["income_type"]}
+             "direction": r["direction"], "income_type": r["income_type"],
+             "is_transfer": bool(r["is_transfer"])}
             for r in rows
         ],
         "unclassified_count": unclassified,
@@ -619,6 +623,26 @@ def delete_transaction(txn_id):
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
     return jsonify({"ok": True})
+
+
+@app.put("/api/transactions/<int:txn_id>/transfer")
+@login_required
+def set_transfer_view(txn_id):
+    """Thin caller: the set_transfer verb marks/unmarks a row as a transfer
+    between the household's own accounts. Response extends the deployed
+    txn_to_json shape with direction/income_type/is_transfer — new fields on a
+    new endpoint, so the byte-frozen listing shape stays untouched."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.set_transfer(db, ui_actor(db), txn_id, data.get("is_transfer"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify({**txn_to_json(db, row),
+                     "direction": row["direction"], "income_type": row["income_type"],
+                     "is_transfer": bool(row["is_transfer"])})
 
 
 @app.put("/api/transactions/<int:txn_id>/classify")

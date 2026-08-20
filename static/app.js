@@ -464,6 +464,28 @@ async function renderAgents() {
 
 function txnRow(t) {
   const payer = userById(t.paid_by);
+  // A transfer between the household's own accounts is neither income nor
+  // spend — render it neutrally (a grey chip, no +/− coloring) so it reads as
+  // "money moved, not earned or spent." Tapping still opens its dialog.
+  if (t.is_transfer) {
+    const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
+    const sign = t.direction === "in" ? "+" : "−";
+    return `
+      <li class="tap" data-txn="${t.id}">
+        <span class="ic">🔁</span>
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(t.paid_by)}"></span>${esc(payer.display_name)}
+            · transfer${src} <span class="badge">transfer</span>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount transfer-amt">${sign}${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+  }
   // direction is absent on the dashboard's "recent" rows (they come from
   // the frozen txn_to_json), so treat missing as an outflow — those keep
   // their existing spend styling untouched.
@@ -1029,6 +1051,16 @@ function openTxnDialog(txn) {
   buildSeg($("#txn-paidby"), txn ? txn.paid_by : state.meId, updateSplitHint);
   $("#txn-split").classList.toggle("hidden", !formTxn.is_shared.checked);
   updateSplitHint();
+  // Transfer toggle: only on an existing row (nothing to flag while adding).
+  const xfer = $("#txn-transfer");
+  xfer.classList.toggle("hidden", !txn);
+  if (txn) {
+    xfer.textContent = txn.is_transfer
+      ? "✓ Marked as a transfer — tap to undo"
+      : "Not spending? Mark as a transfer between your accounts";
+    xfer.classList.toggle("on", !!txn.is_transfer);
+    xfer.onclick = () => setTransfer(txn.id, !txn.is_transfer);
+  }
   dlgTxn.showModal();
   // showModal() auto-focuses the first field (the date input), and iOS pops its
   // date picker on focus — so the calendar appeared the instant you tapped Add.
@@ -1079,10 +1111,13 @@ $("#fab").addEventListener("click", () => openTxnDialog(null));
 const dlgClassify = $("#dlg-classify");
 // The six real income types a row can be tagged as ('unclassified' is a
 // state, never a target); order matches how often you'd reach for them.
+// Real income types only. "Transfer" is deliberately NOT here: a transfer
+// between your own accounts is neither income nor spend, so it's set by the
+// is_transfer flag (the "Mark as transfer" toggle below), not classified as a
+// kind of income. Legacy rows tagged income_type='transfer' still display.
 const INCOME_TYPES_UI = [
   ["paycheck", "Paycheck"], ["reimbursement", "Reimbursement"],
-  ["refund", "Refund"], ["transfer", "Transfer"],
-  ["gift", "Gift"], ["other", "Other"],
+  ["refund", "Refund"], ["gift", "Gift"], ["other", "Other"],
 ];
 
 function openClassifyDialog(txn) {
@@ -1100,6 +1135,15 @@ function openClassifyDialog(txn) {
     b.addEventListener("click", () => classifyInflow(txn.id, val));
     holder.appendChild(b);
   });
+  // The transfer toggle: a transfer isn't income, so it lives apart from the
+  // type buttons. Marking removes it from income and the tag queue; unmarking
+  // restores it (fully reversible — see set_transfer).
+  const xfer = $("#classify-transfer");
+  xfer.textContent = txn.is_transfer
+    ? "✓ Marked as a transfer — tap to undo"
+    : "Not income? Mark as a transfer between your accounts";
+  xfer.classList.toggle("on", !!txn.is_transfer);
+  xfer.onclick = () => setTransfer(txn.id, !txn.is_transfer);
   dlgClassify.showModal();
 }
 
@@ -1114,6 +1158,22 @@ async function classifyInflow(id, income_type) {
     if (res && res.rule_suggestion) openRuleDialog(res.rule_suggestion);
   } catch (e) {
     $("#classify-error").textContent = e.message;
+  }
+}
+
+// Mark (or unmark) a transaction as a transfer between the household's own
+// accounts — the fix for a mis-signed "Payment Thank You" (excluded from
+// income, spend, and the balance). Closes whichever dialog is open, re-renders.
+async function setTransfer(id, isTransfer) {
+  try {
+    await api(`/api/transactions/${id}/transfer`,
+              { method: "PUT", body: { is_transfer: isTransfer } });
+    dlgClassify.close();
+    dlgTxn.close();
+    render();
+  } catch (e) {
+    ($("#classify-error") || {}).textContent = e.message;
+    ($("#txn-error") || {}).textContent = e.message;
   }
 }
 
