@@ -624,28 +624,6 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .sr-pct.neg { color: var(--danger); }
 .sr-mo { color: var(--muted); font-family: var(--mono); font-size: 10.5px; }
 
-/* Analytics — Forecast lab (scenario what-ifs) */
-.fc-line { fill: none; stroke-width: 2; stroke-linejoin: round; }
-.fc-line.pos { stroke: var(--ok); }
-.fc-line.neg { stroke: var(--danger); }
-.fc-dot.pos { fill: var(--ok); }
-.fc-dot.neg { fill: var(--danger); }
-.seg.fc-horizon { grid-template-columns: 1fr 1fr 1fr; margin: 12px 0 4px; }
-.fc-row { margin-top: 12px; }
-.fc-row .fc-top { display: flex; align-items: baseline; gap: 10px; }
-.fc-name { flex: 1; font-weight: 500; font-size: 14px; }
-.fc-val { color: var(--muted); font-family: var(--mono); font-size: 12.5px;
-  font-variant-numeric: tabular-nums; }
-.fc-row input[type="range"] { width: 100%; margin: 6px 0 0; }
-.fc-income input { margin-top: 6px; }
-.fc-target input { flex: 0 0 128px; padding: 8px 10px; font-size: 14px; }
-.fc-target .fc-top { align-items: center; }
-.fc-target-line { font-size: 13px; margin: 8px 0 6px; color: var(--muted); }
-.fc-target-line.pos { color: var(--ok); }
-.fc-target-line.neg { color: var(--danger); }
-.fc-target .btn { margin-top: 10px; }
-.fc-note { font-size: 12px; color: var(--muted); margin: 14px 0 10px; }
-
 /* Ask tab — chat */
 .ask-wrap { display: flex; flex-direction: column; gap: 12px; }
 .ask-thread { display: flex; flex-direction: column; gap: 10px;

@@ -115,7 +115,14 @@ Alta ran `deploy.sh origin/main` on the Pi — one deploy took the tree from
 `a6adc03` to `0824348`, shipping BOTH the scenario port (PR #10) and
 recategorize (PR #16) live; live real-data gate PASS zero-diff, schema still
 v11. `origin/main` == the deployed tree again; nothing merged-but-undeployed
-remains.
+remains. Then (Aug 20): **removed the Forecast lab** — product call, the
+Analytics-tab scenario what-if card (sliders/income override/horizon/target/
+"Suggest cuts") wasn't earning its place; its grounded cousins already exist
+(Budgets, the Cash-flow forecast card, the Savings-rate trend). Deleted
+`forecast_baselines` + `/api/forecast/baselines` + the whole lab frontend;
+KEPT the Goals what-if, recategorize, the cash-flow card, and pantry
+`restock_forecast`. On `claude/remove-forecast-lab-4lt781`; suite 540+106, gate
+PASS zero-diff. NOT deployed yet.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

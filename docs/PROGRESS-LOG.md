@@ -2289,3 +2289,30 @@ No migrations in either (schema stays **v11**); the zero-diff live gate
 confirms the deploy changed no money figure. `origin/main` == the deployed
 tree again. All the "NOT DEPLOYED" markers in the entries above are now
 closed.
+
+**Removed the Forecast lab — DONE on `claude/remove-forecast-lab-4lt781`
+(Aug 20, 2026).** Product call by Alta: the Analytics-tab Forecast lab (the
+scenario port's increment 1 + 3 — 0–200% category sliders, income override,
+6/12/24-mo horizon, savings target, "Suggest cuts") wasn't earning its place.
+It was a non-persistent what-if toy whose grounded cousins already exist and do
+the honest version: **Budgets** (persistent category limits checked against
+actual spend), the **Cash-flow forecast** card (month-end floor from real
+bills), and the **Savings-rate trend**. Deleted, cleanly and reversibly (it's
+in git history + the standalone "Sorting Finances" dashboards still exist).
+- Removed: `derivations.forecast_baselines`, `GET /api/forecast/baselines` (+
+  its app.py import), the tripwire EXEMPT entry, `tests/test_forecast_baselines.py`
+  + `tests/test_forecast_route.py`; and the whole frontend surface — the
+  render.js helpers (`forecastScenario`/`forecastLine`/`forecastChartSVG`/
+  `forecastTargetHTML`/`forecastOptimize`/`forecastLabHTML`) + their exports and
+  seam tests, the app.js state/fetch/stash/wiring (`state.forecast`,
+  `forecastScenarioState`, `refreshForecastLab`, the wireMain handlers), and the
+  `.fc-*` CSS block.
+- **Explicitly KEPT** (different features, unrelated to the lab): the Goals-tab
+  pace line + per-goal what-if (scenario port increment 2, genuinely useful),
+  the recategorize-from-Spent flow, the Cash-flow forecast card + its MCP tool,
+  and the pantry `restock_forecast`. Verified none reference the lab.
+- Suite **540 python + 106 render** green (−14 backend tests / −21 render checks,
+  exactly the lab's own); **balance gate PASS zero-diff** (42 values); browser
+  smoke of the Analytics tab confirms the lab card is gone, the cash-flow card
+  remains, and nothing calls `/forecast/baselines`. No schema, no money-write
+  path touched. NOT DEPLOYED.
