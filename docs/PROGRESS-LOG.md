@@ -2327,3 +2327,42 @@ record, no code). Frontend + read-surface only, no migrations (schema stays
 tab no longer shows the Forecast lab; everything else (Budgets, Cash-flow
 forecast, Savings-rate trend, Goals what-if, recategorize) is unchanged.
 `origin/main` == the deployed tree again; nothing merged-but-undeployed remains.
+
+**Settle-up breakdown — DONE on `claude/settle-breakdown-4lt781` (Aug 20, 2026).**
+Alta asked for a way for either member to see *why* the settle-up amount is what
+it is. New read-only surface that explains `compute_balance` line by line.
+- **`derivations.settle_breakdown(db, as_of=None)`** — takes the authoritative
+  number straight from `compute_balance` (never recomputes it, so /api/balance
+  and the breakdown can't disagree), then itemizes the UNSETTLED shared
+  expenses behind it: shared outflows one member fronted a share of, not yet
+  closed by a settlement (no incoming 'settles' link), excluding settlement
+  rows. Each is a signed line (+ ⇒ second owes first) using compute_balance's
+  exact `round_ratio`. Plus directional subtotals (owed_to_first/second).
+- **The reconciliation guard — `carryover_cents`.** A pure "since last
+  settlement via links" filter can't be *guaranteed* to reconcile on arbitrary
+  history: legacy settlements from before the links table (and the synthetic
+  seed's directly-inserted settlements) affect `compute_balance` but link no
+  rows, so the itemization would over-count. `carryover = signed_balance −
+  Σ(open lines)` absorbs exactly that residual, so **lines + carryover == the
+  balance, always, to the cent**. On clean data (every settlement via
+  `settle_up`, which links what it closes) carryover is exactly 0 and never
+  shows. **This was caught by a live browser smoke** (balance $115.75 vs a naive
+  itemization's $401.84) *after* the controlled-fixture unit tests passed — the
+  seed's unlinked settlements are the gap; the carryover fix reconciles it
+  (verified live: lines −$401.84 + carryover +$286.09 = −$115.75).
+- **`GET /api/settle/breakdown`** — {cents, display} at the edge, signed per-line
+  `owed`, `carryover`, `login_required`, pure read.
+- **Frontend**: a breakdown block in the settle-up dialog (`dlg-settle`) —
+  authoritative headline ("You owe Blake $115.75" / "Blake owes you …", from the
+  viewer's side via `state.meId`), a both-sides sub-line, and an expandable
+  per-expense ledger; a single "Earlier balance" row appears only when carryover
+  ≠ 0. Best-effort: a failed breakdown fetch never blocks recording the
+  settlement. Pure `settleBreakdownHTML(bd, meId)` in render.js, seam-tested
+  (both viewer perspectives, carryover row, XSS).
+- Tests: `test_settle_breakdown` (10 reconciliation scenarios incl. two-settle
+  cycle, backdated row, odd-cent split, and the legacy-settlement carryover
+  case) + `test_settle_breakdown_route`. Tripwire-safe (splits INNER JOIN, like
+  compute_balance). Suite **554 python + 113 render** green; **balance gate PASS
+  zero-diff** (synthetic dev.db — re-gate on the Pi before deploy). Also
+  browser-smoke-verified (dialog renders, headline matches balance, no console
+  errors). NOT DEPLOYED.

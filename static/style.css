@@ -581,6 +581,21 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .dlg-actions .spacer { flex: 1; }
 .pay-summary { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
 
+/* Settle-up breakdown: why the amount is what it is */
+#settle-breakdown { margin: 10px 0 4px; }
+.settle-net { font-size: 15px; margin: 4px 0; }
+.settle-net .pos { color: var(--ok); }
+.settle-net .neg { color: var(--danger); }
+.settle-sub { font-size: 12.5px; color: var(--muted); margin: 2px 0 8px; }
+.settle-ledger summary { font-size: 13px; color: var(--brass-dim); cursor: pointer;
+  padding: 4px 0; list-style: none; }
+.settle-ledger summary::-webkit-details-marker { display: none; }
+.settle-ledger summary::before { content: "▸ "; }
+.settle-ledger[open] summary::before { content: "▾ "; }
+.settle-ledger .list { margin-top: 6px; max-height: 40vh; overflow-y: auto; }
+.settle-ledger .amount.pos { color: var(--ok); }
+.settle-ledger .amount.neg { color: var(--danger); }
+
 /* ---- analytics: income-vs-spend chart ---- */
 .chart-headline { font-family: var(--mono); font-size: 30px; font-weight: 600;
   letter-spacing: 0.01em; margin: 6px 0 2px; color: var(--muted); }

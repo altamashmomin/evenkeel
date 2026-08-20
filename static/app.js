@@ -13,7 +13,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText, goalPaceLineHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
-        moreSheetHTML, recatSheetHTML } = window.Render;
+        moreSheetHTML, recatSheetHTML, settleBreakdownHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -1293,13 +1293,22 @@ formContrib.addEventListener("submit", async (ev) => {
 /* ---------- settle up ---------- */
 const dlgSettle = $("#dlg-settle");
 
-function openSettle() {
+async function openSettle() {
   const bal = window._dash.balance;
   if (bal.settled) return;
   $("#settle-summary").textContent =
     `${bal.owes.name} pays ${bal.owed.name} ${fmt(bal.amount)}.`;
   $("#settle-error").textContent = "";
+  // The breakdown (why it's this amount) loads async; a failure to fetch it
+  // must never block recording the settlement, so it's best-effort.
+  $("#settle-breakdown").innerHTML = `<p class="settle-sub">Loading breakdown…</p>`;
   dlgSettle.showModal();
+  try {
+    const bd = await api("/api/settle/breakdown");
+    $("#settle-breakdown").innerHTML = settleBreakdownHTML(bd, state.meId);
+  } catch (e) {
+    $("#settle-breakdown").innerHTML = "";   // silent — settling still works
+  }
 }
 
 $("#form-settle").addEventListener("submit", async (ev) => {

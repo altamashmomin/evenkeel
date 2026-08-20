@@ -63,6 +63,94 @@ def compute_balance(db, as_of=None):
     }
 
 
+def settle_breakdown(db, as_of=None):
+    """Explain the who-owes-whom balance line by line — the settle-up screen's
+    'why is it this amount' (transparency over compute_balance, so either
+    member can audit the figure).
+
+    The authoritative number comes straight from `compute_balance` — this
+    function never recomputes it, so /api/balance and the breakdown can NEVER
+    disagree by construction. What it adds is the itemization: the UNSETTLED
+    shared expenses making up that number — shared outflows one member fronted
+    a share of, not yet closed by a settlement (no incoming 'settles' link),
+    excluding settlement rows themselves. Each is a signed line (+ => `second`
+    owes `first`), using compute_balance's exact per-row rounding.
+
+    The reconciliation guard is `carryover_cents`: signed_balance minus the sum
+    of the open lines. On clean data — every settlement made through settle_up,
+    which links the rows it closes — the open lines ARE the whole balance and
+    carryover is exactly 0. It goes non-zero only when history the links don't
+    cover exists (legacy settlements from before the links table, or rows
+    settled outside the verb); there it honestly carries that residual so
+    lines + carryover always equal the balance to the cent, instead of the
+    itemization silently over-counting. `as_of` flows through to
+    compute_balance so the window matches.
+
+    Definition of 'unsettled' is date-proof: 'not covered by a settles link',
+    exactly what settle_up records when it closes the books — a backdated
+    expense or same-day tie can't confuse it. Reads transactions/splits/links
+    only via the splits INNER JOIN, so an inflow can't reach it (tripwire-safe
+    for the same structural reason as compute_balance; test_income_isolation
+    carries the deliberately-mis-split guard). Integer cents throughout."""
+    bal = compute_balance(db, as_of)
+    members = bal["members"]
+    if len(members) < 2:
+        return {"state": "waiting", "amount_cents": 0, "members": members,
+                "ower": None, "owed": None, "lines": [],
+                "owed_to_first_cents": 0, "owed_to_second_cents": 0,
+                "carryover_cents": 0}
+    first, second = members[0], members[1]
+    # signed_balance in compute_balance's convention: + => second owes first.
+    signed_balance = 0
+    if bal["state"] == "owing":
+        signed_balance = (bal["amount_cents"]
+                          if bal["ower"]["id"] == second["id"]
+                          else -bal["amount_cents"])
+    date_clause = " AND t.txn_date <= ?" if as_of is not None else ""
+    params = (as_of,) if as_of is not None else ()
+    rows = db.execute(
+        """SELECT t.id, t.txn_date, t.description, t.amount_cents, t.category,
+                  t.paid_by, s.member_id, s.share_bp
+           FROM transactions t
+           JOIN splits s ON s.transaction_id = t.id
+           WHERE s.member_id != t.paid_by AND t.direction = 'out'
+               AND t.source != 'settlement'
+               AND NOT EXISTS (
+                   SELECT 1 FROM links l
+                   WHERE l.link_type = 'settles' AND l.to_id = t.id)"""
+        + date_clause + " ORDER BY t.txn_date DESC, t.id DESC",
+        params).fetchall()
+    lines, owed_to_first, owed_to_second = [], 0, 0
+    for row in rows:
+        owed_cents = round_ratio(row["amount_cents"] * row["share_bp"], 10000)
+        if row["paid_by"] == first["id"] and row["member_id"] == second["id"]:
+            signed = owed_cents
+            owed_to_first += owed_cents
+        elif row["paid_by"] == second["id"] and row["member_id"] == first["id"]:
+            signed = -owed_cents
+            owed_to_second += owed_cents
+        else:
+            continue  # a share not between the two active members: not a debt
+        lines.append({
+            "transaction_id": row["id"], "date": row["txn_date"],
+            "description": row["description"], "category": row["category"],
+            "amount_cents": row["amount_cents"], "paid_by": row["paid_by"],
+            "share_bp": row["share_bp"], "owed_cents": signed,
+        })
+    carryover_cents = signed_balance - (owed_to_first - owed_to_second)
+    return {
+        "state": bal["state"],
+        "amount_cents": bal["amount_cents"],
+        "members": members,
+        "ower": bal.get("ower"),
+        "owed": bal.get("owed"),
+        "owed_to_first_cents": owed_to_first,
+        "owed_to_second_cents": owed_to_second,
+        "carryover_cents": carryover_cents,
+        "lines": lines,
+    }
+
+
 def spending_summary(db, month=None):
     """Net spend by month/category: outflows minus the refunds that reverse
     them, excluding settlement transactions.

@@ -936,6 +936,76 @@ check("recatSheetHTML neutralizes a hostile category (title + empty copy)", () =
     "hostile category broke out in the empty sheet");
 });
 
+// ---- Settle-up breakdown (why the amount is what it is) ----
+// Server payload: members [first, second]; owed_to_first = what second owes
+// first; per-line owed.cents signed (+ = second owes first).
+const SB = {
+  state: "owing",
+  members: [{ id: 1, name: "Avery" }, { id: 2, name: "Blake" }],
+  // Net = 6000 - 2000 = 4000 => Blake owes Avery $40 (authoritative headline).
+  amount: { cents: 4000, display: "$40.00" },
+  ower: { id: 2, name: "Blake" },
+  owed: { id: 1, name: "Avery" },
+  carryover: { cents: 0, display: "$0.00" },
+  owed_to_first: { cents: 6000, display: "$60.00" },   // Blake owes Avery
+  owed_to_second: { cents: 2000, display: "$20.00" },  // Avery owes Blake
+  lines: [
+    { transaction_id: 10, date: "2026-08-14", description: "Costco",
+      amount: { cents: 12000, display: "$120.00" },
+      paid_by: { id: 1, name: "Avery" }, share_pct: 50,
+      owed: { cents: 6000, display: "$60.00" } },
+    { transaction_id: 11, date: "2026-08-11", description: "Dinner",
+      amount: { cents: 4000, display: "$40.00" },
+      paid_by: { id: 2, name: "Blake" }, share_pct: 50,
+      owed: { cents: -2000, display: "-$20.00" } },
+  ],
+};
+check("settleBreakdownHTML nets to the same figure from each viewer's side", () => {
+  // Net = 6000 - 2000 = 4000 => Blake owes Avery $40.
+  const avery = R.settleBreakdownHTML(SB, 1);
+  assert.ok(/Blake owes you \$40\.00/.test(avery), "Avery's view: they owe you");
+  const blake = R.settleBreakdownHTML(SB, 2);
+  assert.ok(/You owe Avery \$40\.00/.test(blake), "Blake's view: you owe them");
+});
+check("settleBreakdownHTML lists every contributing expense in the ledger", () => {
+  const html = R.settleBreakdownHTML(SB, 1);
+  assert.ok(/See the 2 expenses behind this/.test(html));
+  assert.ok(html.includes("Costco") && html.includes("Dinner"));
+  // Avery paid Costco => it's money owed TO Avery (pos); Blake paid Dinner => Avery owes (neg).
+  assert.ok(/Costco[\s\S]*?amount pos/.test(html), "Costco is owed-to-you for Avery");
+});
+check("settleBreakdownHTML flips per-line sign for the other viewer", () => {
+  const html = R.settleBreakdownHTML(SB, 2);   // Blake's side
+  // Blake paid Dinner => owed to Blake (pos); Avery paid Costco => Blake owes (neg).
+  assert.ok(/Dinner[\s\S]*?amount pos/.test(html));
+  assert.ok(/Costco[\s\S]*?amount neg/.test(html));
+});
+check("settleBreakdownHTML settled state says square", () => {
+  assert.ok(/square/.test(R.settleBreakdownHTML(
+    { state: "settled", members: SB.members, lines: [], amount: { cents: 0, display: "$0.00" },
+      ower: null, owed: null, carryover: { cents: 0, display: "$0.00" },
+      owed_to_first: { cents: 0 }, owed_to_second: { cents: 0 } }, 1)));
+});
+check("settleBreakdownHTML headline is authoritative amount, not recomputed", () => {
+  // Even if the open-line subtotals were incomplete, the headline uses
+  // amount/ower straight from the payload, so it can't disagree with settle-up.
+  const html = R.settleBreakdownHTML(SB, 1);   // Avery's view; Blake is ower
+  assert.ok(/Blake owes you \$40\.00/.test(html));
+});
+check("settleBreakdownHTML shows a carryover row only when non-zero", () => {
+  assert.ok(!/Earlier balance/.test(R.settleBreakdownHTML(SB, 1)), "clean data: no carry line");
+  const withCarry = { ...SB, carryover: { cents: -3000, display: "-$30.00" } };
+  const html = R.settleBreakdownHTML(withCarry, 1);
+  assert.ok(/Earlier balance/.test(html), "carryover surfaced");
+  assert.ok(html.includes("-$30.00"));
+});
+check("settleBreakdownHTML escapes a hostile description", () => {
+  const evil = { ...SB, lines: [{ ...SB.lines[0],
+    description: 'Costco<img src=x onerror=alert(1)>' }] };
+  const html = R.settleBreakdownHTML(evil, 1);
+  assert.ok(!/<img/.test(html), "hostile description was not escaped");
+});
+
 // ---- Goals tab: pace line + per-goal what-if ----
 check("goalWhatIf is ceiling division; 0 when funded; null when unreachable", () => {
   assert.strictEqual(R.goalWhatIf(100000, 25000), 4);
