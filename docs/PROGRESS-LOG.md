@@ -3039,8 +3039,17 @@ no new verb, never touches money.
   apply", services restarted, backup `finance.db.bak-2026-08-21-124448`.
   Tailnet-verified: `/api/inventory/pulse` + `/badge` **401 unauthenticated**,
   `staleStaplesHTML` served (5), the Garden badge fetch in `app.js` (2),
-  `origin/main` == `6b6bbf5`. **The pulse timer is NOT yet installed on the
-  Pi** — Alta's sudo step, `deploy/pantry-pulse.md`.
+  `origin/main` == `6b6bbf5`. **Pulse timer INSTALLED (Aug 21, 12:59)**: Alta
+  minted a read token, installed the sed-rewritten units, enabled the Sunday
+  09:00 timer; `--dry-run` produced a real digest (1 on the list, a Quick Chek
+  new-staple suggestion, 3 never-matched staples) and the first live run
+  **filed `pantry-pulse` issue #37** on evenkeel. Two install stumbles, both
+  now in the doc: the placeholder's angle brackets were pasted literally into
+  `.env` (breaks sourcing + the bearer header), and in the process the first
+  token was displayed in a chat transcript — so it was **revoked (id 4)** and
+  re-minted via a pipe-to-`.env` one-liner that never prints the token (the
+  doc now recommends that form). A password was also shared in transcript
+  during the walk; Alta was advised to change it.
 
 ## Aug 21, 2026 — Frontend seam thread: extract billRowHTML, goalCardHTML, contribLogHTML (PRs #34, #35)
 

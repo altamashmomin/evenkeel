@@ -253,8 +253,9 @@ the Garden line via `GET /api/inventory/badge` (the dashboard payload is
 frozen to v1 — parity test enforced it). Suite 618+147, GATE PASS zero-diff.
 **DEPLOYED** (`main` `6b6bbf5`, with PRs #35/#36 folded in pre-push;
 tailnet-verified). `origin/main` == the deployed tree. **Pantry v2 increments
-1–6 are live; 7 (the `ordered` status) awaits Alta/Charlee's call; the pulse
-timer awaits Alta's Pi install.**
+1–6 are live, the Sunday pantry-pulse timer is installed on the Pi (first
+issue #37 filed Aug 21); 7 (the `ordered` status) awaits Alta/Charlee's
+call.**
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
