@@ -846,16 +846,83 @@
      the server verbatim ({cents,display}) — the pantry reports money, never
      moves it. Honest limit: merchant-level, so it's the whole coffee shop, not
      one cup, and a grocery-hidden staple shows nothing. */
+  /* ===== "Also grab while you're out" — the trip, composed (Pantry v2 inc 5)
+     Pure function of trip_plan.due_soon[] (each { item_id, name, store,
+     snoozed_until, predicted_date, typical }) and the client's today. The
+     derivation is clock-free; "due this week" and "not snoozed right now"
+     are decided here. Each row's action is the existing "Mark low" (it drops
+     the staple onto the list — the same verb as the forecast card). Returns
+     { html, total_cents, count } so the estimate line can price the trip two
+     ways. */
+  function tripDueHTML(plan, todayISO, horizonDays) {
+    const empty = { html: "", total_cents: 0, count: 0 };
+    if (!plan || !plan.due_soon || !plan.due_soon.length || !todayISO) return empty;
+    const horizon = horizonDays == null ? 7 : horizonDays;
+    const rows = plan.due_soon
+      .filter((d) => !(d.snoozed_until && d.snoozed_until > todayISO))
+      .map((d) => ({ d, days: daysBetween(todayISO, d.predicted_date) }))
+      .filter((x) => x.days <= horizon);
+    if (!rows.length) return empty;
+    const total = rows.reduce((n, x) => n + (x.d.typical ? x.d.typical.cents : 0), 0);
+    const li = rows.map(({ d, days }) => {
+      const when = days < 0 ? "overdue" : days === 0 ? "due today" : `due in ${days} day${days === 1 ? "" : "s"}`;
+      const bits = [when, d.store ? "🏬 " + esc(d.store) : "", d.typical ? "~" + esc(d.typical.display) : ""]
+        .filter(Boolean).join(" · ");
+      return `<li>
+        <span class="ic">${itemIcon({ name: d.name })}</span>
+        <div class="grow">
+          <div class="title">${esc(d.name)}</div>
+          <div class="sub">${bits}</div>
+        </div>
+        <button class="btn small" data-mark-low="${d.item_id}">Add to list</button>
+      </li>`;
+    }).join("");
+    return {
+      html: `<details class="trip-due" open>
+          <summary>Also grab while you're out (${rows.length})</summary>
+          <ul class="list">${li}</ul>
+        </details>`,
+      total_cents: total, count: rows.length,
+    };
+  }
+
+  /* ===== "Costco, Aug 19 — restock these 3?" — trip closure (inc 5)
+     Pure function of trip_closure[] (each { purchase: { date, description,
+     amount }, items: [{ item_id, name, status }], item_ids }). One confirm
+     per TRIP fires the restock_items batch (data-restock-all carries the
+     ids); the per-item "Looks like you restocked?" card keeps only items not
+     covered by a group (the caller filters). Suggest-don't-assert: it asks. */
+  function tripClosureHTML(groups) {
+    if (!groups || !groups.length) return "";
+    const cards = groups.map((g) => {
+      const p = g.purchase || {};
+      const chips = (g.items || []).map((i) =>
+        `<span class="badge ${i.status === "out" ? "overdue" : "due"}">${esc(i.name)}</span>`).join(" ");
+      return `<div class="card restock-card">
+          <p class="eyebrow">Looks like a restock trip</p>
+          <p class="match-hint" style="margin:2px">🛒 ${esc(p.description || "")} · ${esc(shortDate(p.date))}${p.amount ? " · " + esc(p.amount.display) : ""}</p>
+          <p class="sub" style="margin:6px 2px">${chips}</p>
+          <div class="dlg-actions"><span class="spacer"></span>
+            <button class="btn small primary" data-restock-all="${(g.item_ids || []).join(",")}">Yes, restocked all ${(g.items || []).length}</button>
+          </div>
+        </div>`;
+    }).join("");
+    return cards;
+  }
+
   /* ===== "This trip ≈ $X" — the shopping list, priced (Pantry v2 inc 4)
      Pure function of list_estimate ({ lines, total, priced_count,
      unpriced_count }). Honest about coverage: the total is only over items
      with a purchase history, and the line says how many of the list that is.
      Empty when nothing on the list could be priced. */
-  function listEstimateHTML(est) {
+  function listEstimateHTML(est, dueTotalCents, dueCount) {
     if (!est || !est.priced_count || !est.total) return "";
     const n = est.priced_count + est.unpriced_count;
     const cover = est.unpriced_count ? ` · ${est.priced_count} of ${n} priced` : "";
-    return `<p class="sub list-estimate">This trip ≈ ${esc(est.total.display)}${cover}</p>`;
+    const withDue = dueCount && dueTotalCents
+      ? ` · ≈ ${esc(fmt((est.total.cents + dueTotalCents) / 100))} with the ${dueCount} due soon`
+      : "";
+    return `<p class="sub list-estimate">This trip ≈ ${esc(est.total.display)}${cover}${withDue}</p>`;
   }
 
   // Price drift badge for a staple_spend entry: shown only when the recent
@@ -934,14 +1001,24 @@
     // A snoozed item leaves the active list AND its restock nudges.
     const isSnoozed = (x) =>
       !!(x.snoozed_until && todayISO && x.snoozed_until > todayISO);
-    const suggestions = (data.restock_suggestions || []).filter((s) => !isSnoozed(s));
+    const closure = (data.trip_closure || []).map((g) => ({
+      ...g, items: (g.items || []).filter((i) => !isSnoozed(i)) }))
+      .filter((g) => g.items.length >= 2)
+      .map((g) => ({ ...g, item_ids: g.items.map((i) => i.item_id) }));
+    const covered = new Set(closure.flatMap((g) => g.item_ids));
+    const suggestions = (data.restock_suggestions || [])
+      .filter((s) => !isSnoozed(s) && !covered.has(s.item_id));
+    const closureCard = tripClosureHTML(closure);
+    const due = tripDueHTML(data.trip_plan, todayISO);
     const forecastCard = restockForecastHTML(
       (data.restock_forecast || []).filter((f) => !isSnoozed(f)), todayISO);
     const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions);
     const matchCard = unmatchedStaplesHTML(data.unmatched_staples, todayISO);
     const staleCard = staleShoppingHTML(data.stale_shopping_items, todayISO);
     const spendCard = stapleSpendHTML(data.staple_spend);
-    const tripCard = postShoppingHTML(data.last_shopping_trip, shopping, todayISO);
+    // The generic "you shopped — check your list" nudge yields to a concrete
+    // closure card when one exists for a recent trip (same event, one card).
+    const tripCard = closureCard ? "" : postShoppingHTML(data.last_shopping_trip, shopping, todayISO);
 
     const restockCard = suggestions.length
       ? `<div class="card restock-card">
@@ -1055,12 +1132,14 @@
         <p class="eyebrow" style="margin:0">The pantry</p>
         ${data.low_count > 0 ? `<span class="badge due">${data.low_count} running low</span>` : ""}
       </div>
+      ${closureCard}
       ${restockCard}
       ${tripCard}
       <div class="card">
         <p class="eyebrow">Need to buy</p>
-        ${listEstimateHTML(data.list_estimate)}
+        ${listEstimateHTML(data.list_estimate, due.total_cents, due.count)}
         ${shopRows}
+        ${due.html}
         ${activeShopping.length > 1 ? `<button class="btn small" id="inv-got-all"
           data-got-all="${activeShopping.map((it) => it.id).join(",")}">Got everything (${activeShopping.length})</button>` : ""}
         <form class="inv-add" id="inv-add-oneoff" autocomplete="off">
@@ -1406,6 +1485,7 @@
            catEmoji, itemIcon,
            moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
            listEstimateHTML, priceTrendBadge,
+           tripDueHTML, tripClosureHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,

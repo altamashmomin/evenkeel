@@ -1045,7 +1045,7 @@ def restock_forecast(db, min_purchases=3):
             predicted = date.fromisoformat(anchor) + timedelta(days=interval)
             out.append({
                 "item_id": it["id"], "name": it["name"], "status": it["status"],
-                "snoozed_until": it["snoozed_until"],
+                "snoozed_until": it["snoozed_until"], "store": it["store"],
                 "purchases_seen": len(days),
                 "interval_days": interval,
                 "interval_source": "manual",
@@ -1065,7 +1065,7 @@ def restock_forecast(db, min_purchases=3):
             predicted = date.fromisoformat(anchor) + timedelta(days=interval)
             out.append({
                 "item_id": it["id"], "name": it["name"], "status": it["status"],
-                "snoozed_until": it["snoozed_until"],
+                "snoozed_until": it["snoozed_until"], "store": it["store"],
                 "purchases_seen": len(days),
                 "cycles_seen": len(cycles),
                 "interval_days": interval,
@@ -1084,7 +1084,7 @@ def restock_forecast(db, min_purchases=3):
         predicted = dates[-1] + timedelta(days=interval)
         out.append({
             "item_id": it["id"], "name": it["name"], "status": it["status"],
-            "snoozed_until": it["snoozed_until"],
+            "snoozed_until": it["snoozed_until"], "store": it["store"],
             "purchases_seen": len(days),
             "interval_days": interval,
             "interval_source": "cadence",
@@ -1325,6 +1325,14 @@ def _price_trend(rows, recent_n=3):
     return {"recent_cents": recent, "earlier_cents": earlier, "change_bp": change}
 
 
+def _typical_cost(rows):
+    """An item's typical restock cost: the MEDIAN per-day cost of its matched
+    purchases (None with no history). Shared by list_estimate and trip_plan
+    so a price means the same thing on every surface."""
+    costs = _restock_costs(rows)
+    return _median_int(costs) if costs else None
+
+
 def list_estimate(db):
     """The shopping list, priced (Pantry v2 inc 4): what this trip will
     probably cost, from each listed item's typical restock — the MEDIAN
@@ -1348,7 +1356,7 @@ def list_estimate(db):
     for it in shopping_list(db):
         rows = _matching_purchases(db, it, index=index)
         costs = _restock_costs(rows)
-        typical = _median_int(costs) if costs else None
+        typical = _typical_cost(rows)
         if typical is not None:
             total += typical
             priced += 1
@@ -1364,6 +1372,79 @@ def list_estimate(db):
         })
     return {"lines": lines, "total_cents": total,
             "priced_count": priced, "unpriced_count": len(lines) - priced}
+
+
+def trip_plan(db):
+    """The shopping trip, composed (Pantry v2 inc 5): the priced list PLUS the
+    stocked staples the forecast says are coming due — "going anyway? also
+    grab coffee, due Tuesday" — so one trip covers what's needed now and what
+    will be needed before the next one. Each due item carries its store and
+    typical cost (same _typical_cost as the list), so the view can slot it
+    into the right store group and price the trip two ways: the list alone,
+    and the list plus what's due.
+
+    Deliberately CLOCK-FREE like the forecast it composes: `due_soon` is every
+    stocked, forecast-able staple with its predicted_date; "within this week"
+    and "not currently snoozed" are the VIEW's calls against the client's
+    today (the same split restock_forecast uses). Never reads a "today"; reads
+    items + transactions (outflows only, via the helpers) + audit_log (via the
+    forecast's status rung); never touches money.
+    Returns {"list": list_estimate lines, "list_total_cents", "due_soon": [...]}.
+    """
+    est = list_estimate(db)
+    on_list = {line["item_id"] for line in est["lines"]}
+    index = _purchase_index(db)
+    items = {r["id"]: r for r in db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple'").fetchall()}
+    due = []
+    for f in restock_forecast(db):
+        if f["status"] != "stocked" or f["item_id"] in on_list:
+            continue        # low/out staples are already on the list
+        it = items.get(f["item_id"])
+        if it is None:
+            continue
+        due.append({
+            "item_id": f["item_id"], "name": f["name"], "store": it["store"],
+            "snoozed_until": it["snoozed_until"],
+            "predicted_date": f["predicted_date"],
+            "interval_source": f["interval_source"],
+            "typical_cents": _typical_cost(
+                _matching_purchases(db, it, index=index)),
+        })
+    due.sort(key=lambda d: d["predicted_date"])
+    return {"list": est["lines"], "list_total_cents": est["total_cents"],
+            "priced_count": est["priced_count"],
+            "unpriced_count": est["unpriced_count"], "due_soon": due}
+
+
+def trip_closure(db):
+    """Restock hints grouped by the TRIP that produced them (Pantry v2 inc 5):
+    when one purchase is the evidence behind several low/out staples — a
+    supermarket run that plausibly restocked coffee, milk, AND eggs — offer
+    them as one decision ("Costco, Aug 19: restock these 3?") feeding the
+    restock_items batch verb, instead of three separate confirms. Groups
+    restock_suggestions by purchase (date + description + amount — the feed's
+    identity for a visit; rows carry no id); only groups of 2+ qualify, a lone
+    hint stays a per-item suggestion. Still suggest-don't-assert: buying at the
+    merchant is evidence, not proof, which is exactly why this asks.
+
+    Inherits restock_suggestions' filters (outflows only, since-it-ran-low),
+    so it's inflow-insensitive by construction. Clock-free; most recent trip
+    first. Never touches money.
+    """
+    groups = {}
+    for s in restock_suggestions(db):
+        p = s["purchase"]
+        key = (p["date"], p["description"], p["amount_cents"])
+        g = groups.setdefault(key, {"purchase": dict(p), "items": []})
+        g["items"].append({"item_id": s["item_id"], "name": s["name"],
+                           "status": s["status"],
+                           "snoozed_until": s["snoozed_until"]})
+    out = [g for g in groups.values() if len(g["items"]) >= 2]
+    for g in out:
+        g["item_ids"] = [i["item_id"] for i in g["items"]]
+    out.sort(key=lambda g: g["purchase"]["date"], reverse=True)
+    return out
 
 
 # The transaction categories that count as a "shopping trip" for the pantry —
