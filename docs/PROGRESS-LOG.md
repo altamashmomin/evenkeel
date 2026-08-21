@@ -2763,3 +2763,68 @@ Guarded-idempotent, mirrors #009/#011.
   built at the OLD ref `bc638dc` so the pre-migration side is genuinely v13 —
   first attempt failed the gate honestly because the fixture had been built
   post-migration). NOT YET DEPLOYED (deploy applies migration 014 live).
+
+## Aug 21, 2026 — Frontend: extract `txnRow` + `beamHTML` into `render.js` (PR #31)
+
+Closes CLAUDE.md's named next testability target — the last two state-coupled
+presentation fns left in `app.js`. `txnRow` was warm from the transfer-neutral
+work (its neutral 🔁 branch), which is exactly when CLAUDE.md said to extract it.
+- **`beamHTML(bal)`** — already pure (only `esc`/`fmt`, which live in
+  `render.js`); straight move.
+- **`txnRow(t, users)`** — the household members are now **dependency-injected**
+  (the two call sites pass `state.users`) instead of read off a global, so the
+  payer name + palette color stay data-driven while the fn becomes testable
+  headless.
+- **`userById`/`userColor`** moved along as pure `(users, id)` lookups; their one
+  other `app.js` caller (the split-hint dialog) now calls
+  `window.Render.userById(state.users, …)` directly — no duplicated logic,
+  nothing read off a global. `app.js` −100 lines.
+- **Render-parity proof** (the frontend analog of the balance gate, for a pure
+  move): the OLD `app.js` fns vs the NEW `render.js` fns are byte-identical on
+  content across 27 inputs — transfer in/out, income classified/unclassified,
+  shared-50 / other-pct / personal, the missing-direction dashboard shape,
+  unknown payer, hostile-escape strings — differing ONLY in `render.js`'s
+  indentation, which is HTML-insignificant (collapses on `innerHTML`).
+- Tests: **+10 render seam checks** (node 114→124) for both fns' branches + the
+  lookups; the two `app.js`↔`render.js` consistency guards (destructure
+  completeness + every-bare-call-resolves) stay green. Suite **585** python +
+  **124** render at merge time (pre-`merge_category`/Pantry-v2). **No gate** —
+  frontend-only, no money path. Merged to main (PR #31, `b90c845`).
+
+## Aug 21, 2026 — Deps: transitive security floors for `urllib3` + `idna` (PR #32)
+
+Follows the Aug 21 read-only **health sweep** (overall AMBER, nothing blocking),
+which flagged the installed `urllib3 2.6.3` / `idna 3.11` carrying known
+advisories that `requirements.txt` didn't constrain — they arrive transitively
+via `requests`/`httpx`, whose own floors don't forbid the vulnerable versions, so
+a fresh resolve can land on one AND `pip-audit -r requirements.txt` won't even
+flag it (it audits only declared deps). Added explicit floors at the fixed
+releases:
+- `urllib3>=2.7.0` — PYSEC-2026-142 (streamed-decompression resource exhaustion)
+  + PYSEC-2026-141 (cross-origin redirect header leak via the low-level
+  `ProxyManager` API).
+- `idna>=3.15` — PYSEC-2026-215 (DoS via `idna.encode()` on pathological input).
+Ledger's practical exposure is low/theoretical (outbound hosts are code-constant
+— SimpleFIN, Anthropic — not user-supplied; it uses neither the streamed
+untrusted-decompression nor the `ProxyManager` path); this is defense-in-depth
+plus keeping the audit honest, not an incident. Not upper-bounded — newer is
+fine. Verified in the cloud env: upgraded to `urllib3 2.7.0` / `idna 3.18`,
+`pip-audit` clean (both the environment and `-r requirements.txt`, which now
+actually covers them), full suite green on the patched versions. **Deps-only** —
+no source, schema, or money path, so the **balance gate does not apply**. Merged
+to main (PR #32, `c5b069c`). **Deploy note**: this pins the *floor* only; the
+fix bites only once the live Pi venv is reinstalled (`pip install -r
+requirements.txt --upgrade`) — Alta to confirm the Pi's resolved `urllib3`/`idna`
+and re-run the app smoke. (Also this session: `docs/HANDOFF.md` added as a
+new-session orientation snapshot, PR #30, `a302ce3`.)
+
+### Note on parallel work (Aug 21)
+
+The three increments above (PRs #30–#32) were built in a cloud session while a
+separate workstream landed `merge_category` (delete/merge/rename a category
+without orphans — recorded DEPLOYED) and **Pantry v2 inc 2 / migration `014`
+(schema → v14)** on `main`. The dep-pins PR squash-merged on top with no
+conflict; the combined tree is green (**600** python at time of writing). As of
+this entry `origin/main` = `c5b069c`, **schema v14**, with migration 014 and the
+`urllib3`/`idna` floors both **merged-but-undeployed** — a single `deploy.sh`
+run applies 014 live (→ v14) and, with the venv reinstall, the dep floors.
