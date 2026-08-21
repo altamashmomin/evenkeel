@@ -1,0 +1,6 @@
+{
+  "note": "Migration #013 (income_rules.set_transfer -- transfer-neutral fix, increment T3a). Adds ONE NOT NULL DEFAULT 0 column to the existing income_rules table: no new table and no new rows, so the only row-count change is the schema_version record itself. Every existing rule defaults to set_transfer=0, and rules never touch money directly (they set income_type / now optionally is_transfer only when a rule carries the flag -- none does until T3b creates one), so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list. The verb that sets the flag (create_income_rule gaining set_transfer) and the 'make this a rule?' nudge after Mark-as-transfer are increment T3b.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 12, "new": 13}
+  ]
+}

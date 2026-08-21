@@ -157,8 +157,8 @@ class IncomeRuleTests(unittest.TestCase):
         txn_id = self.an_inflow()
         preview = actions.apply_rules(self.db, "ui:avery", dry_run=True)
         self.assertEqual(
-            [{"transaction_id": txn_id, "rule_id": 1,
-              "set_type": "paycheck", "set_paid_by": None}], preview)
+            [{"transaction_id": txn_id, "rule_id": 1, "set_type": "paycheck",
+              "set_paid_by": None, "set_transfer": 0}], preview)
 
         row = self.db.execute(
             "SELECT income_type FROM transactions WHERE id = ?", (txn_id,)).fetchone()

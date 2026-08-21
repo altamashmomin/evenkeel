@@ -160,7 +160,17 @@ optional/deferred. **DEPLOYED (Aug 20, PRs #22+#23, tree `9016b30`→`d04fa62`):
 Alta ran `deploy.sh origin/main` on the Pi — the live gate passed with the sole
 enumerated diff `schema_version 11→12`, migration `012` applied to the live DB
 (**live schema now v12**), balance/monthly totals byte-identical. `origin/main`
-== the deployed tree; nothing merged-but-undeployed remains.
+== the deployed tree; nothing merged-but-undeployed remains. Then (Aug 21):
+**transfer auto-tag, increment T3a** — so a recurring "Payment Thank You" gets a
+RULE instead of a manual mark each cycle. Migration `013_rule_set_transfer` adds
+`set_transfer` to `income_rules` (NOT NULL DEFAULT 0); `record_transaction` (sync)
+and `apply_rules` (retroactive backlog) set `is_transfer=1` when a matched rule
+carries it (`is_transfer` stays the single source of truth — Approach A over
+coupling income_type). Schema v12 → **v13**. No verb sets the flag yet (T3b), so
+**gate PASS by enumeration** — sole diff schema_version 12→13
+(`notes/013-gate-expectation.seed.json`). On `claude/rule-transfer-t3a-4lt781`;
+suite 576+113. Not deployed. **T3b next: `create_income_rule` accepts the flag +
+the "make this a rule?" nudge after Mark-as-transfer.**
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

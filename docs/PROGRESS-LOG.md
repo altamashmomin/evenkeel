@@ -2458,3 +2458,29 @@ app — dropping out of income, spend, and the balance. `origin/main` == the
 deployed tree again; nothing merged-but-undeployed remains. First live schema
 bump since the v11 baseline; the money invariants (integer cents, one write
 path, migration-owned schema, the balance gate) held through it.
+
+**Transfer-neutral fix, increment T3a — `income_rules.set_transfer` + engine
+plumbing — DONE on `claude/rule-transfer-t3a-4lt781` (Aug 21, 2026).** Auto-tag
+half of T3: a credit-card "Payment Thank You" arrives every statement cycle, so
+it wants a RULE ("always treat this as a transfer") rather than a manual
+Mark-as-transfer each time. Chosen approach (confirmed with Alta): explicit
+`set_transfer` on rules, keeping `is_transfer` the single source of truth
+(Approach A over the lighter income_type coupling).
+- **Migration `013_rule_set_transfer.py`** — `ALTER TABLE income_rules ADD COLUMN
+  set_transfer INTEGER NOT NULL DEFAULT 0`, guarded-idempotent;
+  `REQUIRED_SCHEMA_VERSION` 12 → 13.
+- **Engine honors the flag**: `record_transaction` (sync inflow pass) sets
+  `is_transfer=1` when the matched rule carries `set_transfer`; `_matching_pass`
+  carries it into the match dict and `_write_matches` applies it, so `apply_rules`
+  flags the unclassified backlog retroactively (dry-run previews it too).
+- **No verb sets the flag yet** — `create_income_rule` gaining `set_transfer` and
+  the "make this a rule?" nudge after Mark-as-transfer are T3b. So this is **gate
+  zero-money-diff by enumeration**: every rule defaults to 0, so sync/apply_rules
+  behave byte-identically. `notes/013-gate-expectation.seed.json` enumerates the
+  sole diff (schema_version 12→13); **GATE PASS** matching it exactly (old=main
+  v12 vs new=T3a migrated v13 copy).
+- Tests: `test_rule_transfer` (a set_transfer rule flags a synced inflow and the
+  apply_rules backlog; ordinary rules don't; dry-run previews without writing;
+  column NOT NULL DEFAULT 0). `test_income_rules` updated for the match dict's
+  new `set_transfer` key. Suite **576 python + 113 render** green. NOT DEPLOYED.
+  **T3b next: create_income_rule accepts the flag + the nudge UI.**
