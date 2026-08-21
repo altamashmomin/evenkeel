@@ -846,6 +846,28 @@
      the server verbatim ({cents,display}) — the pantry reports money, never
      moves it. Honest limit: merchant-level, so it's the whole coffee shop, not
      one cup, and a grocery-hidden staple shows nothing. */
+  /* ===== "This trip ≈ $X" — the shopping list, priced (Pantry v2 inc 4)
+     Pure function of list_estimate ({ lines, total, priced_count,
+     unpriced_count }). Honest about coverage: the total is only over items
+     with a purchase history, and the line says how many of the list that is.
+     Empty when nothing on the list could be priced. */
+  function listEstimateHTML(est) {
+    if (!est || !est.priced_count || !est.total) return "";
+    const n = est.priced_count + est.unpriced_count;
+    const cover = est.unpriced_count ? ` · ${est.priced_count} of ${n} priced` : "";
+    return `<p class="sub list-estimate">This trip ≈ ${esc(est.total.display)}${cover}</p>`;
+  }
+
+  // Price drift badge for a staple_spend entry: shown only when the recent
+  // restocks moved >= 15% vs earlier ones (view threshold over change_bp).
+  function priceTrendBadge(s) {
+    if (s.change_bp == null || Math.abs(s.change_bp) < 1500) return "";
+    const pct = Math.round(Math.abs(s.change_bp) / 100);
+    return s.change_bp > 0
+      ? `<span class="badge overdue">↑ ${pct}%</span>`
+      : `<span class="badge">↓ ${pct}%</span>`;
+  }
+
   function stapleSpendHTML(spend) {
     if (!spend || !spend.length) return "";
     const li = spend.map((s) => {
@@ -857,6 +879,7 @@
           <div class="title">${esc(s.name)}</div>
           <div class="sub">${total} over ${s.months_spanned} mo · ${s.purchases_seen}×</div>
         </div>
+        ${priceTrendBadge(s)}
         <span class="badge due">~${monthly}/mo</span>
       </li>`;
     }).join("");
@@ -1036,6 +1059,7 @@
       ${tripCard}
       <div class="card">
         <p class="eyebrow">Need to buy</p>
+        ${listEstimateHTML(data.list_estimate)}
         ${shopRows}
         ${activeShopping.length > 1 ? `<button class="btn small" id="inv-got-all"
           data-got-all="${activeShopping.map((it) => it.id).join(",")}">Got everything (${activeShopping.length})</button>` : ""}
@@ -1360,6 +1384,7 @@
            userById, userColor, beamHTML, txnRow,
            catEmoji, itemIcon,
            moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
+           listEstimateHTML, priceTrendBadge,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,

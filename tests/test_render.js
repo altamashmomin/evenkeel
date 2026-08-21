@@ -715,6 +715,22 @@ check("staleShoppingHTML is empty without a today (derivation is clock-free)", (
 });
 
 // ---- money tie-in ("What your staples cost") — step 5's named future ----
+check("listEstimateHTML prices the trip and is honest about coverage", () => {
+  const full = R.listEstimateHTML({ lines: [], total: { cents: 8500, display: "$85.00" },
+                                    priced_count: 3, unpriced_count: 0 });
+  assert.ok(full.includes("This trip ≈ $85.00") && !full.includes("priced"), "no coverage note when all priced");
+  const partial = R.listEstimateHTML({ lines: [], total: { cents: 8500, display: "$85.00" },
+                                       priced_count: 3, unpriced_count: 2 });
+  assert.ok(partial.includes("3 of 5 priced"), "coverage note when some are unpriced");
+  assert.equal(R.listEstimateHTML({ lines: [], total: { cents: 0, display: "$0.00" },
+                                    priced_count: 0, unpriced_count: 2 }), "", "nothing priced → no line");
+});
+check("priceTrendBadge flags drift of 15%+ either way, nothing below", () => {
+  assert.ok(R.priceTrendBadge({ change_bp: 2000 }).includes("↑ 20%"), "up");
+  assert.ok(R.priceTrendBadge({ change_bp: -1800 }).includes("↓ 18%"), "down");
+  assert.equal(R.priceTrendBadge({ change_bp: 900 }), "", "below threshold");
+  assert.equal(R.priceTrendBadge({ change_bp: null }), "", "no earlier window");
+});
 check("stapleSpendHTML shows the monthly rate and total verbatim", () => {
   const html = R.stapleSpendHTML([
     { item_id: 1, name: "Coffee", purchases_seen: 3, months_spanned: 3,

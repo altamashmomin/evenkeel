@@ -29,7 +29,7 @@ from derivations import (anomaly_flags, bill_variance, budget_status,
                          new_staple_suggestions,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
-                         spending_summary, stale_shopping_items, staple_spend,
+                         spending_summary, stale_shopping_items, staple_spend, list_estimate,
                          top_merchants, unmatched_staples)
 from schema_runtime import connect_existing, require_current_schema
 
@@ -820,9 +820,17 @@ def inventory_view():
         s["total_spent"] = {"cents": cents, "display": money_display(cents)}
     spend = staple_spend(db)
     for s in spend:
-        for key in ("total", "monthly"):
+        for key in ("total", "monthly", "recent", "earlier"):
             cents = s.pop(f"{key}_cents")
-            s[key] = {"cents": cents, "display": money_display(cents)}
+            s[key] = ({"cents": cents, "display": money_display(cents)}
+                      if cents is not None else None)
+    estimate = list_estimate(db)
+    for line in estimate["lines"]:
+        cents = line.pop("typical_cents")
+        line["typical"] = ({"cents": cents, "display": money_display(cents)}
+                           if cents is not None else None)
+    cents = estimate.pop("total_cents")
+    estimate["total"] = {"cents": cents, "display": money_display(cents)}
     return jsonify({
         "items": [item_to_json(r) for r in staples],
         "shopping": [item_to_json(r) for r in shopping_list(db)],
@@ -834,6 +842,7 @@ def inventory_view():
         "stale_shopping_items": stale_shopping_items(db),
         "staple_spend": spend,
         "last_shopping_trip": last_shopping_trip(db),
+        "list_estimate": estimate,
     })
 
 
