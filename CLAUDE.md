@@ -230,7 +230,12 @@ stocked→low/out cycle, ≥ 2 cycles, anchored at `last_stocked_at`), with the
 forecast card attributing it ("from your last K cycles"). No migration.
 Suite 604+129, GATE PASS zero-diff. **DEPLOYED** (`main` `7c32262`, third
 attempt — two pushes lost races to same-day `claude/*` PRs #32/#33;
-tailnet-verified). `origin/main` == the deployed tree.
+tailnet-verified). `origin/main` == the deployed tree. Then (Aug 21): **Pantry v2
+increment 4 — `list_estimate` + the price trend**: the shopping list priced
+from median restock cost (unpriced lines stay honest; coverage reported) and
+`staple_spend` drift in basis points, surfaced as "This trip ≈ $X" and ↑/↓
+badges; Ask's inventory tool taught the questions. Suite 608+131, GATE PASS
+zero-diff. On `rework`; **NOT YET DEPLOYED**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
