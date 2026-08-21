@@ -11,10 +11,10 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         memberBreakdownHTML, billVarianceHTML, budgetStatusHTML, savingsRateTrendHTML,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
-        goalWhatIfText, goalPaceLineHTML,
+        goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
-        beamHTML, txnRow, billRowHTML } = window.Render;
+        beamHTML, txnRow, billRowHTML, contribLogHTML, goalCardHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -522,47 +522,13 @@ async function renderGoals() {
   window._goalPace = {};
   (pace.goals || []).forEach((p) => { window._goalPace[p.goal_id] = p; });
   const cards = await Promise.all(goals.map(async (g) => {
-    let log = "";
-    if (state.openLogs.has(g.id)) {
+    const logOpen = state.openLogs.has(g.id);
+    let logHTML = "";
+    if (logOpen) {
       const rows = await api(`/api/goals/${g.id}/contributions`);
-      log = `<div class="contrib-log"><ul class="list">${
-        rows.length ? rows.map((c) => `
-          <li>
-            <div class="grow">
-              <div class="title">${esc(c.by)}${c.note ? ` — <span class="sub">${esc(c.note)}</span>` : ""}</div>
-              <div class="sub">${c.date}</div>
-            </div>
-            <span class="amt amount">${c.amount < 0 ? "−" : "+"}${fmt(Math.abs(c.amount))}</span>
-          </li>`).join("") : `<li><div class="grow sub">No contributions yet.</div></li>`
-      }</ul></div>`;
+      logHTML = contribLogHTML(rows);
     }
-    const eta = g.target_date ? ` · by ${g.target_date}` : "";
-    return `
-      <div class="card" data-goal-card="${g.id}">
-        <div class="goal-head">
-          <h3>🌱 ${esc(g.name)}</h3>
-          <button class="btn small" data-goal-add="${g.id}">Add</button>
-        </div>
-        <div class="goal-bar"><i style="width:${g.progress * 100}%"></i></div>
-        <div class="goal-meta">
-          <span class="amount">${fmt(g.saved)} of ${fmt(g.target)}${eta}</span>
-          <span>${Math.round(g.progress * 100)}%</span>
-        </div>
-        ${goalPaceLineHTML(window._goalPace[g.id])}
-        ${window._goalPace[g.id] && window._goalPace[g.id].status !== "complete" ? `
-        <div class="goal-whatif">
-          <input type="number" min="0" step="10" inputmode="decimal"
-                 placeholder="What if $/mo…" data-goal-whatif="${g.id}"
-                 aria-label="What-if monthly contribution for ${esc(g.name)}">
-          <span class="goal-whatif-out" data-goal-whatif-out="${g.id}"></span>
-        </div>` : ""}
-        <div class="goal-meta" style="margin-top:10px">
-          <button class="btn small ghost" data-goal-log="${g.id}">
-            ${state.openLogs.has(g.id) ? "Hide log" : "Show log"}</button>
-          <button class="btn small ghost" data-goal-del="${g.id}">Delete</button>
-        </div>
-        ${log}
-      </div>`;
+    return goalCardHTML(g, window._goalPace[g.id], logOpen, logHTML);
   }));
   return `
     <div class="section-head">
