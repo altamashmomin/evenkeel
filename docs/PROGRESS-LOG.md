@@ -2367,6 +2367,18 @@ it is. New read-only surface that explains `compute_balance` line by line.
   browser-smoke-verified (dialog renders, headline matches balance, no console
   errors). NOT DEPLOYED.
 
+**DEPLOYED to the Pi — `origin/main` @ `9016b30` (Aug 20, 2026), gate PASS
+zero-diff.** Alta ran `deploy/deploy.sh origin/main` on the Raspberry Pi;
+backup `finance.db.bak-2026-08-20-162802`, dry-run + live real-data gate both
+**GATE PASS — zero diff** (balance and every monthly total unchanged, no
+structural changes). Tree `cd878ad`→`9016b30`, shipping the **settle-up
+breakdown** (PR #20) live. `migrate.py apply` reported "nothing to apply —
+database is up to date" (no migration in this increment; schema stays **v11**).
+Service restarted, `/api/status` OK on :8080, local branch healed to `9016b30`.
+`origin/main` == the deployed tree again; nothing merged-but-undeployed remains.
+(The T1/T2 transfer-neutral increments below were built and merged AFTER this
+deploy — they are not yet on the Pi.)
+
 **Transfer-neutral fix, increment T1 — `transactions.is_transfer` + derivation
 exclusion — DONE on `claude/transfer-flag-t1-4lt781` (Aug 20, 2026).** First half
 of the fix for SimpleFIN mis-signs: sync sets `direction` from the amount's SIGN,
