@@ -878,6 +878,21 @@ def update_inventory_item(item_id):
     return jsonify(item_to_json(row))
 
 
+@app.post("/api/categories/merge")
+@login_required
+def merge_category_route():
+    """Thin caller: merge_category relabels every reference to a category
+    (all months, plus bills/pantry/budget) into another — the safe form of
+    'delete a category'. The verb owns validation."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        result = actions.merge_category(db, ui_actor(db), data)
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(result)
+
+
 @app.post("/api/inventory/restock")
 @login_required
 def restock_inventory_items():

@@ -1628,6 +1628,83 @@ def remove_budget(db, actor, budget_id):
     return db.execute("SELECT * FROM budgets WHERE id = ?", (budget_id,)).fetchone()
 
 
+# The system category settle_up stamps on settlement rows; merge_category
+# refuses it on either side so settlements stay separately identifiable.
+PROTECTED_CATEGORIES = frozenset({"Settlement"})
+
+
+def merge_category(db, actor, data):
+    """Delete/merge/rename a category by moving EVERYTHING that carries it —
+    categories are emergent transaction tags (no categories table), so "delete"
+    can only safely mean "relabel every reference, atomically". A non-empty
+    category cannot simply vanish: the caller must name where its contents go,
+    which is exactly what prevents orphans (a budget, bill, or pantry item
+    pointing at a category no transaction carries).
+
+    validate — from_category and into_category non-empty (into normalized like
+    every category: strip, ≤ 60 chars), different from each other, neither
+    'Settlement' (the system category settlements are found by); from_category
+    must actually be referenced somewhere (else there is nothing to delete).
+    edit — ONE transaction, all-or-nothing, across every month and direction:
+      * transactions.category from → into (amounts, splits, dates untouched —
+        a relabel changes no money number);
+      * bills.category and items.category from → into (items.updated_at is
+        deliberately NOT bumped: restock_suggestions uses it as its
+        since-the-item-last-changed bound, and a relabel is not a stock event);
+      * budgets: if `from` has a budget and `into` has none, the budget row
+        follows the merge (its category is renamed — the limit survives); if
+        `into` already has its own row, `from`'s is retired (active=0,
+        reversible via set_budget) so the UNIQUE(category) invariant and
+        `into`'s own limit both hold.
+    One audit row records the into-target and every count. Renaming a category
+    is the same move with a fresh name. Never touches money.
+    Returns {"into", "transactions", "bills", "items", "budget"}.
+    """
+    with action_transaction(db):
+        src = (data.get("from_category") or "").strip()[:60]
+        dst = (data.get("into_category") or "").strip()[:60]
+        if not src or not dst:
+            raise ActionError("from_category and into_category are required")
+        if src == dst:
+            raise ActionError("that's already this category")
+        if src in PROTECTED_CATEGORIES or dst in PROTECTED_CATEGORIES:
+            raise ActionError("the Settlement category is system-managed")
+        counts = {
+            "transactions": db.execute(
+                "SELECT COUNT(*) FROM transactions WHERE category = ?",
+                (src,)).fetchone()[0],
+            "bills": db.execute(
+                "SELECT COUNT(*) FROM bills WHERE category = ?",
+                (src,)).fetchone()[0],
+            "items": db.execute(
+                "SELECT COUNT(*) FROM items WHERE category = ?",
+                (src,)).fetchone()[0],
+        }
+        src_budget = db.execute(
+            "SELECT * FROM budgets WHERE category = ?", (src,)).fetchone()
+        if not any(counts.values()) and src_budget is None:
+            raise ActionError(f"nothing is tagged '{src}'")
+        db.execute("UPDATE transactions SET category = ? WHERE category = ?",
+                   (dst, src))
+        db.execute("UPDATE bills SET category = ? WHERE category = ?", (dst, src))
+        db.execute("UPDATE items SET category = ? WHERE category = ?", (dst, src))
+        budget_outcome = "none"
+        if src_budget is not None:
+            dst_budget = db.execute(
+                "SELECT * FROM budgets WHERE category = ?", (dst,)).fetchone()
+            if dst_budget is None:
+                db.execute("UPDATE budgets SET category = ?, updated_at = ? "
+                           "WHERE id = ?", (dst, _now(), src_budget["id"]))
+                budget_outcome = "moved"
+            else:
+                db.execute("UPDATE budgets SET active = 0, updated_at = ? "
+                           "WHERE id = ?", (_now(), src_budget["id"]))
+                budget_outcome = "retired"
+        result = {"into": dst, "budget": budget_outcome, **counts}
+        _write_audit(db, actor, "merge_category", f"category:{src}", result)
+    return result
+
+
 RESET_CONFIRM_PHRASE = "reset all money rows"
 
 # The money-movement tables reset_money clears, in FK-safe order. Everything
