@@ -12,3 +12,19 @@ httpx>=0.27
 # Charlee's in-app Ask tab — the Anthropic tool-use loop (POST /api/ask).
 # Only used at runtime by the endpoint; the loop tests mock the client.
 anthropic>=0.40
+
+# Transitive security floors. urllib3 and idna arrive via requests/httpx, whose
+# own floors don't forbid the vulnerable versions — so without an explicit pin a
+# fresh resolve can land on one, and `pip-audit -r requirements.txt` won't even
+# flag it (it audits only declared deps). Floors set to the fixed releases:
+#   urllib3>=2.7.0 — PYSEC-2026-142 (streamed-decompression resource exhaustion)
+#                    + PYSEC-2026-141 (cross-origin redirect header leak via the
+#                    low-level ProxyManager API).
+#   idna>=3.15     — PYSEC-2026-215 (DoS via idna.encode() on pathological input).
+# Ledger's own exposure is low/theoretical (outbound hosts are code-constant —
+# SimpleFIN, Anthropic — not user-supplied, and it uses neither the streamed
+# untrusted-decompression nor the ProxyManager path), but the patched floors are
+# free defense-in-depth and keep the audit honest. Not upper-bounded — newer is
+# fine. See the Aug 21 2026 health sweep.
+urllib3>=2.7.0
+idna>=3.15
