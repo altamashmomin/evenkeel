@@ -2515,3 +2515,19 @@ rule was T3a).
   (transfer copy), and submitting created a `set_transfer` rule matching
   "Payment Thank You"; no console errors. NOT DEPLOYED. **That completes the
   transfer-neutral fix (T1–T3): mark once, then a rule auto-tags the rest.**
+
+**DEPLOYED to the Pi — `origin/main` @ `4dc262a` (Aug 21, 2026), gate PASS
+(enumerated schema 12→13). SCHEMA NOW v13 LIVE.** Alta ran
+`deploy/deploy.sh origin/main` on the Raspberry Pi; the live real-data gate
+passed with the SINGLE enumerated diff `schema_version 12→13`
+(`notes/013-gate-expectation.seed.json`) — balance and every monthly total
+byte-identical. This deploy took the tree from `d04fa62` to `4dc262a`, shipping
+**transfer auto-tag (T3a + T3b)** live: migration `013_rule_set_transfer` applied
+to the live DB (**schema 12 → 13**), the engine that flags matches of a transfer
+rule (record_transaction + apply_rules), `create_income_rule` accepting
+`set_transfer`, and the "make this a rule?" nudge after Mark-as-transfer. So the
+transfer-neutral fix is now COMPLETE and LIVE end to end (T1–T3): mark a
+mis-signed "Payment Thank You" once, accept the offered rule on the second, and
+every future sync self-flags it (backlog swept via apply_rules). `origin/main` ==
+the deployed tree again; nothing merged-but-undeployed remains. Second live
+schema bump (v11→v12→v13); the money invariants held through both.
