@@ -308,6 +308,12 @@ def record_transaction(db, actor, data, source, external_id=None, direction="out
                 cols["income_type"] = matched_rule["set_type"]
                 if matched_rule["set_paid_by"] is not None:
                     cols["paid_by"] = matched_rule["set_paid_by"]
+                # A transfer rule (set_transfer=1, migration #013) marks the
+                # match a transfer — it drops out of income/spend/balance. 0 on
+                # every ordinary rule, so this is inert until a transfer rule
+                # is created (T3b).
+                if matched_rule["set_transfer"]:
+                    cols["is_transfer"] = 1
             else:
                 cols["income_type"] = "unclassified"
         else:
@@ -1080,7 +1086,8 @@ def _matching_pass(db, rules=None):
         if rule is not None:
             matches.append({
                 "transaction_id": row["id"], "rule_id": rule["id"],
-                "set_type": rule["set_type"], "set_paid_by": rule["set_paid_by"]})
+                "set_type": rule["set_type"], "set_paid_by": rule["set_paid_by"],
+                "set_transfer": rule["set_transfer"]})
     return matches
 
 
@@ -1092,14 +1099,20 @@ def _write_matches(db, actor, matches, action="apply_rules"):
     record_transaction's dedupe uses. Assumes an OPEN transaction (the
     caller owns the boundary): it writes, it does not begin or commit."""
     for match in matches:
+        # A transfer rule (set_transfer=1) also flags the match is_transfer=1;
+        # 0 on ordinary rules leaves it untouched. Column defaults to 0 in the
+        # match dict's absence (pre-T3b rules), so this is a no-op until a
+        # transfer rule exists.
+        xfer = 1 if match.get("set_transfer") else 0
         if match["set_paid_by"] is not None:
             db.execute(
-                "UPDATE transactions SET income_type = ?, paid_by = ? WHERE id = ?",
-                (match["set_type"], match["set_paid_by"], match["transaction_id"]))
+                "UPDATE transactions SET income_type = ?, paid_by = ?, "
+                "is_transfer = ? WHERE id = ?",
+                (match["set_type"], match["set_paid_by"], xfer, match["transaction_id"]))
         else:
             db.execute(
-                "UPDATE transactions SET income_type = ? WHERE id = ?",
-                (match["set_type"], match["transaction_id"]))
+                "UPDATE transactions SET income_type = ?, is_transfer = ? WHERE id = ?",
+                (match["set_type"], xfer, match["transaction_id"]))
         db.execute(
             "UPDATE income_rules SET hit_count = hit_count + 1 WHERE id = ?",
             (match["rule_id"],))
