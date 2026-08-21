@@ -255,7 +255,12 @@ frozen to v1 — parity test enforced it). Suite 618+147, GATE PASS zero-diff.
 tailnet-verified). `origin/main` == the deployed tree. **Pantry v2 increments
 1–6 are live, the Sunday pantry-pulse timer is installed on the Pi (first
 issue #37 filed Aug 21); 7 (the `ordered` status) awaits Alta/Charlee's
-call.**
+call.** Then (Aug 21): **`change_password`** — the first write verb over
+`members` (validate current via werkzeug, new ≥ 8 & differs, audit carries no
+secret) + session-only `POST /api/me/password` (bearer refused; wrong-current
+rate-limited 5/15min) + a header "Password" dialog; the ontology pin "members
+has no verb writer" flipped to name it. Suite 624+147, GATE PASS zero-diff.
+On `rework`; **NOT YET DEPLOYED**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

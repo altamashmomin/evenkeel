@@ -3089,3 +3089,40 @@ That closes the seam thread's high-value targets — activity row, balance hero,
 bill row, goal card. The one builder left inline (the Dashboard mini-cards) is
 low logic-density and deliberately left for when it's next touched, per the
 CLAUDE.md "extract when touched" rule.
+
+## Aug 21, 2026 — `change_password`: a member changes their own password
+
+Prompted by the pulse-timer install walk, during which Alta's app password
+was shared in a chat transcript — and the app had no way to change it short
+of touching the database. Now it does, by the book.
+- **The verb** (`change_password(db, actor, member_id, current, new)`) —
+  the FIRST write verb over `members` (the table's only prior writer was the
+  first-run `setup()` route). validate: member exists & active; current
+  password verifies (werkzeug `check_password_hash`); new ≥ 8 chars (the
+  setup floor) and differs from current. edit: one transaction replaces the
+  hash. audit: the row carries **only the member id** — never a password or
+  hash (the log is readable by both members and the agents; the test asserts
+  no secret material appears). No session revocation: sessions are signed
+  cookies with no server-side store, so other devices stay signed in until
+  their cookie expires — a later increment if wanted, stated in the docstring
+  and the dialog.
+- **The route** — `POST /api/me/password`, **session-only**: a bearer token,
+  even `read,write`, must never change a password (tested). Wrong current
+  passwords are rate-limited per member on the login buckets (5 / 15 min →
+  429), so the route can't be a guessing oracle for the current password.
+- **The UI** — a "Password" button beside "Sign out" opens a dialog (current
+  / new / confirm; the mismatch is caught client-side, every other rule by
+  the verb; errors inline, success closes). Static markup + wiring, no
+  render.js change.
+- **Coherence pins did their job**: the ontology test "members has no verb
+  writer" failed on first run and was FLIPPED to "every governed table has a
+  verb writer; members' is change_password" — it now guards against a
+  second, accidental writer. `test_architecture`'s `setup()` exception
+  stays (the bootstrap has no member to act as yet) with its note reworded.
+  CORE-DESIGN registry row added.
+- Tests: 3 verb + 3 route (8 assertions on secrets, refusals, the
+  login-follows-the-change proof, anon/bearer refusal, rate limit). Suite
+  **624** python + **147** render. **GATE PASS zero-diff** (old=`3210cba`).
+  NOT YET DEPLOYED. Honest note: the dialog wiring in app.js is not
+  browser-smoked (seeded users have fake hashes) — Alta's first real use is
+  the smoke, and is also the point.
