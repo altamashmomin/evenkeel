@@ -60,8 +60,9 @@ script doesn't exist yet, building it precedes the increment it gates.
 ## Current position in the sequence
 
 **The whole `rework` is built, deployed, and live on the Raspberry Pi (schema
-v11).** `origin/main` == the deployed tree; `origin/rework` sits a doc commit or
-two ahead by convention. The app is feature-complete across its domains — the
+v12 as of Aug 20, 2026 — migration `012_transfer_flag`; v11 held from the
+initial bring-up until then).** `origin/main` == the deployed tree; `origin/rework`
+sits a doc commit or two ahead by convention. The app is feature-complete across its domains — the
 who-owes-whom finance core, income classification, analytics (Tiers A–C incl.
 budgets), the household pantry with purchase-feed inference, the assistant (the
 tailnet MCP read+write tier and Charlee's in-app Ask tab), the Garden UI, and a
@@ -153,9 +154,13 @@ hiding transfers from the spending/income filters + a "Mark as transfer" toggle
 in the classify & edit dialogs (the weak "Transfer" income-type button dropped)
 + neutral 🔁 rendering. On `claude/transfer-flag-t2-4lt781`; suite 571+113, gate
 PASS zero-diff (no schema change), browser-smoke verified (marking the real
-"Payment Thank You" case dropped gross income $270.36→$0, row went neutral). Not
-deployed. That completes the transfer-neutral fix; T3 (auto-tag / account-aware
-sync) is optional/deferred.
+"Payment Thank You" case dropped gross income $270.36→$0, row went neutral). That
+completes the transfer-neutral fix; T3 (auto-tag / account-aware sync) is
+optional/deferred. **DEPLOYED (Aug 20, PRs #22+#23, tree `9016b30`→`d04fa62`):**
+Alta ran `deploy.sh origin/main` on the Pi — the live gate passed with the sole
+enumerated diff `schema_version 11→12`, migration `012` applied to the live DB
+(**live schema now v12**), balance/monthly totals byte-identical. `origin/main`
+== the deployed tree; nothing merged-but-undeployed remains.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

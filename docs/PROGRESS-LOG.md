@@ -2442,3 +2442,19 @@ mechanism that sets the T1 flag, so a mis-signed row can actually be corrected.
   gross income $270.36 → $0 and flipped the row to neutral, no console errors.
   NOT DEPLOYED. That completes the transfer-neutral fix (T1 + T2); T3
   (auto-tag-by-rule / account-type-aware sync) remains OPTIONAL/deferred.
+
+**DEPLOYED to the Pi — `origin/main` @ `d04fa62` (Aug 20, 2026), gate PASS
+(enumerated schema 11→12). SCHEMA NOW v12 LIVE.** Alta ran
+`deploy/deploy.sh origin/main` on the Raspberry Pi; the live real-data gate
+passed with the SINGLE enumerated diff `schema_version 11→12`
+(`notes/012-gate-expectation.seed.json`) — balance and every monthly total
+byte-identical. This deploy took the tree from `9016b30` to `d04fa62`, shipping
+the **transfer-neutral fix (T1 + T2)** live: migration `012_transfer_flag`
+applied to the live DB (**schema 11 → 12**), the `is_transfer` derivation
+exclusion, the `set_transfer` verb + `PUT /api/transactions/<id>/transfer`, and
+the "Mark as transfer" UI (`d04fa62` also carries the docs-only PR #21 record).
+So a mis-signed "Payment Thank You" can now be marked a transfer on the live
+app — dropping out of income, spend, and the balance. `origin/main` == the
+deployed tree again; nothing merged-but-undeployed remains. First live schema
+bump since the v11 baseline; the money invariants (integer cents, one write
+path, migration-owned schema, the balance gate) held through it.
