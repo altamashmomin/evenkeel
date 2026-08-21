@@ -60,8 +60,8 @@ script doesn't exist yet, building it precedes the increment it gates.
 ## Current position in the sequence
 
 **The whole `rework` is built, deployed, and live on the Raspberry Pi (schema
-v13 as of Aug 21, 2026 — migration `013_rule_set_transfer`; v12 came the day
-before with `012_transfer_flag`; v11 held from the initial bring-up until then).**
+v14 as of Aug 21, 2026 — migration `014_item_store_needby_snooze`; v13/v12 came
+Aug 21/20 with the transfer flags; v11 held from the initial bring-up until then).**
 `origin/main` == the deployed tree; `origin/rework` sits a doc commit or two ahead
 by convention. The app is feature-complete across its domains — the
 who-owes-whom finance core, income classification, analytics (Tiers A–C incl.
