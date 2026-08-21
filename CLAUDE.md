@@ -194,7 +194,11 @@ the merchant/pantry views** — closed T1's deliberate scope boundary by adding
 transfer outflow no longer shows as a top merchant / recurring subscription /
 pantry purchase. Pure read change, no schema/verb/money path. On
 `claude/transfer-merchant-consistency-4lt781`; suite 585+114, gate PASS
-zero-diff. Not deployed.
+zero-diff. **DEPLOYED (Aug 21, PR #28, tree `4dc262a`→`e4a728f`):** Alta ran
+`deploy.sh origin/main` on the Pi, live gate PASS zero-diff, no migration
+(schema still v13). `origin/main` == the deployed tree; nothing
+merged-but-undeployed remains. That closes the transfer effort end to end and
+live.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
