@@ -596,6 +596,12 @@ check("restockForecastHTML names where the interval came from (manual vs inferre
        interval_source: "cadence", predicted_date: "2026-08-08" }],
     "2026-08-04");
   assert.ok(inferred.includes("about every 7 days (from your purchases)"), "inferred cadence is attributed to the feed");
+  const status = R.restockForecastHTML(
+    [{ item_id: 3, name: "Dog food", status: "stocked", interval_days: 11,
+       interval_source: "status", cycles_seen: 4, predicted_date: "2026-08-09" }],
+    "2026-08-04");
+  assert.ok(status.includes("about every 11 days (from your last 4 cycles)"),
+    "status cadence is attributed to the item's own history");
 });
 check("restockForecastHTML labels an overdue staple and offers 'Mark low'", () => {
   const html = R.restockForecastHTML(

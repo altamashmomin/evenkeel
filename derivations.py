@@ -1,5 +1,6 @@
 """Canonical read-time financial derivations shared by every surface."""
 
+import json
 import re
 from datetime import date, timedelta
 
@@ -906,23 +907,103 @@ def restock_suggestions(db):
     return out
 
 
+# The verbs whose audit rows change (or set) an item's status — the sources of
+# the status timeline. Metadata setters (store/need_by/snooze/match/interval)
+# audit before/after too, but of OTHER columns, so they are excluded here.
+_ITEM_STATUS_ACTIONS = ("add_item", "set_item_status", "restock_items")
+
+
+def _parse_status_event(action, detail_json):
+    """(before, after) statuses from one item audit row, or None when the row
+    isn't a status change. add_item's detail carries the created row; the
+    status verbs carry before/after directly. Defensive vocab check so a
+    future action reusing the before/after keys for non-status values can
+    never sneak into the timeline."""
+    detail = json.loads(detail_json)
+    if action == "add_item":
+        created = detail.get("item") or {}
+        after = created.get("status")
+        return (None, after) if after in ("stocked", "low", "out") else None
+    before, after = detail.get("before"), detail.get("after")
+    return (before, after) if after in ("stocked", "low", "out") else None
+
+
+def item_history(db, item_id=None):
+    """An item's status timeline, read from the audit log — nothing new is
+    stored (invariant: the log IS the history; this just gives it a name).
+    Each event: {at, actor, action, before, after}. With `item_id`, one item's
+    chronological timeline; without, the whole map {item_id: [events]} (also
+    the tripwire-probeable form). The raw material of the forecast's
+    status-derived cadence rung (Pantry v2 inc 3) and the "predicted from
+    your last N cycles" explainability. Reads audit_log only — no
+    transactions, so inflow-insensitive by construction; never touches money.
+    Clock-free: timestamps come from the log, never a "today"."""
+    clause = " AND target = ?" if item_id is not None else ""
+    params = ([f"item:{item_id}"] if item_id is not None else [])
+    rows = db.execute(
+        "SELECT at, actor, action, target, detail_json FROM audit_log "
+        f"WHERE action IN ({','.join('?' * len(_ITEM_STATUS_ACTIONS))}) "
+        f"AND target LIKE 'item:%'{clause} ORDER BY id",
+        list(_ITEM_STATUS_ACTIONS) + params).fetchall()
+    index = {}
+    for r in rows:
+        parsed = _parse_status_event(r["action"], r["detail_json"])
+        if parsed is None:
+            continue
+        events = index.setdefault(int(r["target"][5:]), [])
+        events.append({"at": r["at"], "actor": r["actor"],
+                       "action": r["action"],
+                       "before": parsed[0], "after": parsed[1]})
+    if item_id is not None:
+        return index.get(int(item_id), [])
+    return index
+
+
+def _status_cycle_days(events):
+    """Completed consumption cycles from a status timeline: the whole days
+    from each 'stocked' event to its FIRST departure (low or out) — the
+    household's own hands saying how long the item actually lasted. Later
+    departures in the same cycle (low → out) don't count again; a same-day
+    flip (gap 0) is a correction tap, not a cycle, and is dropped — mirroring
+    how the purchase rung collapses same-day buys."""
+    cycles, stocked_on = [], None
+    for e in events:
+        if e["after"] == "stocked":
+            stocked_on = e["at"][:10]
+        elif stocked_on is not None:
+            gap = (date.fromisoformat(e["at"][:10])
+                   - date.fromisoformat(stocked_on)).days
+            if gap >= 1:
+                cycles.append(gap)
+            stocked_on = None
+    return cycles
+
+
 def restock_forecast(db, min_purchases=3):
     """Cadence-based restock prediction (INVENTORY-DESIGN step 5, second half):
     for each tracked staple with a repeat purchase history, project WHEN it will
     next be needed from the typical gap between its purchases — a forward
     heads-up beyond the reactive low/out hint restock_suggestions gives.
 
-    Two ways a staple gets a forecast:
+    Three rungs, most-trusted first (Pantry v2 inc 3 widened the ladder):
       - MANUAL (interval_source='manual'): the person set restock_interval_days
         ("remind me every N days"). predicted_date = last_stocked_at + N (the
         cadence counts from the last time it was full); no purchase history
         needed — they opted in.
-      - CADENCE (interval_source='cadence'): no manual interval, so the interval
-        is INFERRED — a staple qualifies only with >= min_purchases (default 3)
-        matching purchases on DISTINCT days (i.e. 2+ intervals), so a single
-        coincidental gap can't drive a forecast (the conservative "suggest,
-        don't assert" bar). The interval is the MEDIAN gap (in days) between
-        consecutive purchase dates (robust to one unusually early/late buy);
+      - STATUS (interval_source='status'): no manual interval, but the item's
+        OWN status history holds >= 2 completed stocked→low/out cycles (from
+        the audit log via item_history) — human-confirmed consumption, immune
+        to the merchant-not-product limit, so it works even for items bought
+        inside supermarket runs the purchase matcher can't see. The interval
+        is the MEDIAN cycle length in days; predicted_date = last_stocked_at
+        + that interval. Recomputed on every read (invariant: nothing derived
+        is stored), so each completed cycle tightens the next prediction.
+      - CADENCE (interval_source='cadence'): neither of the above, so the
+        interval is INFERRED from the feed — a staple qualifies only with
+        >= min_purchases (default 3) matching purchases on DISTINCT days
+        (i.e. 2+ intervals), so a single coincidental gap can't drive a
+        forecast (the conservative "suggest, don't assert" bar). The interval
+        is the MEDIAN gap between consecutive purchase dates;
         predicted_date = the last purchase + that interval.
 
     Deliberately CLOCK-FREE: it returns only facts derived from the purchase
@@ -941,6 +1022,7 @@ def restock_forecast(db, min_purchases=3):
     staples = db.execute(
         "SELECT * FROM items WHERE active = 1 AND kind = 'staple'").fetchall()
     index = _purchase_index(db)  # one scan, shared across the staple loop (#16)
+    histories = item_history(db)  # one audit scan, shared the same way
     out = []
     for it in staples:
         rows = _matching_purchases(db, it, index=index)
@@ -972,7 +1054,28 @@ def restock_forecast(db, min_purchases=3):
             })
             continue
 
-        # No manual cadence — infer the median gap from purchase history (the
+        # No manual cadence — the item's own status history speaks next: the
+        # median completed stocked→low/out cycle, needing >= 2 cycles (2 gaps,
+        # the same 2-interval bar the purchase rung's 3-purchase minimum sets).
+        cycles = _status_cycle_days(histories.get(it["id"], []))
+        if len(cycles) >= 2:
+            interval = _median_int(cycles)
+            anchor = (it["last_stocked_at"] or "")[:10] or last_purchase \
+                or it["updated_at"][:10]
+            predicted = date.fromisoformat(anchor) + timedelta(days=interval)
+            out.append({
+                "item_id": it["id"], "name": it["name"], "status": it["status"],
+                "snoozed_until": it["snoozed_until"],
+                "purchases_seen": len(days),
+                "cycles_seen": len(cycles),
+                "interval_days": interval,
+                "interval_source": "status",
+                "last_purchase": last_purchase,
+                "predicted_date": predicted.isoformat(),
+            })
+            continue
+
+        # Last rung — infer the median gap from purchase history (the
         # prior behavior): needs >= min_purchases matched buys on distinct days.
         if len(days) < min_purchases:
             continue
