@@ -2922,4 +2922,16 @@ exactly these two). Reads only; outflows only; never moves money.
   transaction-reading derivation — the shared `_matching_purchases` filter is
   what holds), two render checks, and the two route/MCP key-set pins that
   caught the new payload key. Suite **608** python + **131** render. **GATE
-  PASS zero-diff** (old=`e12eed3`). NOT YET DEPLOYED.
+  PASS zero-diff** (old=`e12eed3`). **DEPLOYED (Aug 21, 12:18)** — and the
+  race bit a FOURTH time, caught pre-push this round: the fresh fetch before
+  building the merge found `origin/main` at `47cb836` (PR #34, the billRow
+  extraction, landed during the alignment audit). Folded into `rework`
+  (`aa88574`, clean merge — `merge-tree` had predicted it), suite re-run on the
+  merged tree (608 + **135** render), the exact deploy delta re-gated
+  (`7c32262`→`rework`, zero-diff), `main` rebuilt as `7f5334a` on `47cb836`,
+  pushed and deployed back-to-back. Live gate PASS zero-diff, "nothing to
+  apply", services restarted, backup `finance.db.bak-2026-08-21-121826`.
+  Tailnet-verified: "This trip ≈" + `priceTrendBadge` served (5), #34's
+  `billRowHTML` served, `origin/main` == `7f5334a`. The ritual now includes
+  a fetch immediately before building the merge — it turned a post-deploy
+  surprise into a pre-push detour.
