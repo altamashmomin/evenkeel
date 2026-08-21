@@ -833,6 +833,43 @@ class ItemVerbTests(unittest.TestCase):
                          pulse["unmatched_count"])
         self.assertIn("new_staple_suggestion", pulse)
 
+    # ---- #015: the 'ordered' status -----------------------------------------
+    def test_ordered_leaves_the_list_without_being_stocked(self):
+        staple = self.add(name="Dog food", status="out")
+        need = self.add(name="Party hats", kind="oneoff")
+        for it in (staple, need):
+            row = actions.set_item_status(self.db, "ui:avery", it["id"], "ordered")
+            self.assertEqual(("ordered", 1), (row["status"], row["active"]))
+            self.assertIsNone(row["last_stocked_at"])       # not a stock event
+        listed = {i["id"] for i in derivations.shopping_list(self.db)}
+        self.assertNotIn(staple["id"], listed)
+        self.assertNotIn(need["id"], listed)
+        otw = [i["id"] for i in derivations.on_the_way(self.db)]
+        self.assertEqual({staple["id"], need["id"]}, set(otw))
+        self.assertEqual(0, len([i for i in derivations.low_stock(self.db)
+                                 if i["id"] == staple["id"]]))   # handled, not "low"
+        self.assertEqual(2, len(derivations.pantry_pulse(self.db)["on_the_way"]))
+
+    def test_arrived_stocks_and_a_oneoff_archives_as_bought(self):
+        need = self.add(name="Party hats", kind="oneoff")
+        actions.set_item_status(self.db, "ui:avery", need["id"], "ordered")
+        row = actions.set_item_status(self.db, "ui:avery", need["id"], "stocked")
+        self.assertEqual(0, row["active"])                  # bought → gone
+        staple = self.add(name="Dog food", status="out")
+        actions.set_item_status(self.db, "ui:avery", staple["id"], "ordered")
+        row = actions.set_item_status(self.db, "ui:avery", staple["id"], "out")  # didn't come
+        self.assertEqual("out", row["status"])
+        self.assertIn(staple["id"], [i["id"] for i in derivations.shopping_list(self.db)])
+
+    def test_reorder_from_stocked_ends_a_consumption_cycle(self):
+        item = self.add(name="Moon dust")
+        self.set_at(item["id"], "stocked", "2026-06-01")
+        self.set_at(item["id"], "ordered", "2026-06-11")    # re-ordered: running down
+        self.set_at(item["id"], "stocked", "2026-06-15")
+        self.set_at(item["id"], "low", "2026-06-27")
+        self.assertEqual([10, 12], derivations._status_cycle_days(
+            derivations.item_history(self.db, item["id"])))
+
     # ---- last_shopping_trip derivation (post-shopping review nudge) ----------
     def test_last_shopping_trip_returns_most_recent_grocery_outflow(self):
         # _purchase inserts a Groceries outflow; dated later than the seed's.

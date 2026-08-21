@@ -706,6 +706,7 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .status-chip.stocked { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
 .status-chip.low { color: var(--brass); background: color-mix(in srgb, var(--brass) 15%, transparent); }
 .status-chip.out { color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); }
+.status-chip.ordered { color: var(--p2); background: color-mix(in srgb, var(--p2) 15%, transparent); }
 .status-chip:active { transform: translateY(1px); }
 /* faint remove control on a staple row */
 .item-x {

@@ -667,7 +667,7 @@ async function removeBudget(idx) {
 
 // The status a tap cycles to: stocked → low → out → stocked. One tap walks the
 // staple down as it's used, and back up once restocked.
-const NEXT_STATUS = { stocked: "low", low: "out", out: "stocked" };
+const NEXT_STATUS = { stocked: "low", low: "out", out: "stocked", ordered: "stocked" };
 
 async function renderInventory() {
   const data = await api("/api/inventory");
@@ -902,6 +902,14 @@ function wireMain() {
       setItemStatus(+el.dataset.itemCycle, NEXT_STATUS[el.dataset.status] || "stocked")));
   $$("[data-item-got]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemGot, "stocked")));
+  // #015 'ordered': bought online, not here yet. Ordered leaves the list;
+  // Arrived = stocked (a one-off then archives as bought); Didn't come = out.
+  $$("[data-item-ordered]").forEach((el) =>
+    el.addEventListener("click", () => setItemStatus(+el.dataset.itemOrdered, "ordered")));
+  $$("[data-item-arrived]").forEach((el) =>
+    el.addEventListener("click", () => setItemStatus(+el.dataset.itemArrived, "stocked")));
+  $$("[data-item-missed]").forEach((el) =>
+    el.addEventListener("click", () => setItemStatus(+el.dataset.itemMissed, "out")));
   // "Got everything": one restock_items call marks the whole list bought
   // (all-or-nothing server-side; per-row "Got it" stays for partial trips).
   $("#inv-got-all")?.addEventListener("click", async (e) => {

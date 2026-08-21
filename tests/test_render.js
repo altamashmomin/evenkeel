@@ -498,6 +498,22 @@ check("inventoryHTML snoozed items leave the active list, nudges, and got-all", 
   assert.ok(html.includes('data-got-all="3,4"'), "got-all covers only awake rows");
   assert.ok(!html.includes("Yes, restocked"), "snoozed item's restock nudge suppressed");
 });
+check("inventoryHTML: ordered items sit in an On-the-way drawer with Arrived / Didn't come", () => {
+  const html = R.inventoryHTML({
+    items: [],
+    shopping: [{ id: 2, name: "Milk", kind: "staple", status: "out" }],
+    on_the_way: [
+      { id: 7, name: "Dog food", kind: "staple", status: "ordered", updated_at: "2026-08-10T12:00:00+00:00" },
+      { id: 8, name: "Candles", kind: "oneoff", status: "ordered", updated_at: "2026-08-20T12:00:00+00:00" },
+    ],
+    low_count: 1,
+  }, "2026-08-21");
+  assert.ok(html.includes("📦 On the way (2)"), "drawer with count");
+  assert.ok(html.includes('data-item-arrived="7"') && html.includes('data-item-missed="7"'), "both actions");
+  assert.ok(html.includes("still waiting? (11 days)"), "old order gets the nudge");
+  assert.ok(!html.includes("still waiting? (1 days)"), "fresh order does not");
+  assert.ok(html.includes('data-item-ordered="2"'), "list rows can be marked ordered");
+});
 check("inventoryHTML offers Got-everything only for 2+ shopping items", () => {
   const two = R.inventoryHTML({
     items: [],

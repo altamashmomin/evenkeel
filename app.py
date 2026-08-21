@@ -29,7 +29,7 @@ from derivations import (anomaly_flags, bill_variance, budget_status,
                          new_staple_suggestions,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
-                         spending_summary, stale_shopping_items, staple_spend, list_estimate, trip_plan, trip_closure, stale_staples, pantry_pulse,
+                         spending_summary, stale_shopping_items, staple_spend, list_estimate, trip_plan, trip_closure, stale_staples, pantry_pulse, on_the_way,
                          top_merchants, unmatched_staples)
 from schema_runtime import connect_existing, require_current_schema
 
@@ -886,6 +886,7 @@ def inventory_view():
         "trip_plan": plan,
         "trip_closure": closure,
         "stale_staples": stale_staples(db),
+        "on_the_way": [item_to_json(r) for r in on_the_way(db)],
     })
 
 

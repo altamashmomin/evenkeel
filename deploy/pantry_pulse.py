@@ -55,8 +55,9 @@ def render_markdown(pulse, today, horizon_days=7, stale_days=180):
     stale = [s for s in pulse.get("stale_staples", [])
              if _days(s["last_activity"], today) >= stale_days]
     rot = pulse.get("stale_shopping_items", [])
+    ordered = pulse.get("on_the_way", [])
     suggestion = pulse.get("new_staple_suggestion")
-    quiet = not (live or due or stale or suggestion)
+    quiet = not (live or due or stale or suggestion or ordered)
 
     total = (pulse.get("list_total") or {}).get("display")
     if live:
@@ -82,6 +83,14 @@ def render_markdown(pulse, today, horizon_days=7, stale_days=180):
                     f"~{d['typical']['display']}" if d.get("typical") else "",
                     f"({d.get('interval_source')})"]
             lines.append(f"- **{d['name']}** — " + " · ".join(b for b in bits if b))
+        lines.append("")
+    if ordered:
+        lines.append(f"## On the way — {len(ordered)}")
+        for o in ordered:
+            since = (o.get("updated_at") or "")[:10]
+            n = _days(since, today) if since else 0
+            wait = " — still waiting?" if n >= 7 else ""
+            lines.append(f"- **{o['name']}** — ordered {since} ({n} days ago){wait}")
         lines.append("")
     if stale:
         lines.append(f"## Still tracking these? — {len(stale)} quiet for {stale_days}+ days")

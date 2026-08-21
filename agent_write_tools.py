@@ -65,9 +65,11 @@ WRITE_TOOLS = [
     {
         "name": "ledger_set_item_status",
         "description":
-            "Mark a pantry item stocked, low, or out — the everyday update "
-            "('we're out of milk', 'down to the last roll', 'restocked the "
-            "coffee'). Find the item's id first with ledger_inventory. Marking a "
+            "Mark a pantry item stocked, low, out, or ordered — the everyday "
+            "update ('we're out of milk', 'down to the last roll', 'restocked "
+            "the coffee', 'I ordered the dog food' → ordered = bought online, "
+            "not arrived: off the list, not yet stocked; 'it arrived' → "
+            "stocked). Find the item's id first with ledger_inventory. Marking a "
             "ONE-OFF need 'stocked' means it was bought, so it drops off the "
             "shopping list. Reversible (set it again) and logged.",
         "input_schema": actions.param_schema("set_item_status"),

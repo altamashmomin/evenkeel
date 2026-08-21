@@ -783,10 +783,24 @@ def shopping_list(db):
     and hiding currently-snoozed rows are VIEW-layer concerns against the
     client's date — this stays clock-free."""
     rows = db.execute(
-        "SELECT * FROM items WHERE active = 1 AND ("
+        "SELECT * FROM items WHERE active = 1 AND status != 'ordered' AND ("
         "  (kind = 'staple' AND status IN ('low', 'out')) OR kind = 'oneoff'"
         f") ORDER BY (need_by IS NULL), need_by, {_ITEM_STATUS_ORDER}, "
         "name COLLATE NOCASE").fetchall()
+    return [dict(r) for r in rows]
+
+
+def on_the_way(db):
+    """Items bought but not yet arrived — status 'ordered' (#015, Pantry v2
+    inc 7): off the shopping list (handled), not yet stocked (don't count on
+    it). The view shows them in an "On the way" drawer with Arrived (→
+    stocked) / Didn't come (→ out), and frames "ordered N days ago — still
+    waiting?" against the client's date using updated_at as the ordered-at
+    (set_item_status stamps it). Clock-free; never touches money. Oldest
+    order first (the one most likely forgotten)."""
+    rows = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND status = 'ordered' "
+        "ORDER BY updated_at, name COLLATE NOCASE").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -911,6 +925,10 @@ def restock_suggestions(db):
 # the status timeline. Metadata setters (store/need_by/snooze/match/interval)
 # audit before/after too, but of OTHER columns, so they are excluded here.
 _ITEM_STATUS_ACTIONS = ("add_item", "set_item_status", "restock_items")
+# The status vocabulary the timeline accepts — mirrors actions.ITEM_STATUS_ORDER
+# (kept literal here so derivations stays import-free of actions; the ontology
+# test pins the two in step).
+_ITEM_STATUS_VOCAB = ("stocked", "low", "out", "ordered")
 
 
 def _parse_status_event(action, detail_json):
@@ -923,9 +941,9 @@ def _parse_status_event(action, detail_json):
     if action == "add_item":
         created = detail.get("item") or {}
         after = created.get("status")
-        return (None, after) if after in ("stocked", "low", "out") else None
+        return (None, after) if after in _ITEM_STATUS_VOCAB else None
     before, after = detail.get("before"), detail.get("after")
-    return (before, after) if after in ("stocked", "low", "out") else None
+    return (before, after) if after in _ITEM_STATUS_VOCAB else None
 
 
 def item_history(db, item_id=None):
@@ -961,7 +979,8 @@ def item_history(db, item_id=None):
 
 def _status_cycle_days(events):
     """Completed consumption cycles from a status timeline: the whole days
-    from each 'stocked' event to its FIRST departure (low or out) — the
+    from each 'stocked' event to its FIRST departure (low, out — or ordered,
+    #015: re-ordering IS the household saying "running down") — the
     household's own hands saying how long the item actually lasted. Later
     departures in the same cycle (low → out) don't count again; a same-day
     flip (gap 0) is a correction tap, not a cycle, and is dropped — mirroring
@@ -1509,6 +1528,7 @@ def pantry_pulse(db):
         "unpriced_count": plan["unpriced_count"],
         "list": plan["list"],
         "due_soon": plan["due_soon"],
+        "on_the_way": on_the_way(db),
         "stale_staples": stale_staples(db),
         "stale_shopping_items": stale_shopping_items(db),
         "new_staple_suggestion": suggestions[0] if suggestions else None,

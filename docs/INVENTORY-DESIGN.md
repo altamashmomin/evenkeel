@@ -242,6 +242,15 @@ online, not arrived, don't re-buy). It prevents real double-buys but adds a
 state a human can forget to clear; if adopted, the feed should offer to clear
 it when the matching purchase lands. Parked until the household wants it —
 `snoozed_until` may cover enough of the need.
+*Decided and built Aug 21, 2026 (increment 7, migration #015 — a table
+rebuild, since SQLite can't widen a CHECK):* `ordered` leaves the shopping
+list without counting as stocked; an "On the way" drawer offers Arrived (→
+stocked; a one-off then archives as bought) / Didn't come (→ out). The
+anti-forget mechanism is NOT the feed (an online order's charge lands at
+order time, proving nothing about arrival) but a view-layer "still
+waiting?" after 7 days and a line in the weekly pulse. Re-ordering from
+`stocked` counts as a cycle departure for the status cadence (it's the
+household saying "running down").
 
 ## New verbs
 

@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 
-REQUIRED_SCHEMA_VERSION = 14
+REQUIRED_SCHEMA_VERSION = 15
 
 
 class SchemaNotReady(RuntimeError):
