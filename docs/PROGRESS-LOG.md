@@ -3128,6 +3128,9 @@ of touching the database. Now it does, by the book.
   "nothing to apply", services restarted, backup
   `finance.db.bak-2026-08-21-130759`. Tailnet-verified: `POST
   /api/me/password` **401 unauthenticated**, the Password button + dialog in
-  the served shell, the wiring in `app.js`, `origin/main` == `4c9d654`. Honest note: the dialog wiring in app.js is not
+  the served shell, the wiring in `app.js`, `origin/main` == `4c9d654`.
+  **Browser-smoked by the real thing (13:15):** Alta changed their password
+  through the dialog — it closed cleanly and the new password logs in. The
+  password exposed in transcript during the pulse install is retired. Honest note: the dialog wiring in app.js is not
   browser-smoked (seeded users have fake hashes) — Alta's first real use is
   the smoke, and is also the point.
