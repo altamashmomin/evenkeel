@@ -1511,8 +1511,64 @@
         </li>`;
   }
 
+  // The contribution log inside an expanded goal card: rows -> list, with an
+  // empty state. Pure (esc/fmt); app.js fetches the rows on demand and passes
+  // them in. A negative contribution (a withdrawal) shows a − sign.
+  function contribLogHTML(rows) {
+    const body = rows.length
+      ? rows.map((c) => `
+          <li>
+            <div class="grow">
+              <div class="title">${esc(c.by)}${c.note ? ` — <span class="sub">${esc(c.note)}</span>` : ""}</div>
+              <div class="sub">${c.date}</div>
+            </div>
+            <span class="amt amount">${c.amount < 0 ? "−" : "+"}${fmt(Math.abs(c.amount))}</span>
+          </li>`).join("")
+      : `<li><div class="grow sub">No contributions yet.</div></li>`;
+    return `<div class="contrib-log"><ul class="list">${body}</ul></div>`;
+  }
+
+  // One Goals-tab card. State is INJECTED so the fn stays pure/testable:
+  //   paceEntry — the /api/analytics/goal-pace entry for this goal (or undefined),
+  //   logOpen   — whether the contribution log is expanded (drives the toggle
+  //               label AND whether logHTML is shown),
+  //   logHTML   — the pre-rendered contribution log ("" when collapsed).
+  // The what-if input appears only when a pace entry exists and the goal isn't
+  // already complete. goalPaceLineHTML is render-local.
+  function goalCardHTML(g, paceEntry, logOpen, logHTML) {
+    const eta = g.target_date ? ` · by ${g.target_date}` : "";
+    const whatif = paceEntry && paceEntry.status !== "complete" ? `
+        <div class="goal-whatif">
+          <input type="number" min="0" step="10" inputmode="decimal"
+                 placeholder="What if $/mo…" data-goal-whatif="${g.id}"
+                 aria-label="What-if monthly contribution for ${esc(g.name)}">
+          <span class="goal-whatif-out" data-goal-whatif-out="${g.id}"></span>
+        </div>` : "";
+    return `
+      <div class="card" data-goal-card="${g.id}">
+        <div class="goal-head">
+          <h3>🌱 ${esc(g.name)}</h3>
+          <button class="btn small" data-goal-add="${g.id}">Add</button>
+        </div>
+        <div class="goal-bar"><i style="width:${g.progress * 100}%"></i></div>
+        <div class="goal-meta">
+          <span class="amount">${fmt(g.saved)} of ${fmt(g.target)}${eta}</span>
+          <span>${Math.round(g.progress * 100)}%</span>
+        </div>
+        ${goalPaceLineHTML(paceEntry)}
+        ${whatif}
+        <div class="goal-meta" style="margin-top:10px">
+          <button class="btn small ghost" data-goal-log="${g.id}">
+            ${logOpen ? "Hide log" : "Show log"}</button>
+          <button class="btn small ghost" data-goal-del="${g.id}">Delete</button>
+        </div>
+        ${logHTML}
+      </div>`;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            userById, userColor, beamHTML, txnRow, billRowHTML,
+           contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
            moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
            listEstimateHTML, priceTrendBadge,

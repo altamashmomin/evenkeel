@@ -1325,4 +1325,71 @@ check("billRowHTML escapes hostile name/category (no breakout)", () => {
   assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
 });
 
+// ---- contribLogHTML: the goal contribution log (empty / sign / escaping) ----
+check("contribLogHTML empty state", () => {
+  const h = R.contribLogHTML([]);
+  assert.ok(h.includes("No contributions yet."));
+  assert.ok(h.includes("contrib-log"));
+});
+check("contribLogHTML: + for a deposit, − for a withdrawal, note inline", () => {
+  const h = R.contribLogHTML([
+    { by: "Alta", note: "", date: "2026-08-01", amount: 100 },
+    { by: "Charlee", note: "birthday", date: "2026-07-15", amount: -50 },
+  ]);
+  assert.ok(h.includes("+$100.00"), "deposit gets +");
+  assert.ok(h.includes("−$50.00"), "withdrawal gets − and abs value");
+  assert.ok(!h.includes("−$-"), "no double sign");
+  assert.ok(h.includes("birthday") && h.includes("Charlee"));
+});
+check("contribLogHTML escapes contributor + note", () => {
+  const h = R.contribLogHTML([{ by: 'A<b>', note: 'n"<i>', date: "2026-08-02", amount: 5 }]);
+  assert.ok(!h.includes("<b>") && !h.includes("<i>"), "markup neutralized");
+  assert.ok(h.includes("&lt;b&gt;"));
+});
+
+// ---- goalCardHTML: the Goals-tab card (what-if gate, log toggle, injection) ----
+const GPACE = { status: "on_track", monthly_rate: { cents: 25000, display: "$250.00" },
+  projected_date: "2027-05-14", remaining: { cents: 380000 } };
+check("goalCardHTML shows the what-if input when a live pace entry exists", () => {
+  const h = R.goalCardHTML({ id: 1, name: "Roof", saved: 1200, target: 5000,
+    progress: 0.24, target_date: "2027-06-01" }, GPACE, false, "");
+  assert.ok(h.includes('data-goal-whatif="1"'), "what-if input present");
+  assert.ok(h.includes("by 2027-06-01"), "target date in the meta line");
+  assert.ok(h.includes("$1,200.00 of $5,000.00"));
+  assert.ok(h.includes("24%"));
+  assert.ok(h.includes("at ~$250.00/mo"), "goalPaceLineHTML folded in");
+  assert.ok(h.includes("Show log"), "collapsed -> Show log");
+});
+check("goalCardHTML hides the what-if when the goal is complete", () => {
+  const h = R.goalCardHTML({ id: 2, name: "Trip", saved: 800, target: 800,
+    progress: 1, target_date: null }, { status: "complete" }, false, "");
+  assert.ok(!h.includes("data-goal-whatif"), "no what-if once complete");
+  assert.ok(!h.includes(" · by "), "no eta when target_date is null");
+});
+check("goalCardHTML hides the what-if when there's no pace entry", () => {
+  const h = R.goalCardHTML({ id: 3, name: "Buffer", saved: 300, target: 2000,
+    progress: 0.15, target_date: null }, undefined, false, "");
+  assert.ok(!h.includes("data-goal-whatif"), "no pace -> no what-if");
+});
+check("goalCardHTML: logOpen flips the toggle and appends the log", () => {
+  const log = '<div class="contrib-log">LOG</div>';
+  const open = R.goalCardHTML({ id: 4, name: "Car", saved: 0, target: 100,
+    progress: 0, target_date: null }, undefined, true, log);
+  assert.ok(open.includes("Hide log"), "open -> Hide log");
+  assert.ok(open.includes(log), "the pre-rendered log is appended");
+  const shut = R.goalCardHTML({ id: 4, name: "Car", saved: 0, target: 100,
+    progress: 0, target_date: null }, undefined, false, "");
+  assert.ok(shut.includes("Show log") && !shut.includes("contrib-log"));
+});
+check("goalCardHTML escapes the goal name (heading + aria-label attribute)", () => {
+  // GPACE present -> the what-if input renders, so the name lands in BOTH a text
+  // node (the heading) and a double-quoted aria-label. A bare " would break out.
+  const h = R.goalCardHTML({ id: 5, name: 'X"<b> & y', saved: 1, target: 2,
+    progress: 0.5, target_date: null }, GPACE, false, "");
+  assert.ok(!h.includes("<b>"), "name markup neutralized");
+  assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;") && h.includes("&quot;"));
+  assert.ok(!/aria-label="What-if monthly contribution for X"/.test(h),
+    "the bare quote cannot close the aria-label attribute");
+});
+
 console.log(`render tests passed (${passed} checks)`);
