@@ -1177,7 +1177,12 @@
            <span class="spacer"></span>
            <button class="btn primary" type="button" id="recat-move" disabled>Move</button>
          </div>
-         <p class="recat-note">Reclassifying only relabels — amounts, splits, and who owes whom don't change.</p>`
+         <p class="recat-note">Reclassifying only relabels — amounts, splits, and who owes whom don't change.</p>
+         <details class="recat-danger">
+           <summary>Delete “${esc(category)}” everywhere…</summary>
+           <p class="recat-note">Moves every “${esc(category)}” transaction from <b>every month</b> — plus its budget and any bill or pantry references — into the category typed above. Then “${esc(category)}” is gone. Nothing is deleted from history; no amount or balance changes.</p>
+           <button class="btn danger small" type="button" id="recat-delete-cat" disabled>Move everything &amp; delete</button>
+         </details>`
       : `<p class="empty">No spending tagged “${esc(category)}” in ${esc(monthLabel)}.</p>
          <div class="dlg-actions"><span class="spacer"></span>
            <button class="btn ghost" type="button" id="recat-cancel">Close</button></div>`;

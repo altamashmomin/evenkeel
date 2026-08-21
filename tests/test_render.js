@@ -439,6 +439,15 @@ check("inventoryHTML shopping list shows staple status and one-off need", () => 
   assert.ok(html.includes('badge overdue">out'), "out staple badged as urgent");
   assert.ok(html.includes('badge due">need'), "one-off shows 'need'");
 });
+check("recatSheetHTML offers the delete-category zone only when rows exist", () => {
+  const withRows = R.recatSheetHTML("Doomed", "August 2026",
+    [{ id: 1, description: "X", category: "Doomed", date: "2026-08-02", amount: { cents: 100, display: "$1.00" } }]);
+  assert.ok(withRows.includes('id="recat-delete-cat"'), "delete button present");
+  assert.ok(withRows.includes("every month"), "copy says the move spans all months");
+  assert.ok(withRows.includes("Delete “Doomed” everywhere…"), "summary names the category");
+  const empty = R.recatSheetHTML("Doomed", "August 2026", []);
+  assert.ok(!empty.includes("recat-delete-cat"), "no delete zone without rows");
+});
 check("inventoryHTML offers Got-everything only for 2+ shopping items", () => {
   const two = R.inventoryHTML({
     items: [],

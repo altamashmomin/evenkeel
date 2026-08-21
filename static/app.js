@@ -288,11 +288,15 @@ async function openRecatSheet(category) {
   const checks = () => $$(".recat-check");
   // Move is enabled only when at least one row is checked AND a target
   // category is typed (and it's not the category you're already in).
+  const deleteBtn = $("#recat-delete-cat");
   const syncMove = () => {
-    if (!moveBtn) return;
     const target = (input?.value || "").trim();
-    const anyChecked = checks().some((c) => c.checked);
-    moveBtn.disabled = !(anyChecked && target && target !== category);
+    const validTarget = !!target && target !== category;
+    if (moveBtn)
+      moveBtn.disabled = !(validTarget && checks().some((c) => c.checked));
+    // Delete-category needs only a destination — it moves ALL months, not
+    // the checklist (which shows this month only).
+    if (deleteBtn) deleteBtn.disabled = !validTarget;
   };
   $("#recat-select-all")?.addEventListener("change", (e) => {
     checks().forEach((c) => { c.checked = e.target.checked; });
@@ -306,6 +310,21 @@ async function openRecatSheet(category) {
   }));
   input?.addEventListener("input", syncMove);
   $("#recat-cancel")?.addEventListener("click", () => dlgRecat.close());
+  // Delete the category: one atomic merge_category call relabels every
+  // reference (all months + budget/bills/pantry) into the typed target —
+  // orphan-proof by construction (the verb refuses without a destination).
+  deleteBtn?.addEventListener("click", async () => {
+    const target = input.value.trim();
+    if (!confirm(`Move every “${category}” transaction from every month ` +
+                 `(plus its budget/bill/pantry references) into “${target}” ` +
+                 `and delete “${category}”?`)) return;
+    deleteBtn.disabled = true;
+    await api("/api/categories/merge", {
+      method: "POST",
+      body: { from_category: category, into_category: target } });
+    dlgRecat.close();
+    render();
+  });
   moveBtn?.addEventListener("click", async () => {
     const target = input.value.trim();
     const ids = checks().filter((c) => c.checked)

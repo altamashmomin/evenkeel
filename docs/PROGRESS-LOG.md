@@ -2672,3 +2672,49 @@ One action marks a bought set stocked ("we got everything"):
 - **GATE PASS zero-diff** (fixture `seed_db --seed 42 --months 8 --as-of
   2026-07-19` + migrate + seed_income; old=`360291c` new=`rework`, 42 values
   compared). No schema change; never touches money. NOT YET DEPLOYED.
+
+**DEPLOYED (Aug 20, 2026, evening).** Alta pushed `main` (`6b3fba9`, the
+`--no-ff` merge; tree verified byte-identical to `rework` before push) and ran
+`git fetch origin && ./deploy/deploy.sh origin/main` on the Pi. Live real-data
+gate **PASS zero-diff** (no migration; "nothing to apply"); `pifinance` +
+`ledger-mcp` restarted; rollback backup `finance.db.bak-2026-08-20-231736`
+(oldest pruned, 10 kept); deploy.sh healed the Pi's local `main` → `6b3fba9`.
+Tailnet-verified from the Mac: `/api/status` OK, `POST /api/inventory/restock`
+**401 unauthenticated**, served `app.js`/`render.js` carry the new
+handler/button under a fresh `?v=` stamp. **Honest finding from the deploy
+output:** the Pi's "currently deployed" ref was `4dc262a` — so PR #28's
+merchant/pantry transfer-consistency change had NOT actually been live despite
+its `e4a728f` deploy record (that entry was aspirational); THIS deploy shipped
+it for real, alongside increment 1. Remaining manual check: with 2+ items on
+the shopping list, tap "Got everything (N)" once — the only line no test
+executed.
+
+## Aug 20, 2026 — `merge_category`: delete/merge/rename a category, orphan-proof
+
+Alta's ask from the Home "Spent" section: add/delete categories without the
+glitch of orphaned references. Categories are EMERGENT transaction tags (the
+Aug 19 recategorize call — no categories table), so the design answer:
+- **"Add" already exists** in the emergent model: type a new name in the
+  recategorize sheet (born at first retag), on a bill, or on a budget. No
+  schema change wanted or made.
+- **"Delete" = `merge_category(from, into)`** — the only safe meaning: relabel
+  EVERY reference atomically into a caller-named destination. One transaction
+  moves transactions across ALL months (not just the visible one), bills,
+  pantry items (`updated_at` deliberately NOT bumped — it's
+  restock_suggestions' since-bound and a relabel is not a stock event), and
+  the budget: it FOLLOWS the merge if `into` has none, or RETIRES (active=0,
+  reversible) if `into` keeps its own. Requiring a destination before
+  anything moves IS the glitch-prevention: no orphan is constructible.
+- **Guards**: `Settlement` protected on both sides (settle_up's system
+  category), self-merge, empty names, unknown category. **Rename** = the same
+  merge into a fresh name.
+- **Callers**: `POST /api/categories/merge` + a collapsed "Delete … everywhere"
+  zone in the recategorize sheet (button enables only with a destination
+  typed; confirm spells out the all-months scope). UI-only — deliberately NOT
+  in the Ask/MCP write tiers this increment (an all-months bulk relabel has a
+  bigger blast radius than the pantry's single-row writes; revisit if wanted).
+- Tests (6): the complete move + audit counts, both budget outcomes, the
+  guards, normalization/rename, items.updated_at stability, and
+  balance + monthly totals byte-identical across a merge. Suite **595** python
+  + **126** render. **GATE PASS zero-diff** (old=`f825d8c` new=`rework`, 42
+  values). No schema change; never touches money. NOT YET DEPLOYED.
