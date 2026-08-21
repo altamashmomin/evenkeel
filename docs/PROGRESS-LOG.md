@@ -2484,3 +2484,34 @@ Mark-as-transfer each time. Chosen approach (confirmed with Alta): explicit
   column NOT NULL DEFAULT 0). `test_income_rules` updated for the match dict's
   new `set_transfer` key. Suite **576 python + 113 render** green. NOT DEPLOYED.
   **T3b next: create_income_rule accepts the flag + the nudge UI.**
+
+**Transfer-neutral fix, increment T3b — `create_income_rule` accepts
+`set_transfer` + the "make this a rule?" nudge after Mark-as-transfer — DONE on
+`claude/rule-transfer-t3b-4lt781` (Aug 21, 2026).** The mechanism that lets a
+transfer rule be CREATED, completing T3 (the engine plumbing that honors such a
+rule was T3a).
+- **`create_income_rule` / `_validate_income_rule` accept `set_transfer`** —
+  when set, `set_type` defaults to `'transfer'` (a transfer's income_type is
+  irrelevant since it's excluded from income), so a transfer rule is just
+  `{match_desc, set_transfer:1}`. `rule_to_json` carries the flag.
+- **`suggest_transfer_rule_after_mark(db, row)`** — the transfer analog of the
+  classify nudge: offers a pre-filled transfer rule when marking brings the
+  transfer-inflow count to exactly two (wait-for-a-repeat, per the settled
+  auto-rule aggressiveness call), suppressed when an enabled rule already covers
+  the row. The `set_transfer` route returns it as `rule_suggestion`; `setTransfer`
+  chains the rule dialog on top of the re-render, exactly like classify does.
+- **Frontend**: the rule dialog carries `set_transfer` through to the POST and
+  shows transfer-specific copy (`transferRuleText` in render.js — "you've marked
+  two of these as transfers", not income wording). Creating the rule sweeps the
+  unclassified backlog via `apply_rules` (T3a) and self-flags every future sync.
+- Tests: `test_rule_transfer` gains create-verb + suggest coverage (defaults
+  set_type; flags future sync; offers only at the 2nd; suppressed by a covering
+  rule; ignores outflows/non-transfers). `test_income_rules_routes` +
+  `test_render` updated for the new field/helper. Suite **582 python + 114
+  render** green.
+- **Balance gate PASS — zero diff** (no schema change — the column came in T3a;
+  old=main v13 vs new=T3b, same derivations). **Browser-smoke verified
+  end-to-end**: marking two "Payment Thank You" rows fired the nudge on the 2nd
+  (transfer copy), and submitting created a `set_transfer` rule matching
+  "Payment Thank You"; no console errors. NOT DEPLOYED. **That completes the
+  transfer-neutral fix (T1–T3): mark once, then a rule auto-tags the rest.**
