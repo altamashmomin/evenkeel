@@ -7,7 +7,8 @@ executed in-process under the caller's own session — so the write is attribute
 to the person (`ui:<name>`), validated by the verb, logged, and reversible.
 
 Tools exposed: classify_inflow (tag an inflow) and the household-pantry set —
-add_item, set_item_status, archive_item (remove), set_item_match, and
+add_item, set_item_status, restock_items (the after-shopping batch: mark a
+bought set stocked in one action), archive_item (remove), set_item_match, and
 set_item_interval (a user-set restock cadence, "remind me every N days") — the
 pantry is groceries/supplies, never money, so it needs no two-phase choreography
 and
@@ -70,6 +71,20 @@ WRITE_TOOLS = [
         "input_schema": actions.param_schema("set_item_status"),
         "execute": lambda caller, a: caller(
             "PUT", f"/api/inventory/{a['item_id']}", {"status": a.get("status")}),
+    },
+    {
+        "name": "ledger_restock_items",
+        "description":
+            "Mark SEVERAL pantry items stocked at once — the after-shopping "
+            "update ('we got everything', 'picked up the milk, eggs, and "
+            "coffee'). Find each item's id first with ledger_inventory. "
+            "All-or-nothing: if any id is wrong, nothing changes. A ONE-OFF "
+            "in the set counts as bought, so it drops off the shopping list. "
+            "For a single item, ledger_set_item_status is the same thing. "
+            "Reversible per item (mark it again) and logged.",
+        "input_schema": actions.param_schema("restock_items"),
+        "execute": lambda caller, a: caller(
+            "POST", "/api/inventory/restock", {"item_ids": a.get("item_ids")}),
     },
     {
         "name": "ledger_archive_item",

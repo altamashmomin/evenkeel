@@ -186,7 +186,7 @@ class ManifestEdgeTests(unittest.TestCase):
         self.assertEqual(["classify_inflow", "confirm_action", "propose_action",
                           "set_rule_enabled"], c["mcp"])
         self.assertEqual(["add_item", "archive_item", "classify_inflow",
-                          "set_item_interval", "set_item_match",
+                          "restock_items", "set_item_interval", "set_item_match",
                           "set_item_status"], c["ask"])
 
     def test_every_caller_verb_is_real(self):

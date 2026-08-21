@@ -153,6 +153,8 @@ def system_prompt(period):
         "what's there and to get an item's id. Then do what they ask: add items "
         "(ledger_add_item — a one-off for a one-time buy, a staple to keep "
         "tracking); mark one stocked, low, or out (ledger_set_item_status); "
+        "mark several bought at once after a shopping run "
+        "(ledger_restock_items — 'we got everything on the list'); "
         "remove one they no longer want (ledger_archive_item); teach Ledger "
         "how a staple shows up on the bank feed so it spots restocks "
         "(ledger_set_item_match); or set how often a staple should be restocked "

@@ -852,6 +852,14 @@ function wireMain() {
       setItemStatus(+el.dataset.itemCycle, NEXT_STATUS[el.dataset.status] || "stocked")));
   $$("[data-item-got]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemGot, "stocked")));
+  // "Got everything": one restock_items call marks the whole list bought
+  // (all-or-nothing server-side; per-row "Got it" stays for partial trips).
+  $("#inv-got-all")?.addEventListener("click", async (e) => {
+    const ids = e.currentTarget.dataset.gotAll.split(",").map(Number);
+    if (!confirm(`Mark all ${ids.length} as bought?`)) return;
+    await api("/api/inventory/restock", { method: "POST", body: { item_ids: ids } });
+    render();
+  });
   // Restock nudge: "Yes, restocked" marks the staple stocked (drops it off the
   // shopping list). Same effect as tapping its chip to stocked.
   $$("[data-restock-confirm]").forEach((el) =>

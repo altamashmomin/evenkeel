@@ -878,6 +878,22 @@ def update_inventory_item(item_id):
     return jsonify(item_to_json(row))
 
 
+@app.post("/api/inventory/restock")
+@login_required
+def restock_inventory_items():
+    """Thin caller: restock_items marks a bought set stocked in one action
+    (all-or-nothing; the verb owns validation)."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        rows = actions.restock_items(db, ui_actor(db), data.get("item_ids"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify({"items": [item_to_json(r) for r in rows]})
+
+
 @app.delete("/api/inventory/<int:item_id>")
 @login_required
 def delete_inventory_item(item_id):

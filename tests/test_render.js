@@ -439,6 +439,24 @@ check("inventoryHTML shopping list shows staple status and one-off need", () => 
   assert.ok(html.includes('badge overdue">out'), "out staple badged as urgent");
   assert.ok(html.includes('badge due">need'), "one-off shows 'need'");
 });
+check("inventoryHTML offers Got-everything only for 2+ shopping items", () => {
+  const two = R.inventoryHTML({
+    items: [],
+    shopping: [
+      { id: 2, name: "Milk", kind: "staple", status: "out", note: null },
+      { id: 3, name: "Party candles", kind: "oneoff", status: "out", note: null },
+    ],
+    low_count: 1,
+  });
+  assert.ok(two.includes('data-got-all="2,3"'), "batch button carries the listed ids");
+  assert.ok(two.includes("Got everything (2)"), "labelled with the count");
+  const one = R.inventoryHTML({
+    items: [],
+    shopping: [{ id: 2, name: "Milk", kind: "staple", status: "out", note: null }],
+    low_count: 1,
+  });
+  assert.ok(!one.includes("data-got-all"), "no batch button for a single item");
+});
 check("inventoryHTML empty states for both cards", () => {
   const html = R.inventoryHTML({ items: [], shopping: [], low_count: 0 });
   assert.ok(html.includes("Nothing to buy"), "empty shopping list");

@@ -97,6 +97,49 @@ class ItemVerbTests(unittest.TestCase):
         with self.assertRaisesRegex(actions.ActionError, "status must be one of"):
             actions.set_item_status(self.db, "ui:avery", item["id"], "loads")
 
+    # -------------------------------------------------------- restock_items
+    def test_restock_marks_the_set_stocked_with_an_audit_row_each(self):
+        low = self.add(name="Coffee", status="low")
+        out = self.add(name="Milk", status="out")
+        need = self.add(name="Party hats", kind="oneoff")     # status out
+        rows = actions.restock_items(
+            self.db, "ui:avery", [low["id"], out["id"], need["id"]])
+        self.assertEqual([low["id"], out["id"], need["id"]],
+                         [r["id"] for r in rows])              # order given
+        self.assertEqual(["stocked"] * 3, [r["status"] for r in rows])
+        self.assertEqual(0, rows[2]["active"])                 # oneoff bought → archived
+        self.assertEqual(1, rows[0]["active"])
+        for r in rows:
+            self.assertIsNotNone(r["last_stocked_at"])         # anchor re-set
+        audits = self.db.execute(
+            "SELECT target, detail_json FROM audit_log "
+            "WHERE action = 'restock_items' ORDER BY id").fetchall()
+        self.assertEqual([f"item:{r['id']}" for r in rows],
+                         [a["target"] for a in audits])        # one row per item
+        detail = json.loads(audits[0]["detail_json"])
+        self.assertEqual({"before": "low", "after": "stocked", "archived": False},
+                         detail)
+
+    def test_restock_is_all_or_nothing(self):
+        low = self.add(name="Coffee", status="low")
+        with self.assertRaisesRegex(actions.NotFound, "999999"):
+            actions.restock_items(self.db, "ui:avery", [low["id"], 999999])
+        self.assertEqual("low", self.status_of(low["id"])["status"])  # untouched
+        self.assertIsNone(self.db.execute(
+            "SELECT 1 FROM audit_log WHERE action = 'restock_items'").fetchone())
+
+    def test_restock_rejects_bad_shapes_and_collapses_duplicates(self):
+        for bad in (None, [], "7", [7, "soap"]):
+            with self.assertRaises(actions.ActionError):
+                actions.restock_items(self.db, "ui:avery", bad)
+        with self.assertRaisesRegex(actions.ActionError, "max 100"):
+            actions.restock_items(self.db, "ui:avery", list(range(1, 102)))
+        item = self.add(name="Rice", status="low")
+        rows = actions.restock_items(self.db, "ui:avery", [item["id"], item["id"]])
+        self.assertEqual(1, len(rows))                         # duplicates collapse
+        self.assertEqual(1, len(self.db.execute(
+            "SELECT 1 FROM audit_log WHERE action = 'restock_items'").fetchall()))
+
     # --------------------------------------------------------- archive_item
     def test_archive_soft_deletes_and_audits(self):
         item = self.add(name="Old thing")
