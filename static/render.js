@@ -1088,6 +1088,8 @@
         ${needBy}
         ${tag}
         <button class="btn small" data-item-got="${it.id}">Got it</button>
+        <button class="item-x item-match" data-item-ordered="${it.id}"
+                aria-label="Mark ${esc(it.name)} as ordered (on the way)">📦</button>
         <button class="item-x item-match" data-item-needby="${it.id}"
                 aria-label="Set a deadline for ${esc(it.name)}">📅</button>
         <button class="item-x item-match" data-item-snooze="${it.id}"
@@ -1126,11 +1128,33 @@
           </li>`).join("")}</ul>
         </details>`
       : "";
+    // "On the way" (#015): ordered, not yet arrived — handled, not stocked.
+    // updated_at is the ordered-at; past 7 days the row asks "still waiting?".
+    const onTheWay = data.on_the_way || [];
+    const orderedRows = onTheWay.length
+      ? `<details class="shop-ordered" open>
+          <summary>📦 On the way (${onTheWay.length})</summary>
+          <ul class="list">${onTheWay.map((it) => {
+            const since = (it.updated_at || "").slice(0, 10);
+            const days = todayISO && since ? daysBetween(since, todayISO) : 0;
+            const wait = days >= 7 ? ` · still waiting? (${days} days)` : "";
+            return `<li>
+              <span class="ic">${itemIcon(it)}</span>
+              <div class="grow">
+                <div class="title">${esc(it.name)}</div>
+                <div class="sub">ordered ${esc(shortDate(since))}${wait}</div>
+              </div>
+              <button class="btn small primary" data-item-arrived="${it.id}">Arrived</button>
+              <button class="btn small" data-item-missed="${it.id}">Didn't come</button>
+            </li>`;
+          }).join("")}</ul>
+        </details>`
+      : "";
     const shopRows = (activeShopping.length
       ? shopList
       : `<p class="empty">${snoozedShopping.length
           ? "Nothing needed right now — some items are snoozed below."
-          : "Nothing to buy — you're all stocked 🌿"}</p>`) + snoozedRows;
+          : "Nothing to buy — you're all stocked 🌿"}</p>`) + orderedRows + snoozedRows;
 
     const stapleRows = items.length
       ? `<ul class="list">${items.map((it) => `

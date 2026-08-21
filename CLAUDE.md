@@ -260,7 +260,15 @@ call.** Then (Aug 21): **`change_password`** — the first write verb over
 secret) + session-only `POST /api/me/password` (bearer refused; wrong-current
 rate-limited 5/15min) + a header "Password" dialog; the ontology pin "members
 has no verb writer" flipped to name it. Suite 624+147, GATE PASS zero-diff.
-On `rework`; **NOT YET DEPLOYED**.
+**DEPLOYED** (`main` `4c9d654`, first try; tailnet-verified). `origin/main`
+== the deployed tree; nothing merged-but-undeployed remains. Then (Aug 21): **Pantry v2
+increment 7 — the `ordered` status** (migration #015, a table REBUILD of
+`items` to widen the status CHECK; schema v14→v15): bought-not-arrived leaves
+the list without counting as stocked; "On the way" drawer with Arrived /
+Didn't come + a 7-day "still waiting?" nudge; timeline parser accepts it.
+Suite 627+148, GATE PASS by enumeration (sole diff schema_version 14→15). On
+`rework`; **NOT YET DEPLOYED** (deploy applies the rebuild live). **That
+completes the Pantry v2 amendment, 1–7.**
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

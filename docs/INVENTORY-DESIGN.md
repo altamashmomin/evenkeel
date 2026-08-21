@@ -3,11 +3,12 @@
 Ledger's first step beyond money: a shared, low-upkeep way to track the
 household staples the two of you don't want to run out of — and a shopping
 list — so you never buy the same thing twice or run too low.
-Status: **built and live through step 5** (migrations #008–#011: MVP +
-purchase-feed inference — restock suggestions/forecast, new-staple discovery,
-broken-match detection; the pantry views are transfer-consistent since the
-v12/v13 transfer work). The original design below stands as written; the
-**Pantry v2 amendment at the bottom (Aug 20, 2026)** sequences what comes next.
+Status: **fully built.** The MVP + step 5 (migrations #008–#011) are live, and
+the **Pantry v2 amendment at the bottom (Aug 20, 2026) was built end to end on
+Aug 21** — increments 1–7 (batch restock, #014 store/need_by/snooze, the
+status-derived cadence, the priced list + price drift, the trip composition,
+the hygiene layer with the Sunday pulse, and the `ordered` status via #015).
+The original design below stands as written.
 
 ## The core claim
 
@@ -242,6 +243,15 @@ online, not arrived, don't re-buy). It prevents real double-buys but adds a
 state a human can forget to clear; if adopted, the feed should offer to clear
 it when the matching purchase lands. Parked until the household wants it —
 `snoozed_until` may cover enough of the need.
+*Decided and built Aug 21, 2026 (increment 7, migration #015 — a table
+rebuild, since SQLite can't widen a CHECK):* `ordered` leaves the shopping
+list without counting as stocked; an "On the way" drawer offers Arrived (→
+stocked; a one-off then archives as bought) / Didn't come (→ out). The
+anti-forget mechanism is NOT the feed (an online order's charge lands at
+order time, proving nothing about arrival) but a view-layer "still
+waiting?" after 7 days and a line in the weekly pulse. Re-ordering from
+`stocked` counts as a cycle departure for the status cadence (it's the
+household saying "running down").
 
 ## New verbs
 

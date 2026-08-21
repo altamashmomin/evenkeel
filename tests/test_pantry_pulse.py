@@ -34,6 +34,7 @@ def fixture():
             {"name": "Star salt", "last_activity": "2026-08-01"},       # recent
         ],
         "stale_shopping_items": [],
+        "on_the_way": [{"name": "Dog food", "updated_at": "2026-08-10T12:00:00+00:00"}],
         "new_staple_suggestion": {"merchant": "Pet Barn", "purchases_seen": 4,
                                   "last_purchase": "2026-08-15",
                                   "total_spent": {"cents": 9000, "display": "$90.00"}},
@@ -53,6 +54,8 @@ class PantryPulseFormatterTests(unittest.TestCase):
         self.assertIn("Still tracking these? — 1", body)
         self.assertIn("Moon dust", body)
         self.assertNotIn("Star salt", body)                 # inside the grace
+        self.assertIn("## On the way — 1", body)
+        self.assertIn("**Dog food** — ordered 2026-08-10 (11 days ago) — still waiting?", body)
         self.assertIn("**Pet Barn** — bought 4×", body)
         self.assertIn("$90.00", body)
         self.assertIn("1 staple(s) have never matched", body)
@@ -61,7 +64,7 @@ class PantryPulseFormatterTests(unittest.TestCase):
     def test_quiet_week_posts_nothing(self):
         p = fixture()
         p.update(list=[], due_soon=[], stale_staples=[], new_staple_suggestion=None,
-                 unmatched_count=0, list_count=0)
+                 unmatched_count=0, list_count=0, on_the_way=[])
         _, _, quiet = pulse_mod.render_markdown(p, "2026-08-21")
         self.assertTrue(quiet)
 

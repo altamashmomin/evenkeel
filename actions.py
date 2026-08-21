@@ -1429,7 +1429,8 @@ def find_active_api_token(db, token):
 # order, so the offered and validated vocabularies stay one source.
 ITEM_KIND_ORDER = ("staple", "oneoff")
 ITEM_KINDS = frozenset(ITEM_KIND_ORDER)
-ITEM_STATUS_ORDER = ("stocked", "low", "out")     # stocked → low → out (severity)
+ITEM_STATUS_ORDER = ("stocked", "low", "out", "ordered")   # severity order, then
+# 'ordered' = bought (online), not yet arrived — off the list, not yet stocked (#015)
 ITEM_STATUSES = frozenset(ITEM_STATUS_ORDER)
 
 
@@ -1480,6 +1481,10 @@ def set_item_status(db, actor, item_id, status):
     the vocab.
     edit — one transaction: the status + updated_at. A ONE-OFF set to 'stocked'
     (i.e. bought) archives itself (active=0) so it leaves the shopping list.
+    'ordered' (#015) is the in-between: bought but not arrived — off the list,
+    not stocked; set 'stocked' on arrival (a one-off then archives as bought)
+    or 'out' if it never came. updated_at doubles as its ordered-at for the
+    view's "still waiting?" nudge.
     side effects — none. Returns the updated row.
     """
     with action_transaction(db):
@@ -1986,7 +1991,11 @@ PARAM_SPECS = {
     ],
     "set_item_status": [
         Param("item_id", "integer", "The item's id, from ledger_inventory."),
-        Param("status", "string", "The new status.", enum=ITEM_STATUS_ORDER),
+        Param("status", "string",
+              "The new status. 'ordered' = they bought it (online) and it "
+              "hasn't arrived yet — it leaves the shopping list without being "
+              "counted as stocked; when it arrives, set 'stocked'.",
+              enum=ITEM_STATUS_ORDER),
     ],
     "restock_items": [
         Param("item_ids", "array",

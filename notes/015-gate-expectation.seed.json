@@ -1,0 +1,6 @@
+{
+  "note": "Migration #015 (items.status CHECK widened to include 'ordered' -- Pantry v2 amendment increment 7). A TABLE REBUILD (SQLite cannot alter a CHECK): items_new with the widened vocab and every accumulated column, a total row copy preserving ids, drop, rename. Row counts are identical before and after (the copy is total; no other table references items), every existing status is already in the new vocab, and the pantry never touches money -- so the only observable change is the schema_version record itself. The who-owes-whom balance and every monthly total are byte-identical and deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 14, "new": 15}
+  ]
+}
