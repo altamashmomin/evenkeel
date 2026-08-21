@@ -2553,3 +2553,14 @@ merchants" or (worse) be detected as a recurring subscription.
   **585 python + 114 render** green; **balance gate PASS zero-diff** (no row
   flagged in the gate db, and these views aren't gate-checked anyway). NOT
   DEPLOYED.
+
+**DEPLOYED to the Pi — `origin/main` @ `e4a728f` (Aug 21, 2026), gate PASS
+zero-diff.** Alta ran `deploy/deploy.sh origin/main` on the Raspberry Pi; the
+live real-data gate passed **zero-diff** (balance and every monthly total
+byte-identical, no structural change). Tree `4dc262a`→`e4a728f`, shipping the
+**transfer merchant/pantry consistency** (PR #28) live — a marked transfer now
+also drops out of top_merchants, recurring_charges, and the pantry inference
+views, not just the money totals. No migration (schema stays **v13**). That
+closes the transfer effort end to end and live: mis-signed row → flag → verb +
+UI → auto-tag rule → consistent exclusion across every spend/merchant surface.
+`origin/main` == the deployed tree; nothing merged-but-undeployed remains.
