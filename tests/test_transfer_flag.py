@@ -112,6 +112,44 @@ class TransferFlagTests(unittest.TestCase):
         self.assertEqual(6000, s["month_spend_cents"])
         self.assertEqual(3000, derivations.compute_balance(self.db)["amount_cents"])
 
+    # --- merchant / pantry views: a transfer OUTFLOW must drop out of these too
+    # (consistency with spend: it's not spending, so it's not a "top merchant",
+    # a "recurring charge", or a pantry purchase).
+    def _out(self, when, cents, desc, category="Other", is_transfer=0):
+        self.db.execute(
+            "INSERT INTO transactions (txn_date, amount_cents, description, "
+            "category, paid_by, is_shared, source, direction, is_transfer) "
+            "VALUES (?, ?, ?, ?, 1, 0, 'simplefin', 'out', ?)",
+            (when, cents, desc, category, is_transfer))
+        self.db.commit()
+
+    def test_transfer_excluded_from_top_merchants(self):
+        self._out(f"{MONTH}-02", 5000, "Coffee Shop")
+        self._out(f"{MONTH}-03", 99999, "CHASE CARD PAYMENT", is_transfer=1)
+        merchants = [m["description"] for m in derivations.top_merchants(self.db)]
+        self.assertIn("Coffee Shop", merchants)
+        self.assertNotIn("CHASE CARD PAYMENT", merchants, "transfer shown as a merchant")
+
+    def test_transfer_excluded_from_recurring_charges(self):
+        # Three regular monthly card payments — would look like a subscription
+        # if counted; flagged transfers must not.
+        for m in ("2026-05-15", "2026-06-15", "2026-07-15"):
+            self._out(m, 50000, "CHASE EPAY", is_transfer=1)
+        merchants = [r["merchant"] for r in derivations.recurring_charges(self.db)]
+        self.assertNotIn("Chase Epay", merchants, "transfer detected as recurring")
+
+    def test_transfer_excluded_from_purchase_matching(self):
+        # A staple + a matching purchase that's actually a transfer: it must not
+        # count toward the staple's spend/restock inference.
+        self.db.execute(
+            "INSERT INTO items (name, kind, status, active, created_at, updated_at) "
+            "VALUES ('Chewy', 'staple', 'stocked', 1, '2026-06-01', '2026-06-01')")
+        self.db.commit()
+        for d in ("2026-05-04", "2026-06-04", "2026-07-04"):
+            self._out(d, 4000, "CHEWY AUTOSHIP", is_transfer=1)
+        spend = {s["name"]: s for s in derivations.staple_spend(self.db)}
+        self.assertNotIn("Chewy", spend, "transfer purchases inflated a staple's spend")
+
 
 if __name__ == "__main__":
     unittest.main()

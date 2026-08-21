@@ -186,7 +186,15 @@ created a `set_transfer` rule). **That completes the transfer-neutral fix
 — the live gate passed with the sole enumerated diff `schema_version 12→13`,
 migration `013` applied to the live DB (**live schema now v13**),
 balance/monthly totals byte-identical. `origin/main` == the deployed tree;
-nothing merged-but-undeployed remains.
+nothing merged-but-undeployed remains. Then (Aug 21): **transfer consistency for
+the merchant/pantry views** — closed T1's deliberate scope boundary by adding
+`AND is_transfer = 0` to every remaining outflow-reading derivation
+(`top_merchants`, `recurring_charges`, `new_staple_suggestions`,
+`last_shopping_trip`, `_purchase_index` + `_matching_purchases`), so a marked
+transfer outflow no longer shows as a top merchant / recurring subscription /
+pantry purchase. Pure read change, no schema/verb/money path. On
+`claude/transfer-merchant-consistency-4lt781`; suite 585+114, gate PASS
+zero-diff. Not deployed.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

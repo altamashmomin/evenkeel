@@ -614,7 +614,8 @@ def top_merchants(db, month=None, limit=10):
     rows = db.execute(
         f"""SELECT description, SUM(amount_cents) AS total, COUNT(*) AS n
             FROM transactions
-            WHERE direction = 'out' AND source != 'settlement'{clause}
+            WHERE direction = 'out' AND is_transfer = 0
+                  AND source != 'settlement'{clause}
             GROUP BY description
             ORDER BY total DESC, description
             LIMIT ?""", params).fetchall()
@@ -702,7 +703,7 @@ def recurring_charges(db, min_occurrences=3):
     first."""
     rows = db.execute(
         "SELECT txn_date, amount_cents, description FROM transactions "
-        "WHERE direction = 'out' AND source != 'settlement'").fetchall()
+        "WHERE direction = 'out' AND is_transfer = 0 AND source != 'settlement'").fetchall()
     buckets = {}
     for r in rows:
         key = _normalize_merchant(r["description"])
@@ -810,7 +811,8 @@ def _purchase_index(db):
     enters the index (the mandatory filter the restock derivations share)."""
     return db.execute(
         "SELECT txn_date, description, amount_cents FROM transactions "
-        "WHERE direction = 'out' ORDER BY txn_date DESC, id DESC").fetchall()
+        "WHERE direction = 'out' AND is_transfer = 0 "
+        "ORDER BY txn_date DESC, id DESC").fetchall()
 
 
 def _matching_purchases(db, item, since=None, index=None):
@@ -835,7 +837,8 @@ def _matching_purchases(db, item, since=None, index=None):
                 if p in (r["description"] or "").lower()
                 and (since is None or r["txn_date"] >= since)]
     sql = ("SELECT txn_date, description, amount_cents FROM transactions "
-           "WHERE direction = 'out' AND instr(lower(description), lower(?)) > 0")
+           "WHERE direction = 'out' AND is_transfer = 0 "
+           "AND instr(lower(description), lower(?)) > 0")
     params = [phrase]
     if since:
         sql += " AND txn_date >= ?"
@@ -1014,7 +1017,7 @@ def new_staple_suggestions(db, min_purchases=3):
     """
     rows = db.execute(
         "SELECT txn_date, amount_cents, description FROM transactions "
-        "WHERE direction = 'out' AND source != 'settlement'").fetchall()
+        "WHERE direction = 'out' AND is_transfer = 0 AND source != 'settlement'").fetchall()
     buckets = {}
     for r in rows:
         key = _normalize_merchant(r["description"])
@@ -1204,7 +1207,7 @@ def last_shopping_trip(db):
     placeholders = ",".join("?" for _ in SHOPPING_CATEGORIES)
     trip = db.execute(
         f"SELECT txn_date, description, category FROM transactions "
-        f"WHERE direction = 'out' AND source != 'settlement' "
+        f"WHERE direction = 'out' AND is_transfer = 0 AND source != 'settlement' "
         f"AND category IN ({placeholders}) "
         f"ORDER BY txn_date DESC, id DESC LIMIT 1", SHOPPING_CATEGORIES).fetchone()
     if trip is None:
