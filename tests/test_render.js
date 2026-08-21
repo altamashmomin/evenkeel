@@ -715,6 +715,42 @@ check("staleShoppingHTML is empty without a today (derivation is clock-free)", (
 });
 
 // ---- money tie-in ("What your staples cost") — step 5's named future ----
+check("tripDueHTML lists due-this-week stocked staples with store and price, skipping snoozed", () => {
+  const out = R.tripDueHTML({ due_soon: [
+    { item_id: 1, name: "Coffee", store: "Costco", predicted_date: "2026-08-24", typical: { cents: 1200, display: "$12.00" } },
+    { item_id: 2, name: "Milk", store: null, predicted_date: "2026-09-30", typical: null },
+    { item_id: 3, name: "Eggs", store: null, predicted_date: "2026-08-22", snoozed_until: "2026-09-01", typical: { cents: 500, display: "$5.00" } },
+  ] }, "2026-08-21");
+  assert.equal(out.count, 1, "only the in-horizon, unsnoozed row");
+  assert.equal(out.total_cents, 1200, "priced from typical");
+  assert.ok(out.html.includes("due in 3 days") && out.html.includes("🏬 Costco") && out.html.includes("~$12.00"), "row facts");
+  assert.ok(out.html.includes('data-mark-low="1"'), "Add to list = mark low");
+  assert.equal(R.tripDueHTML({ due_soon: [] }, "2026-08-21").html, "", "empty");
+});
+check("tripClosureHTML offers one confirm per trip carrying the item ids", () => {
+  const html = R.tripClosureHTML([{ purchase: { date: "2026-08-19", description: "COSTCO WHSE", amount: { cents: 14200, display: "$142.00" } },
+    items: [{ item_id: 4, name: "Coffee", status: "out" }, { item_id: 5, name: "Milk", status: "low" }], item_ids: [4, 5] }]);
+  assert.ok(html.includes("COSTCO WHSE") && html.includes("$142.00"), "trip evidence");
+  assert.ok(html.includes('data-restock-all="4,5"'), "batch ids");
+  assert.ok(html.includes("Yes, restocked all 2"), "count in the confirm");
+});
+check("inventoryHTML: a closure group hides its items from per-item hints and the generic nudge", () => {
+  const html = R.inventoryHTML({
+    items: [], shopping: [{ id: 4, name: "Coffee", kind: "staple", status: "out" }], low_count: 1,
+    restock_suggestions: [
+      { item_id: 4, name: "Coffee", status: "out", matched_by: "name", purchase: { date: "2026-08-19", description: "COSTCO WHSE" } },
+      { item_id: 5, name: "Milk", status: "low", matched_by: "name", purchase: { date: "2026-08-19", description: "COSTCO WHSE" } },
+      { item_id: 9, name: "Rice", status: "out", matched_by: "name", purchase: { date: "2026-08-20", description: "RICE BARN" } },
+    ],
+    trip_closure: [{ purchase: { date: "2026-08-19", description: "COSTCO WHSE" },
+      items: [{ item_id: 4, name: "Coffee", status: "out" }, { item_id: 5, name: "Milk", status: "low" }], item_ids: [4, 5] }],
+    last_shopping_trip: { date: "2026-08-20", merchant: "Costco", category: "Groceries" },
+  }, "2026-08-21");
+  assert.ok(html.includes('data-restock-all="4,5"'), "closure card present");
+  assert.ok(!html.includes('data-restock-confirm="4"') && !html.includes('data-restock-confirm="5"'), "covered items leave the per-item card");
+  assert.ok(html.includes('data-restock-confirm="9"'), "uncovered lone hint stays");
+  assert.ok(!html.includes("You shopped"), "generic nudge yields to the closure card");
+});
 check("listEstimateHTML prices the trip and is honest about coverage", () => {
   const full = R.listEstimateHTML({ lines: [], total: { cents: 8500, display: "$85.00" },
                                     priced_count: 3, unpriced_count: 0 });

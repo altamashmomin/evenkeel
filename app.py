@@ -29,7 +29,7 @@ from derivations import (anomaly_flags, bill_variance, budget_status,
                          new_staple_suggestions,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
-                         spending_summary, stale_shopping_items, staple_spend, list_estimate,
+                         spending_summary, stale_shopping_items, staple_spend, list_estimate, trip_plan, trip_closure,
                          top_merchants, unmatched_staples)
 from schema_runtime import connect_existing, require_current_schema
 
@@ -831,6 +831,18 @@ def inventory_view():
                            if cents is not None else None)
     cents = estimate.pop("total_cents")
     estimate["total"] = {"cents": cents, "display": money_display(cents)}
+    plan = trip_plan(db)
+    plan["list"] = estimate["lines"]            # already converted above
+    cents = plan.pop("list_total_cents")
+    plan["list_total"] = {"cents": cents, "display": money_display(cents)}
+    for d in plan["due_soon"]:
+        cents = d.pop("typical_cents")
+        d["typical"] = ({"cents": cents, "display": money_display(cents)}
+                        if cents is not None else None)
+    closure = trip_closure(db)
+    for g in closure:
+        cents = g["purchase"].pop("amount_cents")
+        g["purchase"]["amount"] = {"cents": cents, "display": money_display(cents)}
     return jsonify({
         "items": [item_to_json(r) for r in staples],
         "shopping": [item_to_json(r) for r in shopping_list(db)],
@@ -843,6 +855,8 @@ def inventory_view():
         "staple_spend": spend,
         "last_shopping_trip": last_shopping_trip(db),
         "list_estimate": estimate,
+        "trip_plan": plan,
+        "trip_closure": closure,
     })
 
 

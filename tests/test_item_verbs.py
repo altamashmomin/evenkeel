@@ -754,6 +754,54 @@ class ItemVerbTests(unittest.TestCase):
         coffee = next(l for l in est["lines"] if l["name"] == "Coffee")
         self.assertEqual((1200, 1), (coffee["typical_cents"], coffee["purchases_seen"]))
 
+    # ---- inc 5: trip_plan + trip_closure ------------------------------------
+    def test_trip_plan_composes_list_with_due_stocked_staples(self):
+        on_list = self.add(name="Milk", status="out")
+        coming = self.add(name="Moon dust")             # stocked, manual cadence
+        actions.set_item_store(self.db, "ui:avery", coming["id"], "Costco")
+        actions.set_item_interval(self.db, "ui:avery", coming["id"], 10)
+        for day, amt in (("2026-05-01", 900), ("2026-06-01", 1100)):
+            self._outflow("MOON DUST CO", day, amt)
+        plan = derivations.trip_plan(self.db)
+        self.assertIn(on_list["id"], [l["item_id"] for l in plan["list"]])
+        due = {d["name"]: d for d in plan["due_soon"]}
+        self.assertIn("Moon dust", due)
+        self.assertNotIn("Milk", due)                     # listed items aren't "also"
+        d = due["Moon dust"]
+        self.assertEqual(("Costco", "manual", 1000),
+                         (d["store"], d["interval_source"], d["typical_cents"]))
+        self.assertEqual(coming["last_stocked_at"][:10] and
+                         (date.fromisoformat(coming["last_stocked_at"][:10])
+                          + timedelta(days=10)).isoformat(), d["predicted_date"])
+        self.assertEqual(plan["list_total_cents"],
+                         derivations.list_estimate(self.db)["total_cents"])
+
+    def test_trip_closure_groups_two_plus_hints_by_purchase(self):
+        a = self.add(name="Coffee", status="out")
+        b = self.add(name="Milk", status="low")
+        self.add(name="Eggs", status="low")            # no matching purchase
+        lone = self.add(name="Rice", status="out")
+        today = date.today().isoformat()
+        # one supermarket visit whose description names two staples
+        self._outflow("FRESH MART COFFEE MILK", today, 4200)
+        self._outflow("RICE BARN", today, 800)          # a lone hint
+        groups = derivations.trip_closure(self.db)
+        self.assertEqual(1, len(groups))
+        g = groups[0]
+        self.assertEqual({a["id"], b["id"]}, set(g["item_ids"]))
+        self.assertEqual(("FRESH MART COFFEE MILK", 4200),
+                         (g["purchase"]["description"], g["purchase"]["amount_cents"]))
+        # the lone hint is still a per-item suggestion, not a trip
+        self.assertIn(lone["id"],
+                      [s["item_id"] for s in derivations.restock_suggestions(self.db)])
+
+    def test_trip_closure_ignores_inflows(self):
+        self.add(name="Coffee", status="out")
+        self.add(name="Milk", status="low")
+        self._purchase("REFUND COFFEE MILK", date.today().isoformat(),
+                       direction="in", income_type="refund")
+        self.assertEqual([], derivations.trip_closure(self.db))
+
     # ---- last_shopping_trip derivation (post-shopping review nudge) ----------
     def test_last_shopping_trip_returns_most_recent_grocery_outflow(self):
         # _purchase inserts a Groceries outflow; dated later than the seed's.

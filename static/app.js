@@ -907,6 +907,16 @@ function wireMain() {
   // shopping list). Same effect as tapping its chip to stocked.
   $$("[data-restock-confirm]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.restockConfirm, "stocked")));
+  // Trip closure: "Yes, restocked all N" → one restock_items batch for the
+  // items that purchase plausibly covered (the same verb as "Got everything").
+  $$("[data-restock-all]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      const ids = el.dataset.restockAll.split(",").map(Number).filter(Boolean);
+      if (!ids.length) return;
+      el.disabled = true;
+      await api("/api/inventory/restock", { method: "POST", body: { item_ids: ids } });
+      render();
+    }));
   // Forecast "Mark low": an overdue stocked staple is probably low now — one tap
   // flips it to low, dropping it into "Need to buy". Same verb as the chip cycle.
   $$("[data-mark-low]").forEach((el) =>
