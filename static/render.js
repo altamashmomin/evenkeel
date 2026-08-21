@@ -55,6 +55,13 @@
   // tag. setType is a real income type ('paycheck', 'gift', …), capitalized
   // for display — all six types are single words that capitalize cleanly.
   // Pure + tested so the one wording lives in exactly one place.
+  // The transfer-rule nudge copy — a transfer isn't income, so it reads
+  // differently from ruleSuggestionText's income wording.
+  function transferRuleText() {
+    return "You've marked two of these as transfers. " +
+           "Auto-mark future transactions that match?";
+  }
+
   function ruleSuggestionText(setType) {
     const label = setType.charAt(0).toUpperCase() + setType.slice(1);
     return `You've tagged two as ${label}. Auto-tag future income that matches?`;
@@ -527,6 +534,52 @@
       <ul class="list">${rows}</ul></div>`;
   }
 
+  /* ===== Goals tab: pace line + per-goal what-if =====
+     Pure helpers over one /api/analytics/goal-pace entry. The server projects
+     at the goal's lifetime-average rate; the what-if is the user's own number,
+     computed client-side and never stored. */
+
+  // Months to cover `remaining_cents` at `monthly_cents` per month — ceiling
+  // division in integer cents. 0 when nothing remains; null when the rate can
+  // never get there (missing, zero, or negative).
+  function goalWhatIf(remaining_cents, monthly_cents) {
+    if (remaining_cents <= 0) return 0;
+    if (!monthly_cents || monthly_cents <= 0) return null;
+    return Math.ceil(remaining_cents / monthly_cents);
+  }
+
+  // 'YYYY-MM' + n months, the same months-since-year-zero integer walk the
+  // backend's _month_window uses, so year boundaries can't drift.
+  function addMonths(ym, n) {
+    const [y, m] = ym.split("-").map(Number);
+    const idx = y * 12 + (m - 1) + n;
+    return `${String(Math.floor(idx / 12)).padStart(4, "0")}-${String((idx % 12) + 1).padStart(2, "0")}`;
+  }
+
+  // The what-if readout. anchorYM is the month to count from — the view
+  // layer's "now" (derivations stay clock-free; today enters here, like the
+  // pantry's forecast framing). "" until a usable amount is typed.
+  function goalWhatIfText(remaining_cents, monthly_cents, anchorYM) {
+    const months = goalWhatIf(remaining_cents, monthly_cents);
+    if (months == null) return "";
+    if (months === 0) return "already funded";
+    return `≈ ${months} mo — around ${monthName(addMonths(anchorYM, months))}`;
+  }
+
+  // The per-goal pace sentence under the progress bar, prose form of the
+  // analytics card's status chips.
+  function goalPaceLineHTML(p) {
+    if (!p) return "";
+    if (p.status === "complete")
+      return `<p class="goal-pace">funded 🎉</p>`;
+    if (p.status === "no_pace" || !p.monthly_rate || !p.projected_date)
+      return `<p class="goal-pace">no pace yet — log contributions to project a finish</p>`;
+    const when = monthName(p.projected_date.slice(0, 7));
+    const chip = p.status === "behind" ? " — behind target"
+               : p.status === "on_track" ? " — on track" : "";
+    return `<p class="goal-pace">at ~${amt(p.monthly_rate)}/mo, done around ${when}${chip}</p>`;
+  }
+
   // The Ask tab's chat thread. Pure function of the client-held messages
   // ([{role:'user'|'assistant', content}]) plus a pending flag. Content is
   // escaped and rendered as plain text (newlines preserved by CSS white-space);
@@ -568,6 +621,61 @@
     const [y, m, d] = (iso || "").split("-").map(Number);
     if (!y) return iso || "";
     return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  // Settle-up breakdown: why the balance is the number it is, told from the
+  // viewer's side (meId). Pure function of the /api/settle/breakdown payload
+  // plus who's looking. The server already reconciled the signed lines to the
+  // balance to the cent; this only presents them. `owed.cents` per line is
+  // signed (+ = the SECOND member owes the first), and `owed_to_first/second`
+  // are the two directional subtotals — remapped here into "owed to you" vs
+  // "you owe" so each user reads their own perspective.
+  function settleBreakdownHTML(bd, meId) {
+    const members = bd.members || [];
+    const lines = bd.lines || [];
+    const other = members.find((m) => m.id !== meId) || members[1] || { name: "them" };
+    if (bd.state !== "owing") {
+      return `<p class="settle-net">Nothing outstanding — you're square.</p>`;
+    }
+    // Headline is authoritative (from compute_balance via ower/owed/amount),
+    // so it always matches the settle-up figure even when a carryover exists.
+    const iAmOwer = bd.ower && bd.ower.id === meId;
+    const netLine = iAmOwer
+      ? `<b class="neg">You owe ${esc(other.name)} ${bd.amount.display}</b>`
+      : `<b class="pos">${esc(other.name)} owes you ${bd.amount.display}</b>`;
+    // Open-line subtotals, mapped to the viewer's side.
+    const first = members[0];
+    const meIsFirst = first && meId === first.id;
+    const owedToMe = meIsFirst ? bd.owed_to_first.cents : bd.owed_to_second.cents;
+    const iOwe = meIsFirst ? bd.owed_to_second.cents : bd.owed_to_first.cents;
+    const rows = lines.map((ln) => {
+      const mine = ln.paid_by && ln.paid_by.id === meId;   // I paid => they owe me
+      const amt = Math.abs((ln.owed && ln.owed.cents) || 0) / 100;
+      const tag = mine
+        ? `<span class="amt amount pos">+${fmt(amt)}</span>`
+        : `<span class="amt amount neg">−${fmt(amt)}</span>`;
+      return `<li>
+        <div class="grow"><div class="title">${esc(ln.description)}</div>
+          <div class="sub">${esc(shortDate((ln.date || "").slice(0, 10)))} · ${esc(ln.paid_by ? ln.paid_by.name : "?")} paid ${esc(ln.amount.display)} · your ${ln.share_pct}%</div></div>
+        ${tag}</li>`;
+    }).join("");
+    // The carryover line only appears when history the settle-links don't
+    // cover exists — it keeps the itemization honest instead of over-counting.
+    const carry = (bd.carryover && bd.carryover.cents) || 0;
+    const carryRow = carry === 0 ? "" : `<li class="settle-carry">
+        <div class="grow"><div class="title">Earlier balance</div>
+          <div class="sub">from before your last recorded settle-up</div></div>
+        <span class="amt amount">${bd.carryover.display}</span></li>`;
+    const ledger = lines.length || carry
+      ? `<details class="settle-ledger">
+           <summary>See the ${lines.length} expense${lines.length === 1 ? "" : "s"} behind this</summary>
+           <ul class="list">${rows}${carryRow}</ul>
+         </details>`
+      : "";
+    return `
+      <p class="settle-net">${netLine}</p>
+      <p class="settle-sub">${esc(other.name)} covered ${fmt(owedToMe / 100)} of your share · you covered ${fmt(iOwe / 100)} of theirs</p>
+      ${ledger}`;
   }
 
   // Whole days between two ISO dates (b − a), calendar-based (parsed at local
@@ -1031,8 +1139,161 @@
     return `<p class="sheet-title">All tabs</p><div class="more-grid">${tiles}</div>`;
   }
 
-  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
-           moreSheetHTML,
+  // The recategorize bottom sheet: the transactions behind one "Spent by
+  // category" row, as a checklist you can move into another category. Pure
+  // function of (category, month label, the filtered spending txns) — the
+  // move itself is app.js looping the edit-transaction verb over the checked
+  // ids, so nothing here writes. Reclassifying only relabels: amounts,
+  // splits, and the balance are untouched, which the copy states plainly.
+  // The category input shares the app's #category-list datalist (existing
+  // names) and accepts a brand-new one; a new name simply appears in the
+  // breakdown once spend lands in it.
+  function recatSheetHTML(category, monthLabel, txns) {
+    const rows = (txns || []).map((t) => `
+      <label class="recat-row">
+        <input type="checkbox" class="recat-check" data-recat-id="${t.id}" checked>
+        <span class="ic">${catEmoji(t.category)}</span>
+        <span class="grow">
+          <span class="title">${esc(t.description)}</span>
+          <span class="sub">${esc(shortDate((t.date || "").slice(0, 10)))}</span>
+        </span>
+        <span class="amt amount">${fmt(t.amount)}</span>
+      </label>`).join("");
+    const body = txns && txns.length
+      ? `<label class="recat-all">
+           <input type="checkbox" id="recat-select-all" checked>
+           <span>Select all ${txns.length}</span>
+         </label>
+         <div class="recat-list">${rows}</div>
+         <label class="lbl">Move selected to</label>
+         <input id="recat-category" list="category-list" autocomplete="off"
+                placeholder="New or existing category…"
+                aria-label="Move selected transactions to this category">
+         <div class="dlg-actions">
+           <button class="btn ghost" type="button" id="recat-cancel">Cancel</button>
+           <span class="spacer"></span>
+           <button class="btn primary" type="button" id="recat-move" disabled>Move</button>
+         </div>
+         <p class="recat-note">Reclassifying only relabels — amounts, splits, and who owes whom don't change.</p>`
+      : `<p class="empty">No spending tagged “${esc(category)}” in ${esc(monthLabel)}.</p>
+         <div class="dlg-actions"><span class="spacer"></span>
+           <button class="btn ghost" type="button" id="recat-cancel">Close</button></div>`;
+    return `<p class="sheet-title">Recategorize · ${esc(category)} · ${esc(monthLabel)}</p>${body}`;
+  }
+
+  // ---- state-injected row renderers ----
+  // These two were the last presentation fns stuck in app.js because they read
+  // household state — which member paid, their palette color. Extracted here
+  // per the CLAUDE.md testability note by DEPENDENCY-INJECTING `users` rather
+  // than reaching for a global: pass the members array in and they're pure
+  // again (same (row, users) in, same string out), so test_render.js covers
+  // them headless. app.js keeps a thin wrapper that supplies state.users.
+  function userById(users, id) {
+    return (users || []).find((u) => u.id === id) || { display_name: "?" };
+  }
+  function userColor(users, id) {
+    // First member gets palette slot 1, everyone else slot 2 — the same
+    // 2-swatch palette the avatars use, reused for the payer dot. Not a
+    // member-count assumption: identical to the deployed behavior.
+    const idx = (users || []).findIndex((u) => u.id === id);
+    return idx === 0 ? "var(--p1)" : "var(--p2)";
+  }
+
+  // The Garden hero: the who-owes-who number as the emotional centerpiece.
+  function beamHTML(bal) {
+    const msg = bal.settled
+      ? `<p class="bh-who">All settled up</p>
+         <p class="bh-sub">No one owes anything on shared expenses</p>`
+      : `<p class="bh-who">${esc(bal.owes.name)} owes ${esc(bal.owed.name)}
+           <b>${fmt(bal.amount)}</b></p>
+         <p class="bh-sub">across all shared expenses</p>`;
+    const settleBtn = bal.settled
+      ? ""
+      : `<button class="bh-settle" id="btn-settle" type="button">Settle up</button>`;
+    return `
+      <div class="balance-hero">
+        <p class="bh-eyebrow">Between you two</p>
+        ${msg}
+        ${settleBtn}
+      </div>`;
+  }
+
+  // One activity/recent row. `users` is injected (the household members) so the
+  // payer name + color stay data-driven without a global.
+  function txnRow(t, users) {
+    const payer = userById(users, t.paid_by);
+    // A transfer between the household's own accounts is neither income nor
+    // spend — render it neutrally (a grey chip, no +/− coloring) so it reads as
+    // "money moved, not earned or spent." Tapping still opens its dialog.
+    if (t.is_transfer) {
+      const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
+      const sign = t.direction === "in" ? "+" : "−";
+      return `
+      <li class="tap" data-txn="${t.id}">
+        <span class="ic">🔁</span>
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(users, t.paid_by)}"></span>${esc(payer.display_name)}
+            · transfer${src} <span class="badge">transfer</span>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount transfer-amt">${sign}${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+    }
+    // direction is absent on the dashboard's "recent" rows (they come from
+    // the frozen txn_to_json), so treat missing as an outflow — those keep
+    // their existing spend styling untouched.
+    if (t.direction === "in") {
+      const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
+      const chip = t.income_type === "unclassified"
+        ? `<span class="badge untagged">tag</span>`
+        : `<span class="badge income">${esc(t.income_type)}</span>`;
+      return `
+      <li class="tap" data-txn="${t.id}">
+        <span class="ic in">💵</span>
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(users, t.paid_by)}"></span>${esc(payer.display_name)}
+            · money in${src} ${chip}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount income-in">+${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+    }
+    const shared = t.is_shared
+      ? t.payer_share_pct === 50 ? "shared 50/50" : `shared · payer ${t.payer_share_pct}%`
+      : "personal";
+    const src = t.source === "manual" ? "" :
+      ` · <span class="badge">${esc(t.source)}</span>`;
+    return `
+      <li class="tap" data-txn="${t.id}">
+        <span class="ic">${catEmoji(t.category)}</span>
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(users, t.paid_by)}"></span>${esc(payer.display_name)}
+            · ${esc(t.category)} · ${shared}${src}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount">${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+  }
+
+  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
+           userById, userColor, beamHTML, txnRow,
+           catEmoji, itemIcon,
+           moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,
@@ -1041,5 +1302,6 @@
            budgetStatusHTML,
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
+           goalWhatIf, addMonths, goalWhatIfText, goalPaceLineHTML,
            askThreadHTML, agentsHTML, opsPanelHTML };
 });

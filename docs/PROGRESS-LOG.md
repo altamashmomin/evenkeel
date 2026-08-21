@@ -2160,6 +2160,10 @@ the suite + zero-diff gate. Two superseded copies exist only in the local
 against a ~115-commit-stale base); its untracked
 `docs/FORECAST-INTEGRATION-BRIEF.md` carries real pay/fixed-cost figures —
 never push or commit that file as-is.
+*(Correction at the Aug 20 branch sync: the main-lineage records below
+supersede this entry's "stays parked, unmerged" — the port HAD merged (PR #10)
+and deployed (Aug 19), then was removed as a product call (PR #18). The
+sensitive-clone warning above still stands.)*
 
 ## Aug 20, 2026 — Pantry v2 amendment (design only)
 
@@ -2188,3 +2192,439 @@ never push or commit that file as-is.
   inherits the v12/v13 posture too: `is_transfer` rows are excluded alongside
   inflows and settlements (the merchant/pantry transfer-consistency rule).
 - Docs-only — no code, no schema, **no gate**.
+
+*(The entries below arrived via the `claude/*` PR lineage and were merged into
+this log at the Aug 20 branch sync — they overlap the dates above.)*
+
+**Forecast lab (scenario planning, port increment 1) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** First Ledger increment
+from the "Sorting Finances" handoff (Alta & Charlee's standalone scenario
+dashboards, per the Aug-12 Cowork brief): the Cash-Flow-Forecaster's what-if
+mechanics become an Analytics-tab card. Rebuilt in-repo from the brief's spec —
+the Cowork session's "already landed" tree was uncommitted and never left its
+container, so nothing could be salvaged; this is a fresh build against the same
+design.
+- **`derivations.forecast_baselines(db, months_back=6, anchor=None)`** — the
+  lab's measured facts ONLY: per-category average monthly NET spend (through
+  `spending_summary`, so refund-netted exactly like every other surface) plus
+  average monthly paycheck income (through `income_summary`), over the trailing
+  window ending at `anchor` (defaults to the latest data month — clock-free,
+  like the trend derivations). Averages `round_ratio` over the FULL window
+  length (an empty month drags the run rate down — honest); categories whose
+  window total isn't positive are omitted (a refund-dominated category has no
+  run rate to put a lever on). EXEMPT in the derivation tripwire — counts
+  paycheck income by construction, same bounded refund exemption as
+  `category_trend` — with its income-sensitivity contract proven in
+  `test_forecast_baselines` instead.
+- **`GET /api/forecast/baselines`** — anchor validated / months_back clamped
+  like the trend endpoints; `{cents, display}` at the JSON edge. Pure read, and
+  deliberately the ONLY server half: no scenario is ever posted or stored
+  (invariant 4) — the what-ifs live and die client-side.
+- **Frontend: the Forecast-lab card** at the bottom of Analytics: 0–200%
+  per-category sliders over the baselines, an income override input (blank =
+  baseline average), a 6/12/24-month horizon, and a hand-rolled SVG cumulative
+  kept/lost line (zero axis always in frame; deficit dives below it). All math
+  is pure in `render.js` — `forecastScenario` (integer cents client-side too),
+  `forecastLine` (geometry), `forecastChartSVG`, `forecastLabHTML` — node
+  seam-tested (15 new checks incl. an attribute-breakout XSS probe on category
+  names). `app.js` keeps the levers in `state.forecast` and patches the card's
+  numbers in place on input (`refreshForecastLab`) — a full re-render mid-drag
+  would refetch the tab and break the drag; Reset is the one full re-render.
+  Honest copy on the card: "nothing here is saved, and it's not a prediction."
+- Suite **550 python + 111 render** green. **Balance gate PASS — zero diff**
+  (42 values), run in the cloud against a synthetic dev.db (seed 42 + income
+  fixture; old = `origin/main` a6adc03, new = working tree) since no real
+  finance.db exists off-Pi — **re-run the gate against a real `dev.db` copy on
+  the Pi before deploy**, per the loop. NOT DEPLOYED.
+
+**Goals tab: pace line + per-goal what-if (port increment 2) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** The handoff brief's
+"how long to reach a goal" card, mapped onto what already exists: the deployed
+`goal_pace` derivation + `/api/analytics/goal-pace` (Tier B #16, live since
+Aug 5) already carry saved/target/remaining, the lifetime-average monthly rate,
+and a projected finish — so this increment is FRONTEND-ONLY, no new backend.
+(The brief sketched a trailing-3-month rate; the deployed lifetime-average
+semantics win, per the "deployed spelling wins" rule.)
+- **Each Goals-tab card gains a pace sentence** under its progress bar —
+  "at ~$X/mo, done around <Month Year> — on track/behind target", "funded 🎉",
+  or "no pace yet — log contributions to project a finish" — from
+  `goalPaceLineHTML`, the prose form of the analytics card's status chips.
+  `renderGoals` now fetches `/api/analytics/goal-pace` alongside `/api/goals`
+  (one derivation, every surface) and matches entries by goal_id.
+- **A per-goal what-if input**: type a $/mo and the readout recomputes in place
+  ("≈ N mo — around <Month Year>"), patched without a re-render so typing keeps
+  focus. Pure helpers in render.js, node seam-tested: `goalWhatIf`
+  (ceiling division in integer cents; 0 = funded, null = unreachable),
+  `addMonths` (the backend's months-since-year-zero walk, so year boundaries
+  can't drift), `goalWhatIfText`. The typed rate is never stored; "now" enters
+  at the view layer (`thisMonthISO`), derivations stay clock-free. The
+  standalone card's optional APY input was skipped per the brief (fights the
+  card layout).
+- Suite **550 python + 115 render** green. Frontend-only — no schema, verb,
+  derivation, or money path — **no balance gate**, per precedent. NOT DEPLOYED.
+
+**Savings target + "Suggest cuts" optimizer in the Forecast lab (port
+increment 3, the last planned one) — DONE on
+`claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** The standalone
+Savings-optimizer's mechanics, riding the lab: the sliders ARE the levers, so
+this is FRONTEND-ONLY — no new backend, no new endpoint.
+- **A savings-target input** in the lab card (state.forecast.target, "" = none):
+  typing patches a status line — "on pace — $X/mo clears the $Y target" /
+  "short by $Z/mo" — and a goal-bar-styled progress bar (net/target, clamped
+  to [0,100]% so a deficit shows empty, not negative). `forecastTargetHTML`,
+  pure and seam-tested.
+- **"Suggest cuts"**: `forecastOptimize(baselines, scenario, targetCents)` —
+  greedy client-side walk over categories by baseline descending, lowering each
+  lever to 75%, then a second pass to 50%, until the scenario's net clears the
+  target. Only ever LOWERS (a hand-set 30% stays 30%), stops the moment the
+  target is met, and gives up honestly (`achieved: false`, everything at the
+  floor) when even 50% across the board can't reach it. The result becomes the
+  REAL slider state — values patched into the DOM — so every suggested cut is
+  visible and individually undoable; that's the honesty mechanism the brief
+  asked for ("what-ifs over baselines, not commands"). Reset keeps the target
+  (it's the user's goal; the levers are the levers).
+- Seam tests cover the greedy math (hits target & stops early, on-target no-op,
+  never raises a lever, honest give-up with exact floor net, income-override
+  interplay) plus the status-line forms and bar clamping. Suite **550 python +
+  123 render** green. Frontend-only — **no balance gate**. NOT DEPLOYED.
+
+**Port scope note (from the Aug-12 handoff brief, recorded so nobody re-opens
+them):** NOT ported, deliberately — the standalone fixed-cost ledger
+(bills + member attribution already are this; porting would duplicate nouns),
+the named pay-scenario buttons (the lab's income override covers the mechanics;
+personal pay figures stay out of the repo — a named-presets frontend add can
+come later if Alta asks), "Elephant in the room" (Alta removed it from the
+standalone; anomaly surfacing exists as Tier B #15), and the compare-any-two
+panel (existing analytics cards cover it; revisit only on request). Data facts
+worth keeping: Charlee's BofA account only receives ~half her $3,296.32
+biweekly pay Jan–Jun (if that account ever syncs in, income figures change
+materially); Alta's confirmed fixed amounts live in the brief for seeding
+bills if asked.
+
+**Recategorize from the Home "Spent" section — DONE on
+`claude/recategorize-from-spent-4lt781` (Aug 19, 2026).** Alta wanted to create
+categories directly from the Home page's "Spent in <month>" breakdown, tied to
+where the values come from. Since categories in Ledger are emergent transaction
+tags (no `categories` table — `/api/categories` merges 16 defaults with
+`SELECT DISTINCT category FROM transactions`), "create a category" = retag the
+transactions behind a spent row. Chosen approach (confirmed with Alta):
+reclassify, frontend + the existing edit-transaction verb, NO schema change.
+- **Read: `/api/activity` gains an optional exact `category` filter** (echoed in
+  the response as `category`, null when absent; matched verbatim so "" means no
+  filter). Extends the endpoint that already owns "a month's spending
+  transactions" rather than adding a new one; `/api/activity` is explicitly not
+  byte-frozen (only `/api/transactions` is), so parity is safe.
+- **Write: reuses `edit_transaction`** — each checked transaction gets one
+  partial `{category}` edit through the deployed `PUT /api/transactions/<id>`,
+  one audit row each. A category-only edit relabels only: splits carry forward
+  to the same values, so the balance and the month's spend total are unchanged
+  — proven in `test_transaction_verbs.test_recategorize_leaves_balance_and_
+  month_total_unchanged` (only the per-category distribution shifts).
+- **Frontend**: the Home "Spent" rows become keyboard-reachable buttons
+  (`data-spent-cat`, a `›` affordance) that open a recategorize bottom sheet
+  (`dlg-recat`) — the category's spending txns this month as a checklist with a
+  **select-all**, a category input sharing the app's `#category-list` datalist
+  (existing names or a brand-new one), and a Move button enabled only when
+  something's checked and a different target is typed. Moving loops the edits
+  and re-renders; a new name simply appears in the breakdown once spend lands.
+  Pure `recatSheetHTML` builder in render.js, node seam-tested (incl. an
+  attribute-breakout XSS probe on the category name); honest copy on the sheet
+  ("Reclassifying only relabels — amounts, splits, and who owes whom don't
+  change").
+- CORE-DESIGN check: no schema change, the one write path (`edit_transaction`)
+  stays the only writer, nothing derived stored, no member-count assumption;
+  categories stay emergent tags. Suite **554 python + 127 render** green;
+  **balance gate PASS — zero diff** (42 values, synthetic dev.db — re-gate on
+  the Pi before deploy). NOT DEPLOYED.
+
+**DEPLOYED to the Pi — `origin/main` @ `0824348` (Aug 19, 2026), gate PASS
+zero-diff.** Alta ran `deploy/deploy.sh origin/main` on the Raspberry Pi; the
+live balance gate against the real `finance.db` passed zero-diff. This one
+deploy brought the deployed tree from `a6adc03` up to `0824348`, taking live
+everything that had been merged-but-not-deployed:
+- the **scenario-planning port** (PR #10, `8074ffa`) — the Forecast lab
+  (`forecast_baselines` + `/api/forecast/baselines` + the Analytics card),
+  the Goals-tab pace line + per-goal what-if, and the savings target +
+  "Suggest cuts" optimizer;
+- **recategorize from the Home "Spent" section** (PR #16, `0824348`) — the
+  optional `category` filter on `/api/activity` + the recategorize bottom
+  sheet that retags a category's transactions via `edit_transaction`.
+No migrations in either (schema stays **v11**); the zero-diff live gate
+confirms the deploy changed no money figure. `origin/main` == the deployed
+tree again. All the "NOT DEPLOYED" markers in the entries above are now
+closed.
+
+**Removed the Forecast lab — DONE on `claude/remove-forecast-lab-4lt781`
+(Aug 20, 2026).** Product call by Alta: the Analytics-tab Forecast lab (the
+scenario port's increment 1 + 3 — 0–200% category sliders, income override,
+6/12/24-mo horizon, savings target, "Suggest cuts") wasn't earning its place.
+It was a non-persistent what-if toy whose grounded cousins already exist and do
+the honest version: **Budgets** (persistent category limits checked against
+actual spend), the **Cash-flow forecast** card (month-end floor from real
+bills), and the **Savings-rate trend**. Deleted, cleanly and reversibly (it's
+in git history + the standalone "Sorting Finances" dashboards still exist).
+- Removed: `derivations.forecast_baselines`, `GET /api/forecast/baselines` (+
+  its app.py import), the tripwire EXEMPT entry, `tests/test_forecast_baselines.py`
+  + `tests/test_forecast_route.py`; and the whole frontend surface — the
+  render.js helpers (`forecastScenario`/`forecastLine`/`forecastChartSVG`/
+  `forecastTargetHTML`/`forecastOptimize`/`forecastLabHTML`) + their exports and
+  seam tests, the app.js state/fetch/stash/wiring (`state.forecast`,
+  `forecastScenarioState`, `refreshForecastLab`, the wireMain handlers), and the
+  `.fc-*` CSS block.
+- **Explicitly KEPT** (different features, unrelated to the lab): the Goals-tab
+  pace line + per-goal what-if (scenario port increment 2, genuinely useful),
+  the recategorize-from-Spent flow, the Cash-flow forecast card + its MCP tool,
+  and the pantry `restock_forecast`. Verified none reference the lab.
+- Suite **540 python + 106 render** green (−14 backend tests / −21 render checks,
+  exactly the lab's own); **balance gate PASS zero-diff** (42 values); browser
+  smoke of the Analytics tab confirms the lab card is gone, the cash-flow card
+  remains, and nothing calls `/forecast/baselines`. No schema, no money-write
+  path touched. NOT DEPLOYED.
+
+**DEPLOYED to the Pi — `origin/main` @ `cd878ad` (Aug 20, 2026), gate PASS
+zero-diff.** Alta ran `deploy/deploy.sh origin/main` on the Raspberry Pi; the
+live balance gate against the real `finance.db` passed zero-diff. This deploy
+took the tree from `0824348` to `cd878ad` — the **Forecast-lab removal**
+(PR #18) plus the intervening docs-only commit (`3356c26`, the previous deploy
+record, no code). Frontend + read-surface only, no migrations (schema stays
+**v11**); the zero-diff live gate confirms no money figure moved. The Analytics
+tab no longer shows the Forecast lab; everything else (Budgets, Cash-flow
+forecast, Savings-rate trend, Goals what-if, recategorize) is unchanged.
+`origin/main` == the deployed tree again; nothing merged-but-undeployed remains.
+
+**Settle-up breakdown — DONE on `claude/settle-breakdown-4lt781` (Aug 20, 2026).**
+Alta asked for a way for either member to see *why* the settle-up amount is what
+it is. New read-only surface that explains `compute_balance` line by line.
+- **`derivations.settle_breakdown(db, as_of=None)`** — takes the authoritative
+  number straight from `compute_balance` (never recomputes it, so /api/balance
+  and the breakdown can't disagree), then itemizes the UNSETTLED shared
+  expenses behind it: shared outflows one member fronted a share of, not yet
+  closed by a settlement (no incoming 'settles' link), excluding settlement
+  rows. Each is a signed line (+ ⇒ second owes first) using compute_balance's
+  exact `round_ratio`. Plus directional subtotals (owed_to_first/second).
+- **The reconciliation guard — `carryover_cents`.** A pure "since last
+  settlement via links" filter can't be *guaranteed* to reconcile on arbitrary
+  history: legacy settlements from before the links table (and the synthetic
+  seed's directly-inserted settlements) affect `compute_balance` but link no
+  rows, so the itemization would over-count. `carryover = signed_balance −
+  Σ(open lines)` absorbs exactly that residual, so **lines + carryover == the
+  balance, always, to the cent**. On clean data (every settlement via
+  `settle_up`, which links what it closes) carryover is exactly 0 and never
+  shows. **This was caught by a live browser smoke** (balance $115.75 vs a naive
+  itemization's $401.84) *after* the controlled-fixture unit tests passed — the
+  seed's unlinked settlements are the gap; the carryover fix reconciles it
+  (verified live: lines −$401.84 + carryover +$286.09 = −$115.75).
+- **`GET /api/settle/breakdown`** — {cents, display} at the edge, signed per-line
+  `owed`, `carryover`, `login_required`, pure read.
+- **Frontend**: a breakdown block in the settle-up dialog (`dlg-settle`) —
+  authoritative headline ("You owe Blake $115.75" / "Blake owes you …", from the
+  viewer's side via `state.meId`), a both-sides sub-line, and an expandable
+  per-expense ledger; a single "Earlier balance" row appears only when carryover
+  ≠ 0. Best-effort: a failed breakdown fetch never blocks recording the
+  settlement. Pure `settleBreakdownHTML(bd, meId)` in render.js, seam-tested
+  (both viewer perspectives, carryover row, XSS).
+- Tests: `test_settle_breakdown` (10 reconciliation scenarios incl. two-settle
+  cycle, backdated row, odd-cent split, and the legacy-settlement carryover
+  case) + `test_settle_breakdown_route`. Tripwire-safe (splits INNER JOIN, like
+  compute_balance). Suite **554 python + 113 render** green; **balance gate PASS
+  zero-diff** (synthetic dev.db — re-gate on the Pi before deploy). Also
+  browser-smoke-verified (dialog renders, headline matches balance, no console
+  errors). NOT DEPLOYED.
+
+**DEPLOYED to the Pi — `origin/main` @ `9016b30` (Aug 20, 2026), gate PASS
+zero-diff.** Alta ran `deploy/deploy.sh origin/main` on the Raspberry Pi;
+backup `finance.db.bak-2026-08-20-162802`, dry-run + live real-data gate both
+**GATE PASS — zero diff** (balance and every monthly total unchanged, no
+structural changes). Tree `cd878ad`→`9016b30`, shipping the **settle-up
+breakdown** (PR #20) live. `migrate.py apply` reported "nothing to apply —
+database is up to date" (no migration in this increment; schema stays **v11**).
+Service restarted, `/api/status` OK on :8080, local branch healed to `9016b30`.
+`origin/main` == the deployed tree again; nothing merged-but-undeployed remains.
+(The T1/T2 transfer-neutral increments below were built and merged AFTER this
+deploy — they are not yet on the Pi.)
+
+**Transfer-neutral fix, increment T1 — `transactions.is_transfer` + derivation
+exclusion — DONE on `claude/transfer-flag-t1-4lt781` (Aug 20, 2026).** First half
+of the fix for SimpleFIN mis-signs: sync sets `direction` from the amount's SIGN,
+so a credit-card "Payment Thank You" posts positive and lands as income when it's
+really a transfer between the household's own accounts (and its funding leg is
+not spend). Chosen model: a direction-agnostic **`is_transfer` flag** (not
+overloading `income_type`, which is inflow-only — a transfer has an outflow leg
+too), so one predicate `is_transfer = 0` excludes a flagged row from spend,
+income, AND the balance.
+- **Migration `012_transfer_flag.py`** — `ALTER TABLE transactions ADD COLUMN
+  is_transfer INTEGER NOT NULL DEFAULT 0`, guarded-idempotent; `REQUIRED_SCHEMA_
+  VERSION` 11 → 12.
+- **`AND is_transfer = 0`** added to `compute_balance`, `spending_summary` (both
+  legs), `income_summary` (gross, true_income, unclassified-nag count),
+  `member_breakdown`, and `settle_breakdown` (so it still reconciles to
+  compute_balance). Left the merchant/pantry inference derivations (top_merchants,
+  recurring_charges, restock_*, …) untouched on purpose — they're display/inference,
+  not the money invariants the gate checks; can be revisited if a transfer OUTFLOW
+  ever needs hiding from those.
+- **No verb sets the flag yet** — that's T2 (`set_transfer` + "Mark as transfer"
+  UI). So this increment is **gate zero-diff by enumeration**: every row defaults
+  to 0, so every money number is byte-identical. `notes/012-gate-expectation.seed.json`
+  enumerates the sole diff (schema_version 11→12); **GATE PASS** matching it
+  exactly (real-data run on the synthetic dev.db: old=origin/main v11 vs new=T1
+  migrated copy). `txn_to_json` is a curated dict, so the new column can't leak
+  into the byte-frozen /api/transactions shape (parity intact).
+- Tests: `test_transfer_flag` (flag drops a row out of income/spend/balance/
+  member-breakdown/settle-breakdown; column exists NOT NULL DEFAULT 0; non-transfer
+  rows unchanged); `test_migrations` auto-covers v12 + idempotency; tripwire +
+  income-isolation green (the new column doesn't perturb inflow-invariance). Suite
+  **561 python + 113 render** green. NOT DEPLOYED. **T2 next: the `set_transfer`
+  verb + route + neutral-rendering UI.**
+
+**Transfer-neutral fix, increment T2 — `set_transfer` verb + "Mark as transfer"
+UI — DONE on `claude/transfer-flag-t2-4lt781` (Aug 20, 2026).** Second half: the
+mechanism that sets the T1 flag, so a mis-signed row can actually be corrected.
+- **Verb `set_transfer(db, actor, txn_id, is_transfer)`** — validate (row exists;
+  not a settlement), flip the flag, audit before/after. FLAG-ONLY (no split
+  mutation), so fully reversible: unmark and the row returns to spend/income/
+  balance exactly as before. Registered in CORE-DESIGN.md's action table (the
+  `test_all_actions_registered` guard).
+- **`PUT /api/transactions/<id>/transfer`** — thin caller; response extends
+  txn_to_json with direction/income_type/is_transfer (new endpoint, frozen
+  listing shape untouched).
+- **`/api/activity`** now carries `is_transfer` per row and EXCLUDES transfers
+  from the `spending`/`income` filters (they're neither — they stay visible under
+  `all`, rendered neutrally).
+- **Frontend**: `txnRow` renders a transfer neutrally (🔁, grey amount, a
+  "transfer" chip — no green +/spend styling). The classify dialog drops the weak
+  "Transfer" income-type button (a transfer isn't income) and gains a "Mark as
+  transfer" toggle; the edit dialog gains the same toggle for outflow legs.
+  `setTransfer()` PUTs the route and re-renders. Legacy `income_type='transfer'`
+  rows still display.
+- Tests: `test_set_transfer` (verb: mark/unmark reversible, settlement rejected,
+  audit, flag-only leaves splits; route: marks + drops out of the income filter,
+  stays under `all`, 404/401). `test_activity_route` updated for the new field.
+  Suite **571 python + 113 render** green.
+- **Balance gate PASS — zero diff** (no schema change; old=origin/main v12 vs
+  new=T2, same derivations, nothing flagged by the gate). **Browser-smoke
+  verified end-to-end**: marking the real "Payment Thank You - Web" case dropped
+  gross income $270.36 → $0 and flipped the row to neutral, no console errors.
+  NOT DEPLOYED. That completes the transfer-neutral fix (T1 + T2); T3
+  (auto-tag-by-rule / account-type-aware sync) remains OPTIONAL/deferred.
+
+**DEPLOYED to the Pi — `origin/main` @ `d04fa62` (Aug 20, 2026), gate PASS
+(enumerated schema 11→12). SCHEMA NOW v12 LIVE.** Alta ran
+`deploy/deploy.sh origin/main` on the Raspberry Pi; the live real-data gate
+passed with the SINGLE enumerated diff `schema_version 11→12`
+(`notes/012-gate-expectation.seed.json`) — balance and every monthly total
+byte-identical. This deploy took the tree from `9016b30` to `d04fa62`, shipping
+the **transfer-neutral fix (T1 + T2)** live: migration `012_transfer_flag`
+applied to the live DB (**schema 11 → 12**), the `is_transfer` derivation
+exclusion, the `set_transfer` verb + `PUT /api/transactions/<id>/transfer`, and
+the "Mark as transfer" UI (`d04fa62` also carries the docs-only PR #21 record).
+So a mis-signed "Payment Thank You" can now be marked a transfer on the live
+app — dropping out of income, spend, and the balance. `origin/main` == the
+deployed tree again; nothing merged-but-undeployed remains. First live schema
+bump since the v11 baseline; the money invariants (integer cents, one write
+path, migration-owned schema, the balance gate) held through it.
+
+**Transfer-neutral fix, increment T3a — `income_rules.set_transfer` + engine
+plumbing — DONE on `claude/rule-transfer-t3a-4lt781` (Aug 21, 2026).** Auto-tag
+half of T3: a credit-card "Payment Thank You" arrives every statement cycle, so
+it wants a RULE ("always treat this as a transfer") rather than a manual
+Mark-as-transfer each time. Chosen approach (confirmed with Alta): explicit
+`set_transfer` on rules, keeping `is_transfer` the single source of truth
+(Approach A over the lighter income_type coupling).
+- **Migration `013_rule_set_transfer.py`** — `ALTER TABLE income_rules ADD COLUMN
+  set_transfer INTEGER NOT NULL DEFAULT 0`, guarded-idempotent;
+  `REQUIRED_SCHEMA_VERSION` 12 → 13.
+- **Engine honors the flag**: `record_transaction` (sync inflow pass) sets
+  `is_transfer=1` when the matched rule carries `set_transfer`; `_matching_pass`
+  carries it into the match dict and `_write_matches` applies it, so `apply_rules`
+  flags the unclassified backlog retroactively (dry-run previews it too).
+- **No verb sets the flag yet** — `create_income_rule` gaining `set_transfer` and
+  the "make this a rule?" nudge after Mark-as-transfer are T3b. So this is **gate
+  zero-money-diff by enumeration**: every rule defaults to 0, so sync/apply_rules
+  behave byte-identically. `notes/013-gate-expectation.seed.json` enumerates the
+  sole diff (schema_version 12→13); **GATE PASS** matching it exactly (old=main
+  v12 vs new=T3a migrated v13 copy).
+- Tests: `test_rule_transfer` (a set_transfer rule flags a synced inflow and the
+  apply_rules backlog; ordinary rules don't; dry-run previews without writing;
+  column NOT NULL DEFAULT 0). `test_income_rules` updated for the match dict's
+  new `set_transfer` key. Suite **576 python + 113 render** green. NOT DEPLOYED.
+  **T3b next: create_income_rule accepts the flag + the nudge UI.**
+
+**Transfer-neutral fix, increment T3b — `create_income_rule` accepts
+`set_transfer` + the "make this a rule?" nudge after Mark-as-transfer — DONE on
+`claude/rule-transfer-t3b-4lt781` (Aug 21, 2026).** The mechanism that lets a
+transfer rule be CREATED, completing T3 (the engine plumbing that honors such a
+rule was T3a).
+- **`create_income_rule` / `_validate_income_rule` accept `set_transfer`** —
+  when set, `set_type` defaults to `'transfer'` (a transfer's income_type is
+  irrelevant since it's excluded from income), so a transfer rule is just
+  `{match_desc, set_transfer:1}`. `rule_to_json` carries the flag.
+- **`suggest_transfer_rule_after_mark(db, row)`** — the transfer analog of the
+  classify nudge: offers a pre-filled transfer rule when marking brings the
+  transfer-inflow count to exactly two (wait-for-a-repeat, per the settled
+  auto-rule aggressiveness call), suppressed when an enabled rule already covers
+  the row. The `set_transfer` route returns it as `rule_suggestion`; `setTransfer`
+  chains the rule dialog on top of the re-render, exactly like classify does.
+- **Frontend**: the rule dialog carries `set_transfer` through to the POST and
+  shows transfer-specific copy (`transferRuleText` in render.js — "you've marked
+  two of these as transfers", not income wording). Creating the rule sweeps the
+  unclassified backlog via `apply_rules` (T3a) and self-flags every future sync.
+- Tests: `test_rule_transfer` gains create-verb + suggest coverage (defaults
+  set_type; flags future sync; offers only at the 2nd; suppressed by a covering
+  rule; ignores outflows/non-transfers). `test_income_rules_routes` +
+  `test_render` updated for the new field/helper. Suite **582 python + 114
+  render** green.
+- **Balance gate PASS — zero diff** (no schema change — the column came in T3a;
+  old=main v13 vs new=T3b, same derivations). **Browser-smoke verified
+  end-to-end**: marking two "Payment Thank You" rows fired the nudge on the 2nd
+  (transfer copy), and submitting created a `set_transfer` rule matching
+  "Payment Thank You"; no console errors. NOT DEPLOYED. **That completes the
+  transfer-neutral fix (T1–T3): mark once, then a rule auto-tags the rest.**
+
+**DEPLOYED to the Pi — `origin/main` @ `4dc262a` (Aug 21, 2026), gate PASS
+(enumerated schema 12→13). SCHEMA NOW v13 LIVE.** Alta ran
+`deploy/deploy.sh origin/main` on the Raspberry Pi; the live real-data gate
+passed with the SINGLE enumerated diff `schema_version 12→13`
+(`notes/013-gate-expectation.seed.json`) — balance and every monthly total
+byte-identical. This deploy took the tree from `d04fa62` to `4dc262a`, shipping
+**transfer auto-tag (T3a + T3b)** live: migration `013_rule_set_transfer` applied
+to the live DB (**schema 12 → 13**), the engine that flags matches of a transfer
+rule (record_transaction + apply_rules), `create_income_rule` accepting
+`set_transfer`, and the "make this a rule?" nudge after Mark-as-transfer. So the
+transfer-neutral fix is now COMPLETE and LIVE end to end (T1–T3): mark a
+mis-signed "Payment Thank You" once, accept the offered rule on the second, and
+every future sync self-flags it (backlog swept via apply_rules). `origin/main` ==
+the deployed tree again; nothing merged-but-undeployed remains. Second live
+schema bump (v11→v12→v13); the money invariants held through both.
+
+**Transfer consistency for the merchant/pantry views — DONE on
+`claude/transfer-merchant-consistency-4lt781` (Aug 21, 2026).** Closes the scope
+boundary T1 deliberately left: the money core (`compute_balance`,
+`spending_summary`, `income_summary`, `member_breakdown`, `settle_breakdown`)
+excluded `is_transfer=1`, but the merchant/pantry inference views still saw
+transfer OUTFLOWS — so a marked "Chase card payment" could show under "top
+merchants" or (worse) be detected as a recurring subscription.
+- **`AND is_transfer = 0` added to every remaining outflow-reading derivation**:
+  `top_merchants`, `recurring_charges`, `new_staple_suggestions`,
+  `last_shopping_trip`, and the pantry purchase-match layer — both
+  `_purchase_index` and `_matching_purchases`' non-index path (kept byte-identical,
+  so restock_suggestions/restock_forecast/unmatched_staples/stale_shopping_items/
+  staple_spend all inherit the exclusion consistently). Now a flagged transfer
+  drops out of EVERY spend/merchant/pantry surface, not just the totals.
+- Pure read-derivation change: no schema, no verb, no money path moved. Tripwire
+  still green (these stay inflow-insensitive — the added filter doesn't change
+  that). Tests: `test_transfer_flag` gains merchant/pantry exclusion cases (a
+  transfer isn't a top merchant, a recurring charge, or a staple purchase). Suite
+  **585 python + 114 render** green; **balance gate PASS zero-diff** (no row
+  flagged in the gate db, and these views aren't gate-checked anyway). NOT
+  DEPLOYED.
+
+**DEPLOYED to the Pi — `origin/main` @ `e4a728f` (Aug 21, 2026), gate PASS
+zero-diff.** Alta ran `deploy/deploy.sh origin/main` on the Raspberry Pi; the
+live real-data gate passed **zero-diff** (balance and every monthly total
+byte-identical, no structural change). Tree `4dc262a`→`e4a728f`, shipping the
+**transfer merchant/pantry consistency** (PR #28) live — a marked transfer now
+also drops out of top_merchants, recurring_charges, and the pantry inference
+views, not just the money totals. No migration (schema stays **v13**). That
+closes the transfer effort end to end and live: mis-signed row → flag → verb +
+UI → auto-tag rule → consistent exclusion across every spend/merchant surface.
+`origin/main` == the deployed tree; nothing merged-but-undeployed remains.

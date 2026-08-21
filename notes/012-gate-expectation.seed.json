@@ -1,0 +1,6 @@
+{
+  "note": "Migration #012 (transactions.is_transfer -- transfer-neutral fix, increment T1). Adds ONE NOT NULL DEFAULT 0 column to the existing transactions table: no new table and no new rows, so the only row-count change is the schema_version record itself. Every existing row defaults to is_transfer=0, and the money derivations gain 'AND is_transfer = 0', so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list. The verb that sets the flag (set_transfer) and the 'Mark as transfer' UI are increment T2.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 11, "new": 12}
+  ]
+}

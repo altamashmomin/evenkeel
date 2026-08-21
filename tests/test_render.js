@@ -73,6 +73,13 @@ check("nudgeText agrees with count", () => {
   assert.strictEqual(R.nudgeText(3), "3 inflows still need tagging");
 });
 
+// ---- transferRuleText: transfer nudge copy (not income wording) ----
+check("transferRuleText reads as transfers, not income", () => {
+  const t = R.transferRuleText();
+  assert.ok(/transfer/i.test(t));
+  assert.ok(!/income/i.test(t), "transfer nudge should not say income");
+});
+
 // ---- ruleSuggestionText: type capitalized, one wording ----
 check("ruleSuggestionText capitalizes the type", () => {
   assert.strictEqual(
@@ -896,6 +903,250 @@ check("app.js: every bare call resolves — no call to a name that exists nowher
   assert.deepStrictEqual(unresolved, [],
     `app.js calls name(s) that resolve to nothing (typo, deleted/renamed helper, `
     + `or a missing window.Render import): ${unresolved.join(", ")}`);
+});
+
+// ---- Recategorize sheet (Home "Spent" drill-in) ----
+const RECAT_TXNS = [
+  { id: 7, date: "2026-08-03", amount: 42.5, description: "ShopRite", category: "Groceries" },
+  { id: 9, date: "2026-08-12", amount: 8.25, description: "Corner deli", category: "Groceries" },
+];
+check("recatSheetHTML lists each txn with a checked box carrying its id", () => {
+  const html = R.recatSheetHTML("Groceries", "August 2026", RECAT_TXNS);
+  assert.ok(html.includes('data-recat-id="7"'));
+  assert.ok(html.includes('data-recat-id="9"'));
+  const boxes = html.match(/class="recat-check"[^>]*checked/g) || [];
+  assert.strictEqual(boxes.length, 2, "both rows start checked");
+  assert.ok(html.includes("ShopRite") && html.includes("Corner deli"));
+  assert.ok(html.includes("$42.50"), "amount formatted as money");
+});
+check("recatSheetHTML has select-all, a category input, and a disabled Move", () => {
+  const html = R.recatSheetHTML("Groceries", "August 2026", RECAT_TXNS);
+  assert.ok(html.includes('id="recat-select-all"'));
+  assert.ok(/Select all 2/.test(html));
+  assert.ok(html.includes('list="category-list"'), "shares the app datalist");
+  assert.ok(/id="recat-move"[^>]*disabled/.test(html), "Move starts disabled");
+  assert.ok(/only relabels/.test(html), "honest copy present");
+});
+check("recatSheetHTML empty state has no checklist or Move", () => {
+  const html = R.recatSheetHTML("Travel", "August 2026", []);
+  assert.ok(/No spending tagged/.test(html));
+  assert.ok(!/recat-check/.test(html));
+  assert.ok(!/id="recat-move"/.test(html));
+});
+check("recatSheetHTML neutralizes a hostile category (title + empty copy)", () => {
+  // The breakout signature is a BARE quote closing an attribute followed by a
+  // handler; esc turns it into inert &quot;, so it must never survive.
+  const evil = 'Groceries" onmouseover=alert(1) x="';
+  assert.ok(!/"\s+onmouseover=/.test(R.recatSheetHTML(evil, "August 2026", RECAT_TXNS)),
+    "hostile category broke out in the populated sheet");
+  assert.ok(!/"\s+onmouseover=/.test(R.recatSheetHTML(evil, "August 2026", [])),
+    "hostile category broke out in the empty sheet");
+});
+
+// ---- Settle-up breakdown (why the amount is what it is) ----
+// Server payload: members [first, second]; owed_to_first = what second owes
+// first; per-line owed.cents signed (+ = second owes first).
+const SB = {
+  state: "owing",
+  members: [{ id: 1, name: "Avery" }, { id: 2, name: "Blake" }],
+  // Net = 6000 - 2000 = 4000 => Blake owes Avery $40 (authoritative headline).
+  amount: { cents: 4000, display: "$40.00" },
+  ower: { id: 2, name: "Blake" },
+  owed: { id: 1, name: "Avery" },
+  carryover: { cents: 0, display: "$0.00" },
+  owed_to_first: { cents: 6000, display: "$60.00" },   // Blake owes Avery
+  owed_to_second: { cents: 2000, display: "$20.00" },  // Avery owes Blake
+  lines: [
+    { transaction_id: 10, date: "2026-08-14", description: "Costco",
+      amount: { cents: 12000, display: "$120.00" },
+      paid_by: { id: 1, name: "Avery" }, share_pct: 50,
+      owed: { cents: 6000, display: "$60.00" } },
+    { transaction_id: 11, date: "2026-08-11", description: "Dinner",
+      amount: { cents: 4000, display: "$40.00" },
+      paid_by: { id: 2, name: "Blake" }, share_pct: 50,
+      owed: { cents: -2000, display: "-$20.00" } },
+  ],
+};
+check("settleBreakdownHTML nets to the same figure from each viewer's side", () => {
+  // Net = 6000 - 2000 = 4000 => Blake owes Avery $40.
+  const avery = R.settleBreakdownHTML(SB, 1);
+  assert.ok(/Blake owes you \$40\.00/.test(avery), "Avery's view: they owe you");
+  const blake = R.settleBreakdownHTML(SB, 2);
+  assert.ok(/You owe Avery \$40\.00/.test(blake), "Blake's view: you owe them");
+});
+check("settleBreakdownHTML lists every contributing expense in the ledger", () => {
+  const html = R.settleBreakdownHTML(SB, 1);
+  assert.ok(/See the 2 expenses behind this/.test(html));
+  assert.ok(html.includes("Costco") && html.includes("Dinner"));
+  // Avery paid Costco => it's money owed TO Avery (pos); Blake paid Dinner => Avery owes (neg).
+  assert.ok(/Costco[\s\S]*?amount pos/.test(html), "Costco is owed-to-you for Avery");
+});
+check("settleBreakdownHTML flips per-line sign for the other viewer", () => {
+  const html = R.settleBreakdownHTML(SB, 2);   // Blake's side
+  // Blake paid Dinner => owed to Blake (pos); Avery paid Costco => Blake owes (neg).
+  assert.ok(/Dinner[\s\S]*?amount pos/.test(html));
+  assert.ok(/Costco[\s\S]*?amount neg/.test(html));
+});
+check("settleBreakdownHTML settled state says square", () => {
+  assert.ok(/square/.test(R.settleBreakdownHTML(
+    { state: "settled", members: SB.members, lines: [], amount: { cents: 0, display: "$0.00" },
+      ower: null, owed: null, carryover: { cents: 0, display: "$0.00" },
+      owed_to_first: { cents: 0 }, owed_to_second: { cents: 0 } }, 1)));
+});
+check("settleBreakdownHTML headline is authoritative amount, not recomputed", () => {
+  // Even if the open-line subtotals were incomplete, the headline uses
+  // amount/ower straight from the payload, so it can't disagree with settle-up.
+  const html = R.settleBreakdownHTML(SB, 1);   // Avery's view; Blake is ower
+  assert.ok(/Blake owes you \$40\.00/.test(html));
+});
+check("settleBreakdownHTML shows a carryover row only when non-zero", () => {
+  assert.ok(!/Earlier balance/.test(R.settleBreakdownHTML(SB, 1)), "clean data: no carry line");
+  const withCarry = { ...SB, carryover: { cents: -3000, display: "-$30.00" } };
+  const html = R.settleBreakdownHTML(withCarry, 1);
+  assert.ok(/Earlier balance/.test(html), "carryover surfaced");
+  assert.ok(html.includes("-$30.00"));
+});
+check("settleBreakdownHTML escapes a hostile description", () => {
+  const evil = { ...SB, lines: [{ ...SB.lines[0],
+    description: 'Costco<img src=x onerror=alert(1)>' }] };
+  const html = R.settleBreakdownHTML(evil, 1);
+  assert.ok(!/<img/.test(html), "hostile description was not escaped");
+});
+
+// ---- Goals tab: pace line + per-goal what-if ----
+check("goalWhatIf is ceiling division; 0 when funded; null when unreachable", () => {
+  assert.strictEqual(R.goalWhatIf(100000, 25000), 4);
+  assert.strictEqual(R.goalWhatIf(100001, 25000), 5);   // partial month rounds UP
+  assert.strictEqual(R.goalWhatIf(0, 25000), 0);
+  assert.strictEqual(R.goalWhatIf(-50, 25000), 0);      // overfunded is funded
+  assert.strictEqual(R.goalWhatIf(100000, 0), null);
+  assert.strictEqual(R.goalWhatIf(100000, -100), null);
+  assert.strictEqual(R.goalWhatIf(100000, null), null);
+});
+check("addMonths crosses year boundaries like the backend's month window", () => {
+  assert.strictEqual(R.addMonths("2026-08", 4), "2026-12");
+  assert.strictEqual(R.addMonths("2026-08", 5), "2027-01");
+  assert.strictEqual(R.addMonths("2026-12", 25), "2029-01");
+  assert.strictEqual(R.addMonths("2026-01", 0), "2026-01");
+});
+check("goalWhatIfText: readout forms", () => {
+  assert.strictEqual(R.goalWhatIfText(100000, 25000, "2026-08"),
+    "≈ 4 mo — around December 2026");
+  assert.strictEqual(R.goalWhatIfText(0, 25000, "2026-08"), "already funded");
+  assert.strictEqual(R.goalWhatIfText(100000, null, "2026-08"), "");
+  assert.strictEqual(R.goalWhatIfText(100000, 0, "2026-08"), "");
+});
+check("goalPaceLineHTML: complete / no_pace / projected forms", () => {
+  assert.ok(/funded/.test(R.goalPaceLineHTML({ status: "complete" })));
+  assert.ok(/no pace yet/.test(R.goalPaceLineHTML({ status: "no_pace",
+    monthly_rate: null, projected_date: null })));
+  const line = R.goalPaceLineHTML({ status: "on_track",
+    monthly_rate: { cents: 25000, display: "$250.00" },
+    projected_date: "2027-05-14" });
+  assert.ok(line.includes("at ~$250.00/mo"), "rate in the sentence");
+  assert.ok(line.includes("May 2027"), "projected month in the sentence");
+  assert.ok(line.includes("on track"));
+  assert.ok(/behind target/.test(R.goalPaceLineHTML({ status: "behind",
+    monthly_rate: { cents: 100 }, projected_date: "2027-01-02" })));
+  assert.strictEqual(R.goalPaceLineHTML(null), "", "no pace entry, no line");
+});
+
+// ---- userById / userColor: the dependency-injected household lookups ----
+// (extracted from app.js with txnRow; app.js now passes state.users in.)
+check("userById finds the member, falls back to '?'", () => {
+  const users = [{ id: 1, display_name: "Alta" }, { id: 2, display_name: "Charlee" }];
+  assert.strictEqual(R.userById(users, 2).display_name, "Charlee");
+  assert.strictEqual(R.userById(users, 999).display_name, "?", "unknown id -> placeholder");
+  assert.strictEqual(R.userById([], 1).display_name, "?");
+  assert.strictEqual(R.userById(undefined, 1).display_name, "?", "missing users survives");
+});
+check("userColor: first member slot 1, everyone else slot 2", () => {
+  const users = [{ id: 7, display_name: "A" }, { id: 9, display_name: "B" }];
+  assert.strictEqual(R.userColor(users, 7), "var(--p1)");
+  assert.strictEqual(R.userColor(users, 9), "var(--p2)");
+  assert.strictEqual(R.userColor(users, 999), "var(--p2)", "unknown id -> slot 2");
+});
+
+// ---- beamHTML: the Garden hero (who-owes-who) ----
+check("beamHTML settled: no name, no settle button", () => {
+  const h = R.beamHTML({ settled: true });
+  assert.ok(h.includes("All settled up"));
+  assert.ok(!h.includes("btn-settle"), "settled state shows no Settle button");
+});
+check("beamHTML unsettled: names + amount + settle button", () => {
+  const h = R.beamHTML({ settled: false, owes: { name: "Alta" },
+    owed: { name: "Charlee" }, amount: 353.51 });
+  assert.ok(h.includes("Alta owes"));
+  assert.ok(h.includes("Charlee"));
+  assert.ok(h.includes("$353.51"));
+  assert.ok(h.includes('id="btn-settle"'), "unsettled shows the Settle button");
+});
+check("beamHTML escapes member names (no attribute/markup breakout)", () => {
+  const h = R.beamHTML({ settled: false, owes: { name: 'A<img src=x>' },
+    owed: { name: 'B"&' }, amount: 1 });
+  assert.ok(!h.includes("<img"), "hostile name is escaped, not injected");
+  assert.ok(h.includes("&lt;img"));
+  assert.ok(h.includes("&amp;"));
+});
+
+// ---- txnRow: transfer / income-in / spend branches, users injected ----
+const RUSERS = [{ id: 1, display_name: "Alta" }, { id: 2, display_name: "Charlee" }];
+check("txnRow transfer: neutral 🔁, transfer badge, signed but no in/out color class", () => {
+  const inb = R.txnRow({ id: 10, paid_by: 1, is_transfer: 1, direction: "in",
+    source: "simplefin", description: "Payment Thank You", date: "2026-08-05", amount: 270.36 }, RUSERS);
+  assert.ok(inb.includes("🔁"), "transfer glyph");
+  assert.ok(inb.includes("transfer-amt"), "neutral amount class");
+  assert.ok(inb.includes(">transfer<") || inb.includes("transfer"), "transfer label");
+  assert.ok(inb.includes("+$270.36"), "inbound transfer keeps + sign");
+  assert.ok(!inb.includes("income-in"), "a transfer is not colored as income");
+  assert.ok(inb.includes('data-txn="10"'), "still tappable");
+  assert.ok(inb.includes("Alta"), "injected payer name");
+  const out = R.txnRow({ id: 11, paid_by: 2, is_transfer: 1, direction: "out",
+    source: "manual", description: "CHASE EPAY", date: "2026-07-15", amount: 500 }, RUSERS);
+  assert.ok(out.includes("−$500.00"), "outbound transfer shows minus");
+  assert.ok(out.includes("var(--p2)"), "second member's color for Charlee");
+});
+check("txnRow income-in: 💵, +amount, income class, tag chip when unclassified", () => {
+  const tagged = R.txnRow({ id: 12, paid_by: 1, direction: "in", income_type: "paycheck",
+    source: "simplefin", description: "ACME", date: "2026-08-01", amount: 3200 }, RUSERS);
+  assert.ok(tagged.includes("💵"));
+  assert.ok(tagged.includes("income-in"));
+  assert.ok(tagged.includes("+$3,200.00"));
+  assert.ok(tagged.includes("badge income"), "classified inflow shows its type chip");
+  const untagged = R.txnRow({ id: 13, paid_by: 2, direction: "in", income_type: "unclassified",
+    source: "manual", description: "Venmo", date: "2026-08-02", amount: 40 }, RUSERS);
+  assert.ok(untagged.includes("badge untagged"), "unclassified inflow nags with a tag chip");
+});
+check("txnRow spend: category emoji, shared/personal sub, plain amount", () => {
+  const shared = R.txnRow({ id: 14, paid_by: 1, direction: "out", is_shared: 1,
+    payer_share_pct: 50, category: "Groceries", source: "simplefin",
+    description: "Whole Foods", date: "2026-08-03", amount: 88.2 }, RUSERS);
+  assert.ok(shared.includes("shared 50/50"));
+  assert.ok(shared.includes("$88.20"));
+  assert.ok(!shared.includes("income-in") && !shared.includes("transfer-amt"), "plain spend styling");
+  const pct = R.txnRow({ id: 15, paid_by: 2, direction: "out", is_shared: 1,
+    payer_share_pct: 70, category: "Rent", source: "manual", description: "Rent",
+    date: "2026-08-01", amount: 1800 }, RUSERS);
+  assert.ok(pct.includes("payer 70%"), "non-50 split spells the payer share");
+  const personal = R.txnRow({ id: 16, paid_by: 1, direction: "out", is_shared: 0,
+    category: "Coffee", source: "manual", description: "Cafe", date: "2026-08-04", amount: 5 }, RUSERS);
+  assert.ok(personal.includes("personal"));
+});
+check("txnRow missing direction (frozen dashboard shape) renders as spend, not income", () => {
+  // dashboard 'recent' rows come from txn_to_json with no direction — must not
+  // fall into the income branch.
+  const r = R.txnRow({ id: 17, paid_by: 999, category: "Misc", source: "manual",
+    description: "No direction", date: "2026-08-06", amount: 9.99 }, RUSERS);
+  assert.ok(!r.includes("income-in"), "no-direction row is not income-colored");
+  assert.ok(r.includes("?"), "unknown payer falls back to '?'");
+});
+check("txnRow escapes hostile description/category (no breakout)", () => {
+  const r = R.txnRow({ id: 18, paid_by: 1, direction: "out", is_shared: 0,
+    category: 'C"<b>', source: "manual", description: 'D<img src=x onerror=alert(1)>',
+    date: "2026-08-07", amount: 1 }, RUSERS);
+  assert.ok(!r.includes("<img"), "description injection neutralized");
+  assert.ok(!r.includes("<b>"), "category injection neutralized");
+  assert.ok(r.includes("&lt;img"));
 });
 
 console.log(`render tests passed (${passed} checks)`);

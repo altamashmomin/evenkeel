@@ -308,6 +308,12 @@ def record_transaction(db, actor, data, source, external_id=None, direction="out
                 cols["income_type"] = matched_rule["set_type"]
                 if matched_rule["set_paid_by"] is not None:
                     cols["paid_by"] = matched_rule["set_paid_by"]
+                # A transfer rule (set_transfer=1, migration #013) marks the
+                # match a transfer — it drops out of income/spend/balance. 0 on
+                # every ordinary rule, so this is inert until a transfer rule
+                # is created (T3b).
+                if matched_rule["set_transfer"]:
+                    cols["is_transfer"] = 1
             else:
                 cols["income_type"] = "unclassified"
         else:
@@ -832,6 +838,46 @@ def classify_inflow(db, actor, txn_id, income_type):
     return row
 
 
+def set_transfer(db, actor, txn_id, is_transfer):
+    """Mark a transaction as a transfer between the household's own accounts —
+    or unmark it (transfer-neutral fix, increment T2).
+
+    A transfer is NEITHER income NOR spend and is not part of who-owes-whom, so
+    every money derivation excludes is_transfer=1 (added in T1). This is how a
+    mis-signed row gets corrected: a credit-card 'Payment Thank You' posts as a
+    POSITIVE amount, so sync files it as direction='in' and it reads as income —
+    marking it a transfer takes it out of income; marking its funding leg (the
+    checking-side debit) takes that out of spend.
+
+    validate — the row exists (NotFound); it is NOT a settlement (a settlement
+    IS the balance-zeroing mechanism, never a transfer). `is_transfer` is
+    coerced to 0/1.
+    edit — one transaction: the flag column + the audit row (before/after).
+    Deliberately FLAG-ONLY — it does NOT touch split rows, so the action is
+    fully reversible: unmark and the row returns to spend/income/balance
+    exactly as before (the derivations simply stop ignoring it). A transfer
+    keeping stale split rows is harmless because every money derivation filters
+    is_transfer=1 out (T1).
+    side effects — none.
+    Returns the updated row."""
+    flag = 1 if is_transfer else 0
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        if existing["source"] == "settlement":
+            raise ActionError("a settlement cannot be marked a transfer")
+        db.execute(
+            "UPDATE transactions SET is_transfer = ? WHERE id = ?", (flag, txn_id))
+        row = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        _write_audit(
+            db, actor, "set_transfer", f"transaction:{txn_id}",
+            {"before": existing["is_transfer"], "after": flag})
+    return row
+
+
 RULE_TYPES = INCOME_TYPES - {"unclassified"}
 # A rule assigns a real type; "leave it unclassified" isn't something a
 # rule needs to say — that's simply the state a non-match leaves a row in.
@@ -879,7 +925,13 @@ def _validate_income_rule(db, data):
     already has the exact same match criteria (the registry's submission
     criterion — a duplicate would make one of them permanently dead weight).
     """
-    set_type = data.get("set_type")
+    # A transfer rule (set_transfer=1) marks its matches as transfers
+    # (is_transfer=1, migration #013). Since a transfer is neither income nor
+    # spend, its income_type is irrelevant — so set_type defaults to 'transfer'
+    # for a transfer rule, letting the caller create one with just a match
+    # criterion + set_transfer. set_type still must be a real type either way.
+    set_transfer = 1 if data.get("set_transfer") else 0
+    set_type = data.get("set_type") or ("transfer" if set_transfer else None)
     if set_type not in RULE_TYPES:
         raise ActionError(
             "set_type must be one of: " + ", ".join(sorted(RULE_TYPES)))
@@ -917,7 +969,7 @@ def _validate_income_rule(db, data):
     return {"priority": priority, "match_desc": match_desc,
             "match_account": match_account, "min_cents": min_cents,
             "max_cents": max_cents, "set_type": set_type,
-            "set_paid_by": set_paid_by}
+            "set_paid_by": set_paid_by, "set_transfer": set_transfer}
 
 
 def create_income_rule(db, actor, data):
@@ -935,10 +987,11 @@ def create_income_rule(db, actor, data):
         cur = db.execute(
             """INSERT INTO income_rules
                (priority, match_desc, match_account, min_cents, max_cents,
-                set_type, set_paid_by, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                set_type, set_paid_by, set_transfer, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (f["priority"], f["match_desc"], f["match_account"], f["min_cents"],
-             f["max_cents"], f["set_type"], f["set_paid_by"], _now()))
+             f["max_cents"], f["set_type"], f["set_paid_by"], f["set_transfer"],
+             _now()))
         rule = db.execute(
             "SELECT * FROM income_rules WHERE id = ?", (cur.lastrowid,)).fetchone()
         _write_audit(db, actor, "create_income_rule", f"rule:{rule['id']}",
@@ -1022,6 +1075,32 @@ def suggest_rule_after_classify(db, row):
             "set_type": income_type}
 
 
+def suggest_transfer_rule_after_mark(db, row):
+    """The "always treat this as a transfer?" nudge, the transfer-flag analog of
+    suggest_rule_after_classify (T3b). Read-only: returns a pre-filled transfer-
+    rule suggestion for the UI, or None when no offer should be made.
+
+    Offer once, when marking brings the count of transfer INFLOWS to exactly two
+    — the same wait-for-a-repeat aggressiveness the classify nudge uses (a
+    recurring "Payment Thank You" earns a rule; a one-off transfer doesn't nag).
+    Only inflows: rules run on the money-in path, so an outflow transfer can't
+    be ruled. Suppressed when an enabled rule already matches the row (a rule
+    covers it; a second would be dead weight and create_income_rule would reject
+    the duplicate anyway). match_desc is pre-filled from the description for the
+    user to trim to the recurring part; the suggestion carries set_transfer=1."""
+    if row["direction"] != "in" or not row["is_transfer"]:
+        return None
+    count = db.execute(
+        "SELECT COUNT(*) AS n FROM transactions "
+        "WHERE direction = 'in' AND is_transfer = 1").fetchone()["n"]
+    if count != 2:
+        return None
+    if _first_matching_rule(db, row) is not None:
+        return None
+    return {"match_desc": (row["description"] or "").strip(),
+            "set_type": "transfer", "set_transfer": True}
+
+
 def _matching_pass(db, rules=None):
     """Read-only: each rule (priority ascending, ties by id) tried in order
     against every unclassified inflow; first match wins. Defaults to all
@@ -1040,7 +1119,8 @@ def _matching_pass(db, rules=None):
         if rule is not None:
             matches.append({
                 "transaction_id": row["id"], "rule_id": rule["id"],
-                "set_type": rule["set_type"], "set_paid_by": rule["set_paid_by"]})
+                "set_type": rule["set_type"], "set_paid_by": rule["set_paid_by"],
+                "set_transfer": rule["set_transfer"]})
     return matches
 
 
@@ -1052,14 +1132,20 @@ def _write_matches(db, actor, matches, action="apply_rules"):
     record_transaction's dedupe uses. Assumes an OPEN transaction (the
     caller owns the boundary): it writes, it does not begin or commit."""
     for match in matches:
+        # A transfer rule (set_transfer=1) also flags the match is_transfer=1;
+        # 0 on ordinary rules leaves it untouched. Column defaults to 0 in the
+        # match dict's absence (pre-T3b rules), so this is a no-op until a
+        # transfer rule exists.
+        xfer = 1 if match.get("set_transfer") else 0
         if match["set_paid_by"] is not None:
             db.execute(
-                "UPDATE transactions SET income_type = ?, paid_by = ? WHERE id = ?",
-                (match["set_type"], match["set_paid_by"], match["transaction_id"]))
+                "UPDATE transactions SET income_type = ?, paid_by = ?, "
+                "is_transfer = ? WHERE id = ?",
+                (match["set_type"], match["set_paid_by"], xfer, match["transaction_id"]))
         else:
             db.execute(
-                "UPDATE transactions SET income_type = ? WHERE id = ?",
-                (match["set_type"], match["transaction_id"]))
+                "UPDATE transactions SET income_type = ?, is_transfer = ? WHERE id = ?",
+                (match["set_type"], xfer, match["transaction_id"]))
         db.execute(
             "UPDATE income_rules SET hit_count = hit_count + 1 WHERE id = ?",
             (match["rule_id"],))

@@ -28,12 +28,18 @@ class ActivityRouteTests(unittest.TestCase):
         conn = sqlite3.connect(self.db_path)
         conn.execute("DELETE FROM splits")
         conn.execute("DELETE FROM transactions")
-        # M: one outflow, one paycheck inflow, one unclassified inflow.
+        # M: two outflows (different categories), one paycheck inflow, one
+        # unclassified inflow.
         conn.execute(
             """INSERT INTO transactions (txn_date, amount_cents, description,
                    category, paid_by, is_shared, source, direction)
                VALUES (?, 5000, 'Groceries', 'Groceries', 1, 0, 'manual', 'out')""",
             (f"{M}-10",))
+        conn.execute(
+            """INSERT INTO transactions (txn_date, amount_cents, description,
+                   category, paid_by, is_shared, source, direction)
+               VALUES (?, 3200, 'Dinner out', 'Dining', 1, 0, 'manual', 'out')""",
+            (f"{M}-11",))
         conn.execute(
             """INSERT INTO transactions (txn_date, amount_cents, description,
                    category, paid_by, is_shared, source, direction, income_type)
@@ -82,7 +88,7 @@ class ActivityRouteTests(unittest.TestCase):
         self.assertEqual(M, body["month"])
         self.assertEqual("all", body["filter"])
         dirs = sorted(t["direction"] for t in body["transactions"])
-        self.assertEqual(["in", "in", "out"], dirs)
+        self.assertEqual(["in", "in", "out", "out"], dirs)
 
     def test_spending_filter_returns_only_outflows(self):
         body = self.get(f"?month={M}&filter=spending").get_json()
@@ -99,7 +105,8 @@ class ActivityRouteTests(unittest.TestCase):
         row = next(t for t in body["transactions"] if t["income_type"] == "paycheck")
         self.assertEqual(
             ["amount", "category", "date", "description", "direction", "id",
-             "income_type", "is_shared", "paid_by", "payer_share_pct", "source"],
+             "income_type", "is_shared", "is_transfer", "paid_by",
+             "payer_share_pct", "source"],
             sorted(row))
         self.assertEqual("in", row["direction"])
         self.assertEqual("paycheck", row["income_type"])
@@ -115,6 +122,23 @@ class ActivityRouteTests(unittest.TestCase):
         other = self.get(f"?month={OTHER}").get_json()
         self.assertTrue(all(t["date"].startswith(OTHER) for t in other["transactions"]))
         self.assertEqual(1, len(other["transactions"]))
+
+    def test_category_filter_narrows_to_that_tag(self):
+        # The recategorize drill-in: spending in M tagged exactly 'Groceries'.
+        body = self.get(f"?month={M}&filter=spending&category=Groceries").get_json()
+        self.assertEqual("Groceries", body["category"])
+        self.assertEqual(1, len(body["transactions"]))
+        self.assertEqual("Groceries", body["transactions"][0]["category"])
+
+    def test_category_filter_is_exact_not_substring(self):
+        # 'Din' must not match 'Dining' — the filter matches the whole tag.
+        body = self.get(f"?month={M}&filter=spending&category=Din").get_json()
+        self.assertEqual([], body["transactions"])
+
+    def test_absent_category_filter_returns_all_and_echoes_null(self):
+        body = self.get(f"?month={M}&filter=spending").get_json()
+        self.assertIsNone(body["category"])
+        self.assertEqual(2, len(body["transactions"]))
 
     def test_invalid_filter_is_400(self):
         resp = self.get("?filter=bogus")

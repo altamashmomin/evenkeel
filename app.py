@@ -23,6 +23,7 @@ from actions import (active_members, current_period, payer_share_pct,
 from derivations import (anomaly_flags, bill_variance, budget_status,
                          cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
+                         settle_breakdown,
                          income_summary, last_shopping_trip,
                          income_trend, low_stock, member_breakdown,
                          new_staple_suggestions,
@@ -528,15 +529,26 @@ def activity():
     filt = request.args.get("filter", "all")     # all | spending | income
     if filt not in ("all", "spending", "income"):
         return bad_request("filter must be all, spending, or income")
+    # Optional exact-category filter — the drill-in behind a "Spent by
+    # category" row (the recategorize sheet reads exactly this). Matched
+    # verbatim against the stored tag, so an empty value means "no filter",
+    # not "the empty category".
+    category = request.args.get("category") or None
 
     clauses, params = [], []
     if month:
         clauses.append("substr(txn_date, 1, 7) = ?")
         params.append(month)
     if filt == "spending":
-        clauses.append("direction = 'out'")
+        # Transfers are neither spend nor income, so the filtered views hide
+        # them (they stay visible under 'all'); the 'all' feed shows every real
+        # movement, transfers included but rendered neutrally.
+        clauses.append("direction = 'out' AND is_transfer = 0")
     elif filt == "income":
-        clauses.append("direction = 'in'")
+        clauses.append("direction = 'in' AND is_transfer = 0")
+    if category is not None:
+        clauses.append("category = ?")
+        params.append(category)
     q = "SELECT * FROM transactions"
     if clauses:
         q += " WHERE " + " AND ".join(clauses)
@@ -553,9 +565,11 @@ def activity():
     return jsonify({
         "month": month,
         "filter": filt,
+        "category": category,
         "transactions": [
             {**txn_to_json(db, r, shares),
-             "direction": r["direction"], "income_type": r["income_type"]}
+             "direction": r["direction"], "income_type": r["income_type"],
+             "is_transfer": bool(r["is_transfer"])}
             for r in rows
         ],
         "unclassified_count": unclassified,
@@ -611,6 +625,27 @@ def delete_transaction(txn_id):
     return jsonify({"ok": True})
 
 
+@app.put("/api/transactions/<int:txn_id>/transfer")
+@login_required
+def set_transfer_view(txn_id):
+    """Thin caller: the set_transfer verb marks/unmarks a row as a transfer
+    between the household's own accounts. Response extends the deployed
+    txn_to_json shape with direction/income_type/is_transfer — new fields on a
+    new endpoint, so the byte-frozen listing shape stays untouched."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.set_transfer(db, ui_actor(db), txn_id, data.get("is_transfer"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify({**txn_to_json(db, row),
+                     "direction": row["direction"], "income_type": row["income_type"],
+                     "is_transfer": bool(row["is_transfer"]),
+                     "rule_suggestion": actions.suggest_transfer_rule_after_mark(db, row)})
+
+
 @app.put("/api/transactions/<int:txn_id>/classify")
 @login_required
 def classify_transaction(txn_id):
@@ -644,6 +679,7 @@ def rule_to_json(r):
         "max_cents": r["max_cents"],
         "set_type": r["set_type"],
         "set_paid_by": r["set_paid_by"],
+        "set_transfer": bool(r["set_transfer"]),
         "enabled": bool(r["enabled"]),
         "created_at": r["created_at"],
         "hit_count": r["hit_count"],
@@ -1438,6 +1474,42 @@ def categories():
 @login_required
 def balance():
     return jsonify(compute_balance(get_db()))
+
+
+@app.get("/api/settle/breakdown")
+@login_required
+def settle_breakdown_view():
+    """Line-by-line explanation of the settle-up amount (the 'why is it this
+    number' disclosure), from the `settle_breakdown` derivation. Each line is
+    one unsettled shared expense with its signed owed delta; the signed lines
+    sum to the same figure /api/balance shows, by construction. Money as
+    {cents, display}; `owed` per line is SIGNED (+ = the second member owes the
+    first, matching the balance's sign). Pure read."""
+    db = get_db()
+    bd = settle_breakdown(db)
+    name_of = {m["id"]: m["display_name"] for m in bd["members"]}
+    return jsonify({
+        "state": bd["state"],
+        "amount": money(bd["amount_cents"]),
+        "ower": None if bd["ower"] is None
+                else {"id": bd["ower"]["id"], "name": bd["ower"]["display_name"]},
+        "owed": None if bd["owed"] is None
+                else {"id": bd["owed"]["id"], "name": bd["owed"]["display_name"]},
+        "owed_to_first": money(bd["owed_to_first_cents"]),
+        "owed_to_second": money(bd["owed_to_second_cents"]),
+        "carryover": money(bd["carryover_cents"]),
+        "members": [{"id": m["id"], "name": m["display_name"]} for m in bd["members"]],
+        "lines": [{
+            "transaction_id": ln["transaction_id"],
+            "date": ln["date"],
+            "description": ln["description"],
+            "category": ln["category"],
+            "amount": money(ln["amount_cents"]),
+            "paid_by": {"id": ln["paid_by"], "name": name_of.get(ln["paid_by"], "?")},
+            "share_pct": ln["share_bp"] / 100,
+            "owed": money(ln["owed_cents"]),
+        } for ln in bd["lines"]],
+    })
 
 
 # ---------------------------------------------------------------- bills

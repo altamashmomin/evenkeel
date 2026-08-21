@@ -394,6 +394,18 @@ main {
 .type-btn.on { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); color: var(--ok); }
 .type-btn:active { transform: translateY(1px); }
 
+/* "Mark as transfer" toggle (classify + edit dialogs) and the neutral
+   rendering of a transfer row in the feed. */
+.transfer-toggle {
+  width: 100%; margin-top: 14px; padding: 11px 12px; border-radius: 8px;
+  border: 1px dashed var(--line); background: transparent; color: var(--muted);
+  font-size: 13.5px; cursor: pointer; text-align: center;
+}
+.transfer-toggle:active { transform: translateY(1px); }
+.transfer-toggle.on { border-style: solid; border-color: var(--brass);
+  color: var(--brass-dim); }
+.transfer-amt { color: var(--muted); }
+
 .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 22px 8px; }
 
 /* ---------- balance hero (signature) ---------- */
@@ -448,6 +460,27 @@ main {
    explicit block/full width instead of the cat-row `flex:1`. */
 .budget-bar { display: block; width: 100%; margin-top: 7px; }
 .cat-row .amt { width: 88px; text-align: right; font-size: 13px; }
+/* Home "Spent" rows are actionable buttons (→ recategorize sheet); reset the
+   native button chrome so they read exactly like the analytics div rows, then
+   add the tap affordance. Analytics/budget cat-rows stay plain divs. */
+button.cat-row { width: 100%; text-align: left; background: none; border: none;
+  font: inherit; color: inherit; cursor: pointer; border-radius: 8px; }
+button.cat-row:hover { background: var(--surface-2); }
+button.cat-row:active { transform: translateY(1px); }
+.cat-go { width: 12px; text-align: right; color: var(--muted); font-size: 16px; }
+
+/* Recategorize sheet (Home "Spent" drill-in) */
+.recat-all { display: flex; align-items: center; gap: 10px; margin: 2px 0 10px;
+  font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--muted); }
+.recat-list { max-height: 46vh; overflow-y: auto; margin-bottom: 12px; }
+.recat-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px;
+  border-bottom: 1px solid var(--line); cursor: pointer; }
+.recat-row:last-child { border-bottom: none; }
+.recat-row .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.recat-row .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recat-row .sub { color: var(--muted); font-size: 12px; }
+.recat-check { flex: none; margin: 0; }
+.recat-note { font-size: 12px; color: var(--muted); margin: 12px 0 4px; }
 
 /* ---------- income card (savings ring) ---------- */
 .income { display: flex; align-items: center; gap: 16px; }
@@ -499,6 +532,11 @@ main {
 .goal:last-child { margin-bottom: 0; }
 .goal-pct { font-family: var(--mono); font-weight: 700; font-size: 11px;
   color: var(--muted); margin: 6px 0 0; }
+.goal-pace { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.goal-whatif { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.goal-whatif input { flex: 0 0 128px; padding: 8px 10px; font-size: 14px; }
+.goal-whatif-out { font-size: 13px; color: var(--muted);
+  font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .contrib-log { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }
 
 /* ---------- "More" bottom sheet (all tabs from any page) ---------- */
@@ -554,6 +592,21 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .dlg-actions { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
 .dlg-actions .spacer { flex: 1; }
 .pay-summary { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
+
+/* Settle-up breakdown: why the amount is what it is */
+#settle-breakdown { margin: 10px 0 4px; }
+.settle-net { font-size: 15px; margin: 4px 0; }
+.settle-net .pos { color: var(--ok); }
+.settle-net .neg { color: var(--danger); }
+.settle-sub { font-size: 12.5px; color: var(--muted); margin: 2px 0 8px; }
+.settle-ledger summary { font-size: 13px; color: var(--brass-dim); cursor: pointer;
+  padding: 4px 0; list-style: none; }
+.settle-ledger summary::-webkit-details-marker { display: none; }
+.settle-ledger summary::before { content: "▸ "; }
+.settle-ledger[open] summary::before { content: "▾ "; }
+.settle-ledger .list { margin-top: 6px; max-height: 40vh; overflow-y: auto; }
+.settle-ledger .amount.pos { color: var(--ok); }
+.settle-ledger .amount.neg { color: var(--danger); }
 
 /* ---- analytics: income-vs-spend chart ---- */
 .chart-headline { font-family: var(--mono); font-size: 30px; font-weight: 600;

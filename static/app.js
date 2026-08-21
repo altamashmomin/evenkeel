@@ -6,13 +6,15 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
 // Pure presentation helpers live in render.js (loaded before this file) so
 // they can be unit-tested in plain node; app.js pulls them off the global.
-const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
+const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText, catEmoji,
         vsLastMonth, incomeCardHTML, incomeTrendChartHTML, spendingCompositionHTML,
         memberBreakdownHTML, billVarianceHTML, budgetStatusHTML, savingsRateTrendHTML,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
+        goalWhatIfText, goalPaceLineHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
-        moreSheetHTML } = window.Render;
+        moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
+        beamHTML, txnRow } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -39,13 +41,10 @@ const state = {
   ask: { messages: [], pending: false },   // Ask tab: client-held chat history
 };
 
-function userById(id) {
-  return state.users.find((u) => u.id === id) || { display_name: "?" };
-}
-function userColor(id) {
-  const idx = state.users.findIndex((u) => u.id === id);
-  return idx === 0 ? "var(--p1)" : "var(--p2)";
-}
+// userById / userColor moved into render.js (pure, users injected) alongside
+// txnRow — its only callers. app.js reaches them as window.Render.userById(
+// state.users, id) at the few remaining sites, so nothing here reads them off
+// a global.
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -271,12 +270,66 @@ function openMoreSheet() {
 // Tap the backdrop (outside the sheet body) to dismiss.
 dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.close(); });
 
+// Recategorize sheet: the transactions behind one Home "Spent" row, as a
+// checklist you move into another category. The read is /api/activity's new
+// category filter (spending only, this month); the write reuses the
+// edit-transaction verb per checked id — one audited edit each, splits and
+// balance untouched (a category-only edit relabels, nothing more).
+const dlgRecat = $("#dlg-recat");
+async function openRecatSheet(category) {
+  const month = (window._dash && window._dash.month) || state.month;
+  const data = await api(
+    `/api/activity?filter=spending&month=${encodeURIComponent(month)}` +
+    `&category=${encodeURIComponent(category)}`);
+  $("#recat-body").innerHTML = recatSheetHTML(
+    category, monthName(month), data.transactions);
+  const moveBtn = $("#recat-move");
+  const input = $("#recat-category");
+  const checks = () => $$(".recat-check");
+  // Move is enabled only when at least one row is checked AND a target
+  // category is typed (and it's not the category you're already in).
+  const syncMove = () => {
+    if (!moveBtn) return;
+    const target = (input?.value || "").trim();
+    const anyChecked = checks().some((c) => c.checked);
+    moveBtn.disabled = !(anyChecked && target && target !== category);
+  };
+  $("#recat-select-all")?.addEventListener("change", (e) => {
+    checks().forEach((c) => { c.checked = e.target.checked; });
+    syncMove();
+  });
+  checks().forEach((c) => c.addEventListener("change", () => {
+    // Keep select-all honest: it's checked only when every row is.
+    const all = $("#recat-select-all");
+    if (all) all.checked = checks().every((x) => x.checked);
+    syncMove();
+  }));
+  input?.addEventListener("input", syncMove);
+  $("#recat-cancel")?.addEventListener("click", () => dlgRecat.close());
+  moveBtn?.addEventListener("click", async () => {
+    const target = input.value.trim();
+    const ids = checks().filter((c) => c.checked)
+                        .map((c) => +c.dataset.recatId);
+    if (!ids.length || !target) return;
+    moveBtn.disabled = true;
+    // One edit per transaction — the deployed write path. Sequential so a
+    // mid-batch failure surfaces without half the UI racing ahead.
+    for (const id of ids)
+      await api(`/api/transactions/${id}`, {
+        method: "PUT", body: { category: target } });
+    dlgRecat.close();
+    render();
+  });
+  dlgRecat.showModal();
+}
+dlgRecat?.addEventListener("click", (e) => { if (e.target === dlgRecat) dlgRecat.close(); });
+
 // Per-tab row stashes the tap/edit handlers read (findTxn, bill/goal/budget
 // edit, the pantry match editor). Cleared at the top of every render so a tab
 // only ever sees ITS OWN current rows — otherwise a stale pool (e.g. _txns,
 // written by Activity and never cleared) let a tap on another tab resolve to a
 // pre-edit row and Save write the stale values back (CODE-REVIEW-2026-08-07 #5).
-const ROW_STASHES = ["_dash", "_recent", "_txns", "_bills", "_goals",
+const ROW_STASHES = ["_dash", "_recent", "_txns", "_bills", "_goals", "_goalPace",
                      "_budgets", "_budgetStatus", "_inv"];
 
 async function render() {
@@ -300,25 +353,6 @@ async function render() {
 
 /* ================= dashboard ================= */
 
-function beamHTML(bal) {
-  // The Garden hero: the who-owes-who number as the emotional centerpiece.
-  const msg = bal.settled
-    ? `<p class="bh-who">All settled up</p>
-       <p class="bh-sub">No one owes anything on shared expenses</p>`
-    : `<p class="bh-who">${esc(bal.owes.name)} owes ${esc(bal.owed.name)}
-         <b>${fmt(bal.amount)}</b></p>
-       <p class="bh-sub">across all shared expenses</p>`;
-  const settleBtn = bal.settled
-    ? ""
-    : `<button class="bh-settle" id="btn-settle" type="button">Settle up</button>`;
-  return `
-    <div class="balance-hero">
-      <p class="bh-eyebrow">Between you two</p>
-      ${msg}
-      ${settleBtn}
-    </div>`;
-}
-
 async function renderDashboard() {
   const d = await api("/api/dashboard");
   // Same month the dashboard resolved to, so the two cards always agree;
@@ -330,13 +364,18 @@ async function renderDashboard() {
   const spentPill = vsLastMonth(trend.series);
   window._dash = d;
   const maxCat = Math.max(1, ...d.by_category.map((c) => c.amount));
+  // Each row taps through to the recategorize sheet for that category+month —
+  // a button, not a div, so it's keyboard-reachable; the chevron is the
+  // affordance that it's actionable.
   const cats = d.by_category.length
     ? d.by_category.map((c) => `
-        <div class="cat-row">
+        <button type="button" class="cat-row" data-spent-cat="${esc(c.category)}"
+                aria-label="Recategorize spending tagged ${esc(c.category)}">
           <span class="cat-name">${esc(c.category)}</span>
           <span class="cat-bar"><i style="width:${(c.amount / maxCat) * 100}%"></i></span>
           <span class="amt amount">${fmt(c.amount)}</span>
-        </div>`).join("")
+          <span class="cat-go" aria-hidden="true">›</span>
+        </button>`).join("")
     : `<p class="empty">Nothing spent yet this month.</p>`;
 
   const today = new Date().getDate();
@@ -376,7 +415,7 @@ async function renderDashboard() {
   const recentTxns = (await api("/api/activity?filter=all")).transactions.slice(0, 6);
   window._recent = recentTxns;   // income-aware rows for the tap handler
   const recent = recentTxns.length
-    ? `<ul class="list">${recentTxns.map(txnRow).join("")}</ul>`
+    ? `<ul class="list">${recentTxns.map((t) => txnRow(t, state.users)).join("")}</ul>`
     : `<p class="empty">No transactions yet. Tap + to add the first one.</p>`;
 
   return `
@@ -405,54 +444,6 @@ async function renderAgents() {
 
 /* ================= activity ================= */
 
-function txnRow(t) {
-  const payer = userById(t.paid_by);
-  // direction is absent on the dashboard's "recent" rows (they come from
-  // the frozen txn_to_json), so treat missing as an outflow — those keep
-  // their existing spend styling untouched.
-  if (t.direction === "in") {
-    const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
-    const chip = t.income_type === "unclassified"
-      ? `<span class="badge untagged">tag</span>`
-      : `<span class="badge income">${esc(t.income_type)}</span>`;
-    return `
-      <li class="tap" data-txn="${t.id}">
-        <span class="ic in">💵</span>
-        <div class="grow">
-          <div class="title">${esc(t.description)}</div>
-          <div class="sub">
-            <span class="dot" style="--pcolor:${userColor(t.paid_by)}"></span>${esc(payer.display_name)}
-            · money in${src} ${chip}
-          </div>
-        </div>
-        <div style="text-align:right">
-          <div class="amt amount income-in">+${fmt(t.amount)}</div>
-          <div class="sub">${t.date.slice(5)}</div>
-        </div>
-      </li>`;
-  }
-  const shared = t.is_shared
-    ? t.payer_share_pct === 50 ? "shared 50/50" : `shared · payer ${t.payer_share_pct}%`
-    : "personal";
-  const src = t.source === "manual" ? "" :
-    ` · <span class="badge">${esc(t.source)}</span>`;
-  return `
-    <li class="tap" data-txn="${t.id}">
-      <span class="ic">${catEmoji(t.category)}</span>
-      <div class="grow">
-        <div class="title">${esc(t.description)}</div>
-        <div class="sub">
-          <span class="dot" style="--pcolor:${userColor(t.paid_by)}"></span>${esc(payer.display_name)}
-          · ${esc(t.category)} · ${shared}${src}
-        </div>
-      </div>
-      <div style="text-align:right">
-        <div class="amt amount">${fmt(t.amount)}</div>
-        <div class="sub">${t.date.slice(5)}</div>
-      </div>
-    </li>`;
-}
-
 async function renderActivity() {
   const data = await api(
     `/api/activity?month=${state.month}&filter=${state.activityFilter}`);
@@ -461,7 +452,7 @@ async function renderActivity() {
   const emptyLabel = { all: "No transactions", spending: "No spending",
                        income: "No income" }[state.activityFilter];
   const list = txns.length
-    ? `<ul class="list">${txns.map(txnRow).join("")}</ul>`
+    ? `<ul class="list">${txns.map((t) => txnRow(t, state.users)).join("")}</ul>`
     : `<p class="empty">${emptyLabel} in ${monthName(state.month)}.</p>`;
   const seg = (key, label) =>
     `<button data-filter="${key}"${state.activityFilter === key ? ' class="on"' : ""}>${label}</button>`;
@@ -513,8 +504,16 @@ async function renderBills() {
 /* ================= goals ================= */
 
 async function renderGoals() {
-  const goals = await api("/api/goals");
+  // Pace rides along: the same /api/analytics/goal-pace the analytics card
+  // reads (one derivation, every surface), matched to cards by goal_id. The
+  // pace entries also carry remaining.cents for the per-goal what-if.
+  const [goals, pace] = await Promise.all([
+    api("/api/goals"),
+    api("/api/analytics/goal-pace"),
+  ]);
   window._goals = goals;
+  window._goalPace = {};
+  (pace.goals || []).forEach((p) => { window._goalPace[p.goal_id] = p; });
   const cards = await Promise.all(goals.map(async (g) => {
     let log = "";
     if (state.openLogs.has(g.id)) {
@@ -542,6 +541,14 @@ async function renderGoals() {
           <span class="amount">${fmt(g.saved)} of ${fmt(g.target)}${eta}</span>
           <span>${Math.round(g.progress * 100)}%</span>
         </div>
+        ${goalPaceLineHTML(window._goalPace[g.id])}
+        ${window._goalPace[g.id] && window._goalPace[g.id].status !== "complete" ? `
+        <div class="goal-whatif">
+          <input type="number" min="0" step="10" inputmode="decimal"
+                 placeholder="What if $/mo…" data-goal-whatif="${g.id}"
+                 aria-label="What-if monthly contribution for ${esc(g.name)}">
+          <span class="goal-whatif-out" data-goal-whatif-out="${g.id}"></span>
+        </div>` : ""}
         <div class="goal-meta" style="margin-top:10px">
           <button class="btn small ghost" data-goal-log="${g.id}">
             ${state.openLogs.has(g.id) ? "Hide log" : "Show log"}</button>
@@ -780,6 +787,9 @@ function wireMain() {
     }));
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
+  // Home "Spent" rows → the recategorize sheet for that category this month.
+  $$("[data-spent-cat]").forEach((el) =>
+    el.addEventListener("click", () => openRecatSheet(el.dataset.spentCat)));
   // Budgets (Analytics Tier C): edit/remove by row index; add via the small form.
   $$("[data-budget-edit]").forEach((el) =>
     el.addEventListener("click", () => editBudget(+el.dataset.budgetEdit)));
@@ -814,6 +824,19 @@ function wireMain() {
       const id = +el.dataset.goalLog;
       state.openLogs.has(id) ? state.openLogs.delete(id) : state.openLogs.add(id);
       render();
+    }));
+  // Per-goal what-if: type a $/mo, the months-to-finish readout recomputes in
+  // place (a re-render would drop focus mid-typing). Client-side only — the
+  // typed rate is never stored anywhere.
+  $$("[data-goal-whatif]").forEach((el) =>
+    el.addEventListener("input", () => {
+      const p = (window._goalPace || {})[+el.dataset.goalWhatif];
+      const out = $(`[data-goal-whatif-out="${el.dataset.goalWhatif}"]`);
+      if (!p || !out) return;
+      const dollars = parseFloat(el.value);
+      const cents = el.value !== "" && Number.isFinite(dollars)
+        ? Math.round(dollars * 100) : null;
+      out.textContent = goalWhatIfText(p.remaining.cents, cents, thisMonthISO());
     }));
   $$("[data-goal-del]").forEach((el) =>
     el.addEventListener("click", async () => {
@@ -919,7 +942,7 @@ const formTxn = $("#form-txn");
 function updateSplitHint() {
   const pct = +formTxn.payer_share_pct.value;
   const payerId = +$("#txn-paidby").dataset.value;
-  const payer = userById(payerId);
+  const payer = window.Render.userById(state.users, payerId);
   const other = state.users.find((u) => u.id !== payerId) || { display_name: "Partner" };
   $("#split-readout").textContent = `${pct}%`;
   $("#split-hint").textContent =
@@ -940,6 +963,16 @@ function openTxnDialog(txn) {
   buildSeg($("#txn-paidby"), txn ? txn.paid_by : state.meId, updateSplitHint);
   $("#txn-split").classList.toggle("hidden", !formTxn.is_shared.checked);
   updateSplitHint();
+  // Transfer toggle: only on an existing row (nothing to flag while adding).
+  const xfer = $("#txn-transfer");
+  xfer.classList.toggle("hidden", !txn);
+  if (txn) {
+    xfer.textContent = txn.is_transfer
+      ? "✓ Marked as a transfer — tap to undo"
+      : "Not spending? Mark as a transfer between your accounts";
+    xfer.classList.toggle("on", !!txn.is_transfer);
+    xfer.onclick = () => setTransfer(txn.id, !txn.is_transfer);
+  }
   dlgTxn.showModal();
   // showModal() auto-focuses the first field (the date input), and iOS pops its
   // date picker on focus — so the calendar appeared the instant you tapped Add.
@@ -990,10 +1023,13 @@ $("#fab").addEventListener("click", () => openTxnDialog(null));
 const dlgClassify = $("#dlg-classify");
 // The six real income types a row can be tagged as ('unclassified' is a
 // state, never a target); order matches how often you'd reach for them.
+// Real income types only. "Transfer" is deliberately NOT here: a transfer
+// between your own accounts is neither income nor spend, so it's set by the
+// is_transfer flag (the "Mark as transfer" toggle below), not classified as a
+// kind of income. Legacy rows tagged income_type='transfer' still display.
 const INCOME_TYPES_UI = [
   ["paycheck", "Paycheck"], ["reimbursement", "Reimbursement"],
-  ["refund", "Refund"], ["transfer", "Transfer"],
-  ["gift", "Gift"], ["other", "Other"],
+  ["refund", "Refund"], ["gift", "Gift"], ["other", "Other"],
 ];
 
 function openClassifyDialog(txn) {
@@ -1011,6 +1047,15 @@ function openClassifyDialog(txn) {
     b.addEventListener("click", () => classifyInflow(txn.id, val));
     holder.appendChild(b);
   });
+  // The transfer toggle: a transfer isn't income, so it lives apart from the
+  // type buttons. Marking removes it from income and the tag queue; unmarking
+  // restores it (fully reversible — see set_transfer).
+  const xfer = $("#classify-transfer");
+  xfer.textContent = txn.is_transfer
+    ? "✓ Marked as a transfer — tap to undo"
+    : "Not income? Mark as a transfer between your accounts";
+  xfer.classList.toggle("on", !!txn.is_transfer);
+  xfer.onclick = () => setTransfer(txn.id, !txn.is_transfer);
   dlgClassify.showModal();
 }
 
@@ -1028,14 +1073,38 @@ async function classifyInflow(id, income_type) {
   }
 }
 
+// Mark (or unmark) a transaction as a transfer between the household's own
+// accounts — the fix for a mis-signed "Payment Thank You" (excluded from
+// income, spend, and the balance). Closes whichever dialog is open, re-renders.
+async function setTransfer(id, isTransfer) {
+  try {
+    const res = await api(`/api/transactions/${id}/transfer`,
+                          { method: "PUT", body: { is_transfer: isTransfer } });
+    dlgClassify.close();
+    dlgTxn.close();
+    render();
+    // After the 2nd transfer of a recurring kind, the backend offers a rule
+    // ("always treat matching transactions as transfers?") — chain it on top
+    // of the re-render, same as classify does.
+    if (res && res.rule_suggestion) openRuleDialog(res.rule_suggestion);
+  } catch (e) {
+    ($("#classify-error") || {}).textContent = e.message;
+    ($("#txn-error") || {}).textContent = e.message;
+  }
+}
+
 /* ---------- "make this a rule?" dialog ---------- */
 const dlgRule = $("#dlg-rule");
 const formRule = $("#form-rule");
 
 function openRuleDialog(suggestion) {
   state.ruleSetType = suggestion.set_type;
+  // A transfer rule marks matches as transfers (is_transfer), not as an income
+  // type — carried through to the POST body and reflected in the prompt copy.
+  state.ruleSetTransfer = !!suggestion.set_transfer;
   $("#rule-error").textContent = "";
-  $("#rule-prompt").textContent = ruleSuggestionText(suggestion.set_type);
+  $("#rule-prompt").textContent = state.ruleSetTransfer
+    ? transferRuleText() : ruleSuggestionText(suggestion.set_type);
   $("#rule-hint").textContent =
     "Trim to a stable part of the description — the source's name, not a date " +
     "or amount that changes each time.";
@@ -1053,7 +1122,9 @@ formRule.addEventListener("submit", async (ev) => {
   }
   try {
     await api("/api/income/rules",
-              { method: "POST", body: { set_type: state.ruleSetType, match_desc } });
+              { method: "POST", body: {
+                set_type: state.ruleSetType, match_desc,
+                set_transfer: state.ruleSetTransfer } });
     dlgRule.close();
     render();
   } catch (e) {
@@ -1204,13 +1275,22 @@ formContrib.addEventListener("submit", async (ev) => {
 /* ---------- settle up ---------- */
 const dlgSettle = $("#dlg-settle");
 
-function openSettle() {
+async function openSettle() {
   const bal = window._dash.balance;
   if (bal.settled) return;
   $("#settle-summary").textContent =
     `${bal.owes.name} pays ${bal.owed.name} ${fmt(bal.amount)}.`;
   $("#settle-error").textContent = "";
+  // The breakdown (why it's this amount) loads async; a failure to fetch it
+  // must never block recording the settlement, so it's best-effort.
+  $("#settle-breakdown").innerHTML = `<p class="settle-sub">Loading breakdown…</p>`;
   dlgSettle.showModal();
+  try {
+    const bd = await api("/api/settle/breakdown");
+    $("#settle-breakdown").innerHTML = settleBreakdownHTML(bd, state.meId);
+  } catch (e) {
+    $("#settle-breakdown").innerHTML = "";   // silent — settling still works
+  }
 }
 
 $("#form-settle").addEventListener("submit", async (ev) => {

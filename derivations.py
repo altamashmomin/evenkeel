@@ -43,7 +43,8 @@ def compute_balance(db, as_of=None):
         """SELECT t.amount_cents, t.paid_by, s.member_id, s.share_bp
            FROM transactions t
            JOIN splits s ON s.transaction_id = t.id
-           WHERE s.member_id != t.paid_by AND t.direction = 'out'""" + date_clause,
+           WHERE s.member_id != t.paid_by AND t.direction = 'out'
+               AND t.is_transfer = 0""" + date_clause,
         params).fetchall()
     for row in rows:
         owed_cents = round_ratio(row["amount_cents"] * row["share_bp"], 10000)
@@ -60,6 +61,94 @@ def compute_balance(db, as_of=None):
         "ower": ower,
         "owed": owed,
         "members": members,
+    }
+
+
+def settle_breakdown(db, as_of=None):
+    """Explain the who-owes-whom balance line by line — the settle-up screen's
+    'why is it this amount' (transparency over compute_balance, so either
+    member can audit the figure).
+
+    The authoritative number comes straight from `compute_balance` — this
+    function never recomputes it, so /api/balance and the breakdown can NEVER
+    disagree by construction. What it adds is the itemization: the UNSETTLED
+    shared expenses making up that number — shared outflows one member fronted
+    a share of, not yet closed by a settlement (no incoming 'settles' link),
+    excluding settlement rows themselves. Each is a signed line (+ => `second`
+    owes `first`), using compute_balance's exact per-row rounding.
+
+    The reconciliation guard is `carryover_cents`: signed_balance minus the sum
+    of the open lines. On clean data — every settlement made through settle_up,
+    which links the rows it closes — the open lines ARE the whole balance and
+    carryover is exactly 0. It goes non-zero only when history the links don't
+    cover exists (legacy settlements from before the links table, or rows
+    settled outside the verb); there it honestly carries that residual so
+    lines + carryover always equal the balance to the cent, instead of the
+    itemization silently over-counting. `as_of` flows through to
+    compute_balance so the window matches.
+
+    Definition of 'unsettled' is date-proof: 'not covered by a settles link',
+    exactly what settle_up records when it closes the books — a backdated
+    expense or same-day tie can't confuse it. Reads transactions/splits/links
+    only via the splits INNER JOIN, so an inflow can't reach it (tripwire-safe
+    for the same structural reason as compute_balance; test_income_isolation
+    carries the deliberately-mis-split guard). Integer cents throughout."""
+    bal = compute_balance(db, as_of)
+    members = bal["members"]
+    if len(members) < 2:
+        return {"state": "waiting", "amount_cents": 0, "members": members,
+                "ower": None, "owed": None, "lines": [],
+                "owed_to_first_cents": 0, "owed_to_second_cents": 0,
+                "carryover_cents": 0}
+    first, second = members[0], members[1]
+    # signed_balance in compute_balance's convention: + => second owes first.
+    signed_balance = 0
+    if bal["state"] == "owing":
+        signed_balance = (bal["amount_cents"]
+                          if bal["ower"]["id"] == second["id"]
+                          else -bal["amount_cents"])
+    date_clause = " AND t.txn_date <= ?" if as_of is not None else ""
+    params = (as_of,) if as_of is not None else ()
+    rows = db.execute(
+        """SELECT t.id, t.txn_date, t.description, t.amount_cents, t.category,
+                  t.paid_by, s.member_id, s.share_bp
+           FROM transactions t
+           JOIN splits s ON s.transaction_id = t.id
+           WHERE s.member_id != t.paid_by AND t.direction = 'out'
+               AND t.source != 'settlement' AND t.is_transfer = 0
+               AND NOT EXISTS (
+                   SELECT 1 FROM links l
+                   WHERE l.link_type = 'settles' AND l.to_id = t.id)"""
+        + date_clause + " ORDER BY t.txn_date DESC, t.id DESC",
+        params).fetchall()
+    lines, owed_to_first, owed_to_second = [], 0, 0
+    for row in rows:
+        owed_cents = round_ratio(row["amount_cents"] * row["share_bp"], 10000)
+        if row["paid_by"] == first["id"] and row["member_id"] == second["id"]:
+            signed = owed_cents
+            owed_to_first += owed_cents
+        elif row["paid_by"] == second["id"] and row["member_id"] == first["id"]:
+            signed = -owed_cents
+            owed_to_second += owed_cents
+        else:
+            continue  # a share not between the two active members: not a debt
+        lines.append({
+            "transaction_id": row["id"], "date": row["txn_date"],
+            "description": row["description"], "category": row["category"],
+            "amount_cents": row["amount_cents"], "paid_by": row["paid_by"],
+            "share_bp": row["share_bp"], "owed_cents": signed,
+        })
+    carryover_cents = signed_balance - (owed_to_first - owed_to_second)
+    return {
+        "state": bal["state"],
+        "amount_cents": bal["amount_cents"],
+        "members": members,
+        "ower": bal.get("ower"),
+        "owed": bal.get("owed"),
+        "owed_to_first_cents": owed_to_first,
+        "owed_to_second_cents": owed_to_second,
+        "carryover_cents": carryover_cents,
+        "lines": lines,
     }
 
 
@@ -94,12 +183,14 @@ def spending_summary(db, month=None):
                 SELECT substr(txn_date, 1, 7) AS month, category,
                        amount_cents AS signed_cents
                   FROM transactions
-                 WHERE source != 'settlement' AND direction = 'out'{month_clause}
+                 WHERE source != 'settlement' AND direction = 'out'
+                       AND is_transfer = 0{month_clause}
                 UNION ALL
                 SELECT substr(txn_date, 1, 7) AS month, category,
                        -amount_cents AS signed_cents
                   FROM transactions
-                 WHERE direction = 'in' AND income_type = 'refund'{month_clause}
+                 WHERE direction = 'in' AND income_type = 'refund'
+                       AND is_transfer = 0{month_clause}
             )
             GROUP BY month, category
             ORDER BY month, total_cents DESC, category""",
@@ -149,7 +240,7 @@ def income_summary(db, month=None):
                COALESCE(SUM(CASE WHEN income_type = 'unclassified'
                                  THEN 1 ELSE 0 END), 0) AS unclassified
            FROM transactions
-           WHERE direction = 'in'""" + clause, params).fetchone()
+           WHERE direction = 'in' AND is_transfer = 0""" + clause, params).fetchone()
     gross_cents = row["gross"]
     true_income_cents = row["true_income"]
 
@@ -473,7 +564,8 @@ def member_breakdown(db, month=None):
     rows = db.execute(
         """SELECT t.id AS tid, t.amount_cents, t.paid_by, s.member_id, s.share_bp
            FROM transactions t JOIN splits s ON s.transaction_id = t.id
-           WHERE t.direction = 'out'""" + clause, params).fetchall()
+           WHERE t.direction = 'out' AND t.is_transfer = 0""" + clause,
+        params).fetchall()
     # Group splits per transaction so the payer can take the rounding residual.
     txns = {}
     for r in rows:
@@ -522,7 +614,8 @@ def top_merchants(db, month=None, limit=10):
     rows = db.execute(
         f"""SELECT description, SUM(amount_cents) AS total, COUNT(*) AS n
             FROM transactions
-            WHERE direction = 'out' AND source != 'settlement'{clause}
+            WHERE direction = 'out' AND is_transfer = 0
+                  AND source != 'settlement'{clause}
             GROUP BY description
             ORDER BY total DESC, description
             LIMIT ?""", params).fetchall()
@@ -610,7 +703,7 @@ def recurring_charges(db, min_occurrences=3):
     first."""
     rows = db.execute(
         "SELECT txn_date, amount_cents, description FROM transactions "
-        "WHERE direction = 'out' AND source != 'settlement'").fetchall()
+        "WHERE direction = 'out' AND is_transfer = 0 AND source != 'settlement'").fetchall()
     buckets = {}
     for r in rows:
         key = _normalize_merchant(r["description"])
@@ -718,7 +811,8 @@ def _purchase_index(db):
     enters the index (the mandatory filter the restock derivations share)."""
     return db.execute(
         "SELECT txn_date, description, amount_cents FROM transactions "
-        "WHERE direction = 'out' ORDER BY txn_date DESC, id DESC").fetchall()
+        "WHERE direction = 'out' AND is_transfer = 0 "
+        "ORDER BY txn_date DESC, id DESC").fetchall()
 
 
 def _matching_purchases(db, item, since=None, index=None):
@@ -743,7 +837,8 @@ def _matching_purchases(db, item, since=None, index=None):
                 if p in (r["description"] or "").lower()
                 and (since is None or r["txn_date"] >= since)]
     sql = ("SELECT txn_date, description, amount_cents FROM transactions "
-           "WHERE direction = 'out' AND instr(lower(description), lower(?)) > 0")
+           "WHERE direction = 'out' AND is_transfer = 0 "
+           "AND instr(lower(description), lower(?)) > 0")
     params = [phrase]
     if since:
         sql += " AND txn_date >= ?"
@@ -922,7 +1017,7 @@ def new_staple_suggestions(db, min_purchases=3):
     """
     rows = db.execute(
         "SELECT txn_date, amount_cents, description FROM transactions "
-        "WHERE direction = 'out' AND source != 'settlement'").fetchall()
+        "WHERE direction = 'out' AND is_transfer = 0 AND source != 'settlement'").fetchall()
     buckets = {}
     for r in rows:
         key = _normalize_merchant(r["description"])
@@ -1112,7 +1207,7 @@ def last_shopping_trip(db):
     placeholders = ",".join("?" for _ in SHOPPING_CATEGORIES)
     trip = db.execute(
         f"SELECT txn_date, description, category FROM transactions "
-        f"WHERE direction = 'out' AND source != 'settlement' "
+        f"WHERE direction = 'out' AND is_transfer = 0 AND source != 'settlement' "
         f"AND category IN ({placeholders}) "
         f"ORDER BY txn_date DESC, id DESC LIMIT 1", SHOPPING_CATEGORIES).fetchone()
     if trip is None:
