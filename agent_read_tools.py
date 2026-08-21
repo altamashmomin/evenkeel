@@ -303,8 +303,14 @@ READ_TOOLS = [
             "with a matching purchase since they ran low — hints someone may "
             "have restocked, to confirm, never assumed), and new_staple_"
             "suggestions (frequently-bought merchants not yet tracked — an offer "
-            "to start tracking one as a staple, never assumed). Use this for "
-            "'what do we need?' / 'are we out of X?', and to find an item's `id` before "
+            "to start tracking one as a staple, never assumed), plus "
+            "list_estimate — the shopping list PRICED from each item's typical "
+            "restock (median of its matching purchases; items with no purchase "
+            "history are listed unpriced, and priced_count says how much of the "
+            "list the total covers) — and staple_spend's price drift "
+            "(change_bp: recent restocks vs earlier, in basis points). Use this for "
+            "'what do we need?' / 'are we out of X?' / 'what will the list cost?' / "
+            "'is coffee getting pricier?', and to find an item's `id` before "
             "changing its status. This is groceries and supplies, not money — "
             "nothing here touches the balance, spending, or income.",
         "input_schema": _obj(),

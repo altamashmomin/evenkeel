@@ -2805,7 +2805,22 @@ the purchase matcher can't see).
   audit timestamps AND `last_stocked_at` explicitly, and use unmatchable item
   names so the seed's "Coffee Shop" purchases can't shunt them onto the
   purchase rung. Suite **604** python + **129** render. **GATE PASS
-  zero-diff** (old=`d10f724`, fixture at the old ref). NOT YET DEPLOYED.
+  zero-diff** (old=`d10f724`, fixture at the old ref). **DEPLOYED (Aug 21,
+  12:03)** — on the THIRD attempt, and the story is worth keeping: (1) Alta
+  ran deploy.sh before the Mac-side merge existed → the no-op guard refused
+  (correct). (2) The merge `b39ed70` was built, but `origin/main` had moved
+  (PR #32 dep floors, then PR #33 log entries, from the `claude/*` lineage —
+  three main-advancing PRs in one day) so Alta's push was rejected;
+  deploy.sh then shipped `2d205dc` (floors + docs, NO inc 3) at 12:00 — a
+  harmless redeploy, caught because the tailnet check for the cadence label
+  read 0. (3) `origin/main` merged into `rework` (PROGRESS-LOG tail conflict
+  resolved; #33's stale "014 merged-but-undeployed" note corrected), `main`
+  rebuilt as `7c32262` on `2d205dc`, pushed (output READ this time), deployed:
+  live gate PASS zero-diff, "nothing to apply", services restarted, backup
+  `finance.db.bak-2026-08-21-120333`. Tailnet-verified: cadence label now
+  served (1), `origin/main` == `7c32262`. Lesson recorded for the ritual:
+  with cloud sessions merging to `main` the same day, push and deploy
+  back-to-back and READ the push result — `[rejected]` means stop.
 
 
 ## Aug 21, 2026 — Frontend: extract `txnRow` + `beamHTML` into `render.js` (PR #31)
@@ -2874,3 +2889,37 @@ this entry `origin/main` = `c5b069c`, **schema v14**, with migration 014 and the
 run applies 014 live (→ v14) and, with the venv reinstall, the dep floors.
 
 *(Correction at the Aug 21 sync: the paragraph above was written from the `claude/*` lineage before it saw this log — migration 014 was ALREADY deployed live at 00:00 Aug 21 (see the inc 2 DEPLOYED record above); the `urllib3`/`idna` floors went live with the 12:00 deploy of `2d205dc`.)*
+
+## Aug 21, 2026 — Pantry v2 increment 4: `list_estimate` + the price trend
+
+The money tie-in's second half (the first, `staple_spend`, pre-existed on the
+main lineage — the amendment's correction note shrank this increment to
+exactly these two). Reads only; outflows only; never moves money.
+- **`list_estimate(db)`** — the shopping list priced: each listed item's
+  typical restock = the MEDIAN per-day cost of its matching purchases (same-day
+  buys collapse to one restock, as the forecast does; median, not mean, so one
+  bulk buy doesn't set the price). Items with no purchase history — most
+  one-offs, anything bought inside supermarket runs the feed can't see — are
+  listed **unpriced, not guessed**, and the total reports its coverage
+  (`priced_count` / `unpriced_count`). Snoozed rows carry `snoozed_until` for
+  the view; the total is the whole list's. Merchant-level caveat inherited:
+  a "Costco" match prices the visit, not the item — the per-line detail is
+  there so a human can judge.
+- **Price drift on `staple_spend`** — `recent_cents` (median of the last 3
+  restock costs) vs `earlier_cents` (median of all earlier), `change_bp`
+  signed basis points via `round_ratio` (float-free); `None` without an
+  earlier window (< 4 distinct restock days), so one window never "drifts"
+  against nothing.
+- **Surfaces**: the Need-to-buy card opens with "This trip ≈ $85 · 3 of 5
+  priced" (silent when nothing is priced); staple-spend rows badge ↑/↓ when
+  drift is ≥ 15% either way (a view threshold over the raw bp). Ask's
+  `ledger_inventory` description now teaches "what will the list cost?" and
+  "is coffee getting pricier?" — the payload already flowed through the
+  route, so no new tool (read pins unchanged at 19).
+- Tests: trend bp arithmetic + same-day collapse + the no-earlier-window
+  None, estimate median/coverage/unpriced one-off, an explicit
+  `list_estimate_ignores_inflows` (the CLAUDE.md honesty rule for a new
+  transaction-reading derivation — the shared `_matching_purchases` filter is
+  what holds), two render checks, and the two route/MCP key-set pins that
+  caught the new payload key. Suite **608** python + **131** render. **GATE
+  PASS zero-diff** (old=`e12eed3`). NOT YET DEPLOYED.

@@ -55,7 +55,8 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual(
             {"items", "shopping", "low_count", "restock_suggestions",
              "restock_forecast", "new_staple_suggestions", "unmatched_staples",
-             "stale_shopping_items", "staple_spend", "last_shopping_trip"},
+             "stale_shopping_items", "staple_spend", "last_shopping_trip",
+             "list_estimate"},
             set(view))
         self.assertEqual(1, view["low_count"])                 # the low staple
         names_on_list = {i["name"] for i in view["shopping"]}

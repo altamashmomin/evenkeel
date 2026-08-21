@@ -1288,9 +1288,82 @@ def staple_spend(db, min_purchases=3):
             "monthly_cents": round_ratio(total, months),
             "months_spanned": months,
             "first_purchase": days[0], "last_purchase": days[-1],
+            **_price_trend(rows),
         })
     out.sort(key=lambda s: s["monthly_cents"], reverse=True)   # priciest first
     return out
+
+
+def _restock_costs(rows):
+    """Per-restock cost from matched purchase rows: the rows summed per
+    DISTINCT day, chronological — two buys on one day are one restock (the
+    same collapse the forecast applies to its gaps). Returns [cents, ...]."""
+    by_day = {}
+    for r in rows:
+        by_day[r["txn_date"][:10]] = by_day.get(r["txn_date"][:10], 0) + r["amount_cents"]
+    return [by_day[d] for d in sorted(by_day)]
+
+
+def _price_trend(rows, recent_n=3):
+    """Price-per-restock drift (Pantry v2 inc 4): the median of the last
+    `recent_n` restock costs vs the median of every earlier one, as signed
+    basis points (+1500 = recent restocks cost 15% more). Needs at least one
+    earlier restock beyond the recent window (so >= recent_n + 1 distinct
+    days), else change_bp is None — one window can't drift against nothing.
+    Medians, not means, so a single bulk buy doesn't read as inflation.
+    Float-free via round_ratio; clock-free (history only)."""
+    costs = _restock_costs(rows)
+    if len(costs) < recent_n + 1:
+        return {"recent_cents": None, "earlier_cents": None, "change_bp": None}
+    recent = _median_int(costs[-recent_n:])
+    earlier = _median_int(costs[:-recent_n])
+    if earlier == 0:
+        change = None
+    else:
+        diff = recent - earlier
+        change = (1 if diff >= 0 else -1) * round_ratio(abs(diff) * 10000, earlier)
+    return {"recent_cents": recent, "earlier_cents": earlier, "change_bp": change}
+
+
+def list_estimate(db):
+    """The shopping list, priced (Pantry v2 inc 4): what this trip will
+    probably cost, from each listed item's typical restock — the MEDIAN
+    per-day cost of its matching purchases (robust to one bulk buy; the same
+    _matching_purchases every pantry inference uses, so "coffee" costs what
+    "coffee" means everywhere else). Items with no matching purchase (most
+    one-offs, anything bought inside supermarket runs the feed can't see) are
+    listed UNPRICED rather than guessed — the total is honest about its
+    coverage (priced_count of the list). Snoozed rows are included with their
+    snoozed_until so the view can frame "right now" against the client's
+    date; the total here is the whole list's.
+
+    OUTFLOWS ONLY via _matching_purchases (inflows and transfers excluded),
+    so inflow-insensitive — tripwire-covered through the shared helper, with
+    the fixture's low/out probe staples reaching it. REPORTS money, never
+    moves it (integer cents, computed on read). Same order as shopping_list.
+    Honest caveat: a merchant-level match prices the whole merchant visit,
+    not one item — the per-line detail is there so a human can judge."""
+    index = _purchase_index(db)
+    lines, total, priced = [], 0, 0
+    for it in shopping_list(db):
+        rows = _matching_purchases(db, it, index=index)
+        costs = _restock_costs(rows)
+        typical = _median_int(costs) if costs else None
+        if typical is not None:
+            total += typical
+            priced += 1
+        lines.append({
+            "item_id": it["id"], "name": it["name"], "kind": it["kind"],
+            "status": it["status"], "store": it["store"],
+            "snoozed_until": it["snoozed_until"],
+            "priced": typical is not None,
+            "typical_cents": typical,
+            "purchases_seen": len(costs),
+            "last_purchase": (sorted({r["txn_date"][:10] for r in rows})[-1]
+                              if rows else None),
+        })
+    return {"lines": lines, "total_cents": total,
+            "priced_count": priced, "unpriced_count": len(lines) - priced}
 
 
 # The transaction categories that count as a "shopping trip" for the pantry —

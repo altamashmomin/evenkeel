@@ -703,6 +703,57 @@ class ItemVerbTests(unittest.TestCase):
                        direction="in", income_type="refund")
         self.assertEqual(3000, self._spend("Coffee")[0]["total_cents"])
 
+    # ---- inc 4: price trend + list_estimate ---------------------------------
+    def test_price_trend_recent_median_vs_earlier_in_basis_points(self):
+        self.add(name="Coffee")
+        # earlier restocks 1000,1000,1200 (median 1000); recent 1300,1150,1200
+        # (median 1200) → +20% = +2000 bp
+        for day, amt in (("2026-01-05", 1000), ("2026-02-05", 1000),
+                         ("2026-03-05", 1200), ("2026-04-05", 1300),
+                         ("2026-05-05", 1150), ("2026-06-05", 1200)):
+            self._outflow("BLUE BOTTLE COFFEE", day, amt)
+        s = self._spend("Coffee")[0]
+        self.assertEqual((1200, 1000, 2000),
+                         (s["recent_cents"], s["earlier_cents"], s["change_bp"]))
+
+    def test_price_trend_needs_an_earlier_window_and_collapses_same_day(self):
+        self.add(name="Coffee")
+        for day in ("2026-01-05", "2026-02-05", "2026-03-05"):   # 3 days only
+            self._outflow("BLUE BOTTLE COFFEE", day, 1000)
+        self.assertIsNone(self._spend("Coffee")[0]["change_bp"])
+        # a 4th day, bought twice → one restock of 2000 in the recent window
+        self._outflow("BLUE BOTTLE COFFEE", "2026-04-05", 1000)
+        self._outflow("BLUE BOTTLE COFFEE", "2026-04-05", 1000)
+        s = self._spend("Coffee")[0]
+        self.assertEqual(1000, s["earlier_cents"])               # the Jan buy
+        self.assertEqual(1000, s["recent_cents"])                # median(1000,1000,2000)
+        self.assertEqual(0, s["change_bp"])
+
+    def test_list_estimate_prices_from_median_restock_and_is_honest_about_coverage(self):
+        self.add(name="Coffee", status="low")
+        for day, amt in (("2026-01-05", 1000), ("2026-02-05", 5000),   # bulk buy
+                         ("2026-03-05", 1200)):
+            self._outflow("BLUE BOTTLE COFFEE", day, amt)
+        self.add(name="Party hats", kind="oneoff")               # no history
+        est = derivations.list_estimate(self.db)
+        by = {l["name"]: l for l in est["lines"]}
+        self.assertEqual(1200, by["Coffee"]["typical_cents"])    # median, not mean
+        self.assertTrue(by["Coffee"]["priced"])
+        self.assertFalse(by["Party hats"]["priced"])
+        self.assertIsNone(by["Party hats"]["typical_cents"])
+        self.assertEqual((1200, 1, 1), (est["total_cents"], est["priced_count"],
+                                        est["unpriced_count"]))
+        self.assertEqual("2026-03-05", by["Coffee"]["last_purchase"])
+
+    def test_list_estimate_ignores_inflows(self):
+        self.add(name="Coffee", status="out")
+        self._outflow("BLUE BOTTLE COFFEE", "2026-03-05", 1200)
+        self._purchase("COFFEE REFUND", "2026-03-15",
+                       direction="in", income_type="refund")
+        est = derivations.list_estimate(self.db)
+        coffee = next(l for l in est["lines"] if l["name"] == "Coffee")
+        self.assertEqual((1200, 1), (coffee["typical_cents"], coffee["purchases_seen"]))
+
     # ---- last_shopping_trip derivation (post-shopping review nudge) ----------
     def test_last_shopping_trip_returns_most_recent_grocery_outflow(self):
         # _purchase inserts a Groceries outflow; dated later than the seed's.
