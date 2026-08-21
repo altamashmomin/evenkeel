@@ -186,6 +186,38 @@ $("#btn-logout").addEventListener("click", async () => {
   showAuth(false);
 });
 
+// Change password: a session-only write (POST /api/me/password → the
+// change_password verb). The dialog checks the two new-password fields agree
+// before spending a request; the verb owns every other rule (current password
+// verifies, >= 8 chars, differs). Errors show inline; success closes it.
+const dlgPassword = $("#dlg-password");
+$("#btn-password")?.addEventListener("click", () => {
+  $("#form-password").reset();
+  $("#password-error").textContent = "";
+  dlgPassword.showModal();
+});
+$("#form-password")?.addEventListener("submit", async (e) => {
+  if (e.submitter && e.submitter.value === "cancel") return;   // Cancel closes natively
+  e.preventDefault();
+  const f = e.target;
+  const err = $("#password-error");
+  err.textContent = "";
+  if (f.new_password.value !== f.confirm_password.value) {
+    err.textContent = "The new passwords don't match.";
+    return;
+  }
+  try {
+    await api("/api/me/password", { method: "POST", body: {
+      current_password: f.current_password.value,
+      new_password: f.new_password.value } });
+    dlgPassword.close();
+    f.reset();
+  } catch (ex) {
+    err.textContent = ex.message;
+  }
+});
+dlgPassword?.addEventListener("click", (e) => { if (e.target === dlgPassword) dlgPassword.close(); });
+
 /* ================= navigation ================= */
 
 const TABS = [

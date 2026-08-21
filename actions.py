@@ -22,6 +22,8 @@ classification foundation (CORE-DESIGN sequence step 6). set_splits is
 promoted separately, only once a standalone caller needs it.
 """
 import hashlib
+
+from werkzeug.security import check_password_hash, generate_password_hash
 import json
 import secrets
 from contextlib import contextmanager
@@ -1626,6 +1628,46 @@ def remove_budget(db, actor, budget_id):
         _write_audit(db, actor, "remove_budget", f"budget:{budget_id}",
                      {"before": dict(existing)})
     return db.execute("SELECT * FROM budgets WHERE id = ?", (budget_id,)).fetchone()
+
+
+PASSWORD_MIN_LEN = 8   # the same floor the first-run setup enforces
+
+
+def change_password(db, actor, member_id, current_password, new_password):
+    """Let a member change their OWN password — the first write verb over
+    `members` (until now the table had no write path past first-run setup).
+
+    validate — the member exists and is active (NotFound otherwise); the
+    current password verifies against the stored hash (a wrong one is an
+    ActionError the route rate-limits, so this can't become a guessing
+    oracle); the new password is >= PASSWORD_MIN_LEN chars and differs from
+    the current one.
+    edit — one transaction: the new werkzeug hash replaces the old; an audit
+    row records THAT it changed and nothing else — never a password, never
+    a hash (the log is readable by both members and the agents).
+    side effects — none. Sessions are signed cookies with no server-side
+    store, so other devices stay signed in until their cookie expires;
+    revoking sessions on change is a later increment if wanted.
+    Returns {"member_id": id}.
+    """
+    with action_transaction(db):
+        row = db.execute(
+            "SELECT id, password_hash, active FROM members WHERE id = ?",
+            (member_id,)).fetchone()
+        if row is None or not row["active"]:
+            raise NotFound("not found")
+        if not check_password_hash(row["password_hash"], current_password or ""):
+            raise ActionError("current password is wrong")
+        new_password = new_password or ""
+        if len(new_password) < PASSWORD_MIN_LEN:
+            raise ActionError(f"new password must be at least {PASSWORD_MIN_LEN} characters")
+        if check_password_hash(row["password_hash"], new_password):
+            raise ActionError("new password must differ from the current one")
+        db.execute("UPDATE members SET password_hash = ? WHERE id = ?",
+                   (generate_password_hash(new_password), member_id))
+        _write_audit(db, actor, "change_password", f"member:{member_id}",
+                     {"member_id": member_id})   # deliberately no secret material
+    return {"member_id": member_id}
 
 
 # The system category settle_up stamps on settlement rows; merge_category
