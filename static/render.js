@@ -55,6 +55,13 @@
   // tag. setType is a real income type ('paycheck', 'gift', …), capitalized
   // for display — all six types are single words that capitalize cleanly.
   // Pure + tested so the one wording lives in exactly one place.
+  // The transfer-rule nudge copy — a transfer isn't income, so it reads
+  // differently from ruleSuggestionText's income wording.
+  function transferRuleText() {
+    return "You've marked two of these as transfers. " +
+           "Auto-mark future transactions that match?";
+  }
+
   function ruleSuggestionText(setType) {
     const label = setType.charAt(0).toUpperCase() + setType.slice(1);
     return `You've tagged two as ${label}. Auto-tag future income that matches?`;
@@ -1174,7 +1181,8 @@
     return `<p class="sheet-title">Recategorize · ${esc(category)} · ${esc(monthLabel)}</p>${body}`;
   }
 
-  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji, itemIcon,
+  return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
+           catEmoji, itemIcon,
            moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,

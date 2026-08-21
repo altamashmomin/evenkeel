@@ -107,5 +107,81 @@ class RuleTransferEngineTests(unittest.TestCase):
         self.assertEqual("unclassified", row["income_type"])
 
 
+class CreateTransferRuleTests(unittest.TestCase):
+    """T3b: create_income_rule accepts set_transfer + the make-a-rule nudge."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="ledger-create-xfer-rule-")
+        self.db_path = Path(self.tmp.name) / "test.db"
+        _seedbase.seed_into(self.db_path, seed=67, months=1)
+        self.db = sqlite3.connect(self.db_path)
+        self.db.row_factory = sqlite3.Row
+        self.db.execute("PRAGMA foreign_keys = ON")
+        self.db.execute("DELETE FROM splits")
+        self.db.execute("DELETE FROM transactions")
+        self.db.execute("DELETE FROM income_rules")
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.close()
+        self.tmp.cleanup()
+
+    def _inflow(self, desc, is_transfer=0, income_type="unclassified"):
+        cur = self.db.execute(
+            "INSERT INTO transactions (txn_date, amount_cents, description, "
+            "category, paid_by, is_shared, source, direction, income_type, is_transfer) "
+            "VALUES ('2026-07-18', 27036, ?, 'Other', 1, 0, 'simplefin', 'in', ?, ?)",
+            (desc, income_type, is_transfer))
+        self.db.commit()
+        return self.db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+    def test_create_rule_with_only_match_and_set_transfer_defaults_type(self):
+        rule = actions.create_income_rule(
+            self.db, "ui:avery", {"match_desc": "Payment Thank You", "set_transfer": True})
+        self.assertEqual(1, rule["set_transfer"])
+        self.assertEqual("transfer", rule["set_type"], "set_type defaulted to transfer")
+
+    def test_created_transfer_rule_flags_future_sync(self):
+        actions.create_income_rule(
+            self.db, "ui:avery", {"match_desc": "Payment Thank You", "set_transfer": True})
+        row = actions.record_transaction(
+            self.db, actor="sync",
+            data={"date": "2026-08-18", "amount": "270.36",
+                  "description": "PAYMENT THANK YOU - WEB", "paid_by": 1,
+                  "is_shared": False},
+            source="simplefin", external_id="simplefin:cc:aug", direction="in")
+        self.assertEqual(1, row["is_transfer"])
+
+    def test_ordinary_rule_still_has_set_transfer_zero(self):
+        rule = actions.create_income_rule(
+            self.db, "ui:avery", {"match_desc": "ADP", "set_type": "paycheck"})
+        self.assertEqual(0, rule["set_transfer"])
+
+    def test_suggest_offers_at_the_second_transfer_only(self):
+        first = self._inflow("Payment Thank You - Web", is_transfer=1)
+        # count == 1 → no offer yet
+        self.assertIsNone(actions.suggest_transfer_rule_after_mark(self.db, first))
+        second = self._inflow("Payment Thank You", is_transfer=1)
+        s = actions.suggest_transfer_rule_after_mark(self.db, second)
+        self.assertIsNotNone(s)
+        self.assertTrue(s["set_transfer"])
+        self.assertEqual("Payment Thank You", s["match_desc"])
+        # count == 3 → no repeat nag
+        third = self._inflow("Payment Thank You 3", is_transfer=1)
+        self.assertIsNone(actions.suggest_transfer_rule_after_mark(self.db, third))
+
+    def test_suggest_suppressed_when_a_rule_already_matches(self):
+        self._inflow("Payment Thank You a", is_transfer=1)
+        row = self._inflow("Payment Thank You b", is_transfer=1)
+        actions.create_income_rule(
+            self.db, "ui:avery", {"match_desc": "Payment Thank You", "set_transfer": True})
+        self.assertIsNone(actions.suggest_transfer_rule_after_mark(self.db, row),
+                          "a covering rule should suppress the nudge")
+
+    def test_suggest_ignores_outflows_and_non_transfers(self):
+        inc = self._inflow("regular income", is_transfer=0)
+        self.assertIsNone(actions.suggest_transfer_rule_after_mark(self.db, inc))
+
+
 if __name__ == "__main__":
     unittest.main()

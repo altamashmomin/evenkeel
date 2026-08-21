@@ -642,7 +642,8 @@ def set_transfer_view(txn_id):
         return bad_request(str(e))
     return jsonify({**txn_to_json(db, row),
                      "direction": row["direction"], "income_type": row["income_type"],
-                     "is_transfer": bool(row["is_transfer"])})
+                     "is_transfer": bool(row["is_transfer"]),
+                     "rule_suggestion": actions.suggest_transfer_rule_after_mark(db, row)})
 
 
 @app.put("/api/transactions/<int:txn_id>/classify")
@@ -678,6 +679,7 @@ def rule_to_json(r):
         "max_cents": r["max_cents"],
         "set_type": r["set_type"],
         "set_paid_by": r["set_paid_by"],
+        "set_transfer": bool(r["set_transfer"]),
         "enabled": bool(r["enabled"]),
         "created_at": r["created_at"],
         "hit_count": r["hit_count"],

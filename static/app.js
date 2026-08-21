@@ -6,7 +6,7 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
 // Pure presentation helpers live in render.js (loaded before this file) so
 // they can be unit-tested in plain node; app.js pulls them off the global.
-const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, catEmoji,
+const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText, catEmoji,
         vsLastMonth, incomeCardHTML, incomeTrendChartHTML, spendingCompositionHTML,
         memberBreakdownHTML, billVarianceHTML, budgetStatusHTML, savingsRateTrendHTML,
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
@@ -1166,11 +1166,15 @@ async function classifyInflow(id, income_type) {
 // income, spend, and the balance). Closes whichever dialog is open, re-renders.
 async function setTransfer(id, isTransfer) {
   try {
-    await api(`/api/transactions/${id}/transfer`,
-              { method: "PUT", body: { is_transfer: isTransfer } });
+    const res = await api(`/api/transactions/${id}/transfer`,
+                          { method: "PUT", body: { is_transfer: isTransfer } });
     dlgClassify.close();
     dlgTxn.close();
     render();
+    // After the 2nd transfer of a recurring kind, the backend offers a rule
+    // ("always treat matching transactions as transfers?") — chain it on top
+    // of the re-render, same as classify does.
+    if (res && res.rule_suggestion) openRuleDialog(res.rule_suggestion);
   } catch (e) {
     ($("#classify-error") || {}).textContent = e.message;
     ($("#txn-error") || {}).textContent = e.message;
@@ -1183,8 +1187,12 @@ const formRule = $("#form-rule");
 
 function openRuleDialog(suggestion) {
   state.ruleSetType = suggestion.set_type;
+  // A transfer rule marks matches as transfers (is_transfer), not as an income
+  // type — carried through to the POST body and reflected in the prompt copy.
+  state.ruleSetTransfer = !!suggestion.set_transfer;
   $("#rule-error").textContent = "";
-  $("#rule-prompt").textContent = ruleSuggestionText(suggestion.set_type);
+  $("#rule-prompt").textContent = state.ruleSetTransfer
+    ? transferRuleText() : ruleSuggestionText(suggestion.set_type);
   $("#rule-hint").textContent =
     "Trim to a stable part of the description — the source's name, not a date " +
     "or amount that changes each time.";
@@ -1202,7 +1210,9 @@ formRule.addEventListener("submit", async (ev) => {
   }
   try {
     await api("/api/income/rules",
-              { method: "POST", body: { set_type: state.ruleSetType, match_desc } });
+              { method: "POST", body: {
+                set_type: state.ruleSetType, match_desc,
+                set_transfer: state.ruleSetTransfer } });
     dlgRule.close();
     render();
   } catch (e) {

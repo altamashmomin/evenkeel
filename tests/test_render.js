@@ -73,6 +73,13 @@ check("nudgeText agrees with count", () => {
   assert.strictEqual(R.nudgeText(3), "3 inflows still need tagging");
 });
 
+// ---- transferRuleText: transfer nudge copy (not income wording) ----
+check("transferRuleText reads as transfers, not income", () => {
+  const t = R.transferRuleText();
+  assert.ok(/transfer/i.test(t));
+  assert.ok(!/income/i.test(t), "transfer nudge should not say income");
+});
+
 // ---- ruleSuggestionText: type capitalized, one wording ----
 check("ruleSuggestionText capitalizes the type", () => {
   assert.strictEqual(

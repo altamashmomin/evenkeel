@@ -59,7 +59,7 @@ class IncomeRuleRouteTests(unittest.TestCase):
         self.assertEqual(
             ["created_at", "enabled", "hit_count", "id", "match_account",
              "match_desc", "max_cents", "min_cents", "priority", "set_paid_by",
-             "set_type"], sorted(body))
+             "set_transfer", "set_type"], sorted(body))
         self.assertTrue(body["enabled"])
 
         listing = client.get("/api/income/rules").get_json()

@@ -925,7 +925,13 @@ def _validate_income_rule(db, data):
     already has the exact same match criteria (the registry's submission
     criterion — a duplicate would make one of them permanently dead weight).
     """
-    set_type = data.get("set_type")
+    # A transfer rule (set_transfer=1) marks its matches as transfers
+    # (is_transfer=1, migration #013). Since a transfer is neither income nor
+    # spend, its income_type is irrelevant — so set_type defaults to 'transfer'
+    # for a transfer rule, letting the caller create one with just a match
+    # criterion + set_transfer. set_type still must be a real type either way.
+    set_transfer = 1 if data.get("set_transfer") else 0
+    set_type = data.get("set_type") or ("transfer" if set_transfer else None)
     if set_type not in RULE_TYPES:
         raise ActionError(
             "set_type must be one of: " + ", ".join(sorted(RULE_TYPES)))
@@ -963,7 +969,7 @@ def _validate_income_rule(db, data):
     return {"priority": priority, "match_desc": match_desc,
             "match_account": match_account, "min_cents": min_cents,
             "max_cents": max_cents, "set_type": set_type,
-            "set_paid_by": set_paid_by}
+            "set_paid_by": set_paid_by, "set_transfer": set_transfer}
 
 
 def create_income_rule(db, actor, data):
@@ -981,10 +987,11 @@ def create_income_rule(db, actor, data):
         cur = db.execute(
             """INSERT INTO income_rules
                (priority, match_desc, match_account, min_cents, max_cents,
-                set_type, set_paid_by, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                set_type, set_paid_by, set_transfer, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (f["priority"], f["match_desc"], f["match_account"], f["min_cents"],
-             f["max_cents"], f["set_type"], f["set_paid_by"], _now()))
+             f["max_cents"], f["set_type"], f["set_paid_by"], f["set_transfer"],
+             _now()))
         rule = db.execute(
             "SELECT * FROM income_rules WHERE id = ?", (cur.lastrowid,)).fetchone()
         _write_audit(db, actor, "create_income_rule", f"rule:{rule['id']}",
@@ -1066,6 +1073,32 @@ def suggest_rule_after_classify(db, row):
         return None
     return {"match_desc": (row["description"] or "").strip(),
             "set_type": income_type}
+
+
+def suggest_transfer_rule_after_mark(db, row):
+    """The "always treat this as a transfer?" nudge, the transfer-flag analog of
+    suggest_rule_after_classify (T3b). Read-only: returns a pre-filled transfer-
+    rule suggestion for the UI, or None when no offer should be made.
+
+    Offer once, when marking brings the count of transfer INFLOWS to exactly two
+    — the same wait-for-a-repeat aggressiveness the classify nudge uses (a
+    recurring "Payment Thank You" earns a rule; a one-off transfer doesn't nag).
+    Only inflows: rules run on the money-in path, so an outflow transfer can't
+    be ruled. Suppressed when an enabled rule already matches the row (a rule
+    covers it; a second would be dead weight and create_income_rule would reject
+    the duplicate anyway). match_desc is pre-filled from the description for the
+    user to trim to the recurring part; the suggestion carries set_transfer=1."""
+    if row["direction"] != "in" or not row["is_transfer"]:
+        return None
+    count = db.execute(
+        "SELECT COUNT(*) AS n FROM transactions "
+        "WHERE direction = 'in' AND is_transfer = 1").fetchone()["n"]
+    if count != 2:
+        return None
+    if _first_matching_rule(db, row) is not None:
+        return None
+    return {"match_desc": (row["description"] or "").strip(),
+            "set_type": "transfer", "set_transfer": True}
 
 
 def _matching_pass(db, rules=None):

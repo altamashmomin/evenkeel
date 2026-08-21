@@ -169,8 +169,18 @@ carries it (`is_transfer` stays the single source of truth — Approach A over
 coupling income_type). Schema v12 → **v13**. No verb sets the flag yet (T3b), so
 **gate PASS by enumeration** — sole diff schema_version 12→13
 (`notes/013-gate-expectation.seed.json`). On `claude/rule-transfer-t3a-4lt781`;
-suite 576+113. Not deployed. **T3b next: `create_income_rule` accepts the flag +
-the "make this a rule?" nudge after Mark-as-transfer.**
+suite 576+113 (merged to main, PR #25, `28aae38`; not deployed). Then
+**increment T3b** — the mechanism: `create_income_rule` accepts `set_transfer`
+(a transfer rule is just `{match_desc, set_transfer:1}`, set_type defaults to
+'transfer') + `suggest_transfer_rule_after_mark` (offers a pre-filled rule at
+the 2nd transfer, wait-for-a-repeat) surfaced as the `set_transfer` route's
+`rule_suggestion`, chained into the rule dialog after Mark-as-transfer (transfer
+copy via `transferRuleText`). Creating it sweeps the unclassified backlog
+(`apply_rules`, T3a) + self-flags future syncs. On
+`claude/rule-transfer-t3b-4lt781`; suite 582+114, gate PASS zero-diff (no schema
+change), browser-smoke verified (2nd "Payment Thank You" mark fired the nudge,
+created a `set_transfer` rule). Not deployed. **That completes the
+transfer-neutral fix (T1–T3): mark once, then a rule auto-tags the rest.**
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
