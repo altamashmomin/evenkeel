@@ -2987,3 +2987,46 @@ new verb, suggest-don't-assert throughout.
   and the tree diff is empty", which is what was used. A new cloud branch
   (`claude/extract-goalcard`) appeared mid-deploy, no PR yet — the next
   race candidate.
+
+## Aug 21, 2026 — Pantry v2 increment 6: the hygiene layer
+
+The layer that keeps the pantry alive for years. Reads only, no migration,
+no new verb, never touches money.
+- **`stale_staples(db)`** — the curation guard: STOCKED staples with no sign
+  of life. `last_activity` = max(tracked_since, latest status event via
+  `item_history`, latest matched purchase). Clock-free; the view's "Still
+  tracking these?" card applies a 180-day grace and offers the existing
+  stop-tracking action — a prompt to review, never a verdict (salt lasts).
+  Completes the trio with `stale_shopping_items` (list rot) and
+  `unmatched_staples` (broken matches).
+- **`pantry_pulse(db)`** — the weekly digest NAMED: one composition of the
+  named derivations (list + ≈ cost + coverage, `due_soon`, stale staples,
+  list rot, one new-staple suggestion, unmatched count) so the Pi job, the
+  Ask tool, and any future surface say the same thing. `GET
+  /api/inventory/pulse`; `ledger_pantry_pulse` in the Ask AND MCP read tiers
+  (read pins 19→20; Ask 20+10).
+- **The pulse job is Pi-side** — a correction to the amendment's "through the
+  existing ops/cloud-routine layer": the cloud routines can't reach the Pi
+  and the pantry lives only there. `deploy/pantry_pulse.py` reads the digest
+  through the app's OWN API with a read-scope bearer token (never the db —
+  hard rule 6), applies today's horizon (7d) and grace (180d) — it is the
+  consumer that supplies the clock — and files a `pantry-pulse` GitHub issue
+  over the guardian's existing alert bridge (`OPS_ALERT_GH_*`); quiet weeks
+  post nothing; `--dry-run` prints. Units `pifinance-pantry-pulse.{service,
+  timer}` (Sun 09:00, after the sync), install steps in
+  `deploy/pantry-pulse.md` (mint a read token → `.env` `PANTRY_PULSE_TOKEN`
+  → sed-rewrite the units like the others). The formatter is a pure function
+  — `tests/test_pantry_pulse.py` covers horizon/grace/snooze/quiet/no-token
+  with no network. **Awaits Alta's install on the Pi (sudo).**
+- **The Garden line** — "Good morning 🌿 · 3 things on the list". First
+  attempt rode `/api/dashboard` and `test_api_parity` rejected it in under a
+  second: that payload is frozen byte-identical to v1 (the migration #002
+  acceptance criterion), a guarantee I'd forgotten and the test remembered.
+  So it's a tiny `GET /api/inventory/badge` fetched beside the dashboard;
+  a failure there costs only the ambient line.
+- Tests: stale_staples activity logic (add-only / status event / purchase /
+  low excluded), pulse composition parity with the named derivations, the
+  pulse + badge routes (401 anon), MCP parity for the new tool, a render check
+  for the curation card, the formatter suite, and the payload/count pins that
+  caught every new key. Suite **618** python + **139** render. **GATE PASS
+  zero-diff** (old=`611575f`). NOT YET DEPLOYED.

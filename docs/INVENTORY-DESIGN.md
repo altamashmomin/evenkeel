@@ -291,9 +291,12 @@ never count an inflow as a "matched purchase" (they bottom out in
 
 - **Garden**: one ambient line when the list is non-empty ("3 things on the
   list"). The greeting infrastructure already exists.
-- **Weekly pantry pulse** through the existing ops/cloud-routine layer:
-  predicted-low this week, stale candidates, one new-staple suggestion. All
-  derivations exist after this wave; the routine is plumbing.
+- **Weekly pantry pulse** — *corrected at build (inc 6):* NOT a cloud
+  routine (they can't reach the Pi, and the pantry lives only there) but a
+  Pi-side timer like the guardian — `deploy/pantry_pulse.py` reads the named
+  `pantry_pulse` derivation through the app's own API with a read token and
+  files a GitHub issue over the existing alert bridge. Predicted-low this
+  week, stale candidates, list rot, one new-staple suggestion.
 - **Ask**: the new derivations and verbs join the read/write tool surface
   under the existing scopes — "what will the list cost?", "we got everything
   at Costco", "snooze the milk until the 30th".

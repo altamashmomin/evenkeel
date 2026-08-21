@@ -244,7 +244,14 @@ grouped by the purchase behind them → one "Yes, restocked all N" feeding
 `restock_items`); estimate priced two ways; generic nudge yields to a concrete
 closure card. Reads only. Suite 611+138, GATE PASS zero-diff. **DEPLOYED**
 (`main` `ba008a1`, first try; tailnet-verified). `origin/main` == the deployed
-tree.
+tree. Then (Aug 21): **Pantry v2 increment 6 — the hygiene layer**:
+`stale_staples` (curation guard, 180-day view grace, "Still tracking
+these?"), `pantry_pulse` (the weekly digest named; route + Ask/MCP read tool,
+20+10), the Pi-side pulse job (`deploy/pantry_pulse.py` + weekly units +
+install doc — the cloud can't reach the Pi; **awaits Alta's install**), and
+the Garden line via `GET /api/inventory/badge` (the dashboard payload is
+frozen to v1 — parity test enforced it). Suite 618+139, GATE PASS zero-diff.
+On `rework`; **NOT YET DEPLOYED**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
