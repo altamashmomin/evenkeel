@@ -2805,7 +2805,22 @@ the purchase matcher can't see).
   audit timestamps AND `last_stocked_at` explicitly, and use unmatchable item
   names so the seed's "Coffee Shop" purchases can't shunt them onto the
   purchase rung. Suite **604** python + **129** render. **GATE PASS
-  zero-diff** (old=`d10f724`, fixture at the old ref). NOT YET DEPLOYED.
+  zero-diff** (old=`d10f724`, fixture at the old ref). **DEPLOYED (Aug 21,
+  12:03)** — on the THIRD attempt, and the story is worth keeping: (1) Alta
+  ran deploy.sh before the Mac-side merge existed → the no-op guard refused
+  (correct). (2) The merge `b39ed70` was built, but `origin/main` had moved
+  (PR #32 dep floors, then PR #33 log entries, from the `claude/*` lineage —
+  three main-advancing PRs in one day) so Alta's push was rejected;
+  deploy.sh then shipped `2d205dc` (floors + docs, NO inc 3) at 12:00 — a
+  harmless redeploy, caught because the tailnet check for the cadence label
+  read 0. (3) `origin/main` merged into `rework` (PROGRESS-LOG tail conflict
+  resolved; #33's stale "014 merged-but-undeployed" note corrected), `main`
+  rebuilt as `7c32262` on `2d205dc`, pushed (output READ this time), deployed:
+  live gate PASS zero-diff, "nothing to apply", services restarted, backup
+  `finance.db.bak-2026-08-21-120333`. Tailnet-verified: cadence label now
+  served (1), `origin/main` == `7c32262`. Lesson recorded for the ritual:
+  with cloud sessions merging to `main` the same day, push and deploy
+  back-to-back and READ the push result — `[rejected]` means stop.
 
 
 ## Aug 21, 2026 — Frontend: extract `txnRow` + `beamHTML` into `render.js` (PR #31)
