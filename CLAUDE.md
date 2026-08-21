@@ -210,7 +210,7 @@ batch verb ("we got everything"): all-or-nothing validation, per-item audit
 rows via a helper shared with `set_item_status`, callers = thin route + a
 "Got everything (N)" shopping-card button + `ledger_restock_items` in the Ask
 write tier; PARAM_SPECS gained array support. Suite 589+125, GATE PASS
-zero-diff, no schema change. On `rework`; **NOT YET DEPLOYED**.
+zero-diff, no schema change. **DEPLOYED** (`main` `6b3fba9`, live gate PASS zero-diff, tailnet-verified; the deploy also revealed PR #28 had never actually been live — shipped now).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
