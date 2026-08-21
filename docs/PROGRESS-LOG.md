@@ -2717,4 +2717,14 @@ Aug 19 recategorize call — no categories table), so the design answer:
   guards, normalization/rename, items.updated_at stability, and
   balance + monthly totals byte-identical across a merge. Suite **595** python
   + **126** render. **GATE PASS zero-diff** (old=`f825d8c` new=`rework`, 42
-  values). No schema change; never touches money. NOT YET DEPLOYED.
+  values). No schema change; never touches money. **DEPLOYED (Aug 20,
+evening):** `main` advanced to `a40e9ff` (`--no-ff` merge in the reused
+deploy worktree; tree verified byte-identical to `rework` pre-push); Alta ran
+`deploy.sh origin/main` on the Pi — the pasted output was actually the SECOND
+run hitting the Aug-8 no-op guard ("target identical to currently-deployed"),
+i.e. the first run had already applied and restarted cleanly (its smoke check
+is fatal, and the backup `finance.db.bak-2026-08-20-234515` exists from the
+guard run). Tailnet-verified from the Mac: `/api/status` OK,
+`POST /api/categories/merge` **401 unauthenticated**, served `app.js` +
+`render.js` carry the delete zone under stamp `v=1787283822`. Remaining manual
+check (Alta): the delete button enables only once a destination is typed.

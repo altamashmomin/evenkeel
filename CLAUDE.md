@@ -215,7 +215,9 @@ category orphan-proof: one atomic relabel of every reference (transactions all
 months, bills, pantry, budget follows-or-retires) into a required destination;
 Settlement protected; UI = a delete zone in the recategorize sheet ("add" is
 already emergent — type a new name at retag time). Suite 595+126, GATE PASS
-zero-diff, no schema change. On `rework`; **NOT YET DEPLOYED**.
+zero-diff, no schema change. **DEPLOYED** (`main` `a40e9ff`, live no-op
+guard confirmed the apply; tailnet-verified: route 401s, JS carries the
+delete zone).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
