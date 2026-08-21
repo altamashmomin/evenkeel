@@ -60,9 +60,10 @@ script doesn't exist yet, building it precedes the increment it gates.
 ## Current position in the sequence
 
 **The whole `rework` is built, deployed, and live on the Raspberry Pi (schema
-v12 as of Aug 20, 2026 — migration `012_transfer_flag`; v11 held from the
-initial bring-up until then).** `origin/main` == the deployed tree; `origin/rework`
-sits a doc commit or two ahead by convention. The app is feature-complete across its domains — the
+v13 as of Aug 21, 2026 — migration `013_rule_set_transfer`; v12 came the day
+before with `012_transfer_flag`; v11 held from the initial bring-up until then).**
+`origin/main` == the deployed tree; `origin/rework` sits a doc commit or two ahead
+by convention. The app is feature-complete across its domains — the
 who-owes-whom finance core, income classification, analytics (Tiers A–C incl.
 budgets), the household pantry with purchase-feed inference, the assistant (the
 tailnet MCP read+write tier and Charlee's in-app Ask tab), the Garden UI, and a
@@ -179,8 +180,13 @@ copy via `transferRuleText`). Creating it sweeps the unclassified backlog
 (`apply_rules`, T3a) + self-flags future syncs. On
 `claude/rule-transfer-t3b-4lt781`; suite 582+114, gate PASS zero-diff (no schema
 change), browser-smoke verified (2nd "Payment Thank You" mark fired the nudge,
-created a `set_transfer` rule). Not deployed. **That completes the
-transfer-neutral fix (T1–T3): mark once, then a rule auto-tags the rest.**
+created a `set_transfer` rule). **That completes the transfer-neutral fix
+(T1–T3): mark once, then a rule auto-tags the rest.** **DEPLOYED (Aug 21, PRs
+#25+#26, tree `d04fa62`→`4dc262a`):** Alta ran `deploy.sh origin/main` on the Pi
+— the live gate passed with the sole enumerated diff `schema_version 12→13`,
+migration `013` applied to the live DB (**live schema now v13**),
+balance/monthly totals byte-identical. `origin/main` == the deployed tree;
+nothing merged-but-undeployed remains.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
