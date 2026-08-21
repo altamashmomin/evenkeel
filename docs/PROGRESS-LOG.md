@@ -2762,4 +2762,13 @@ Guarded-idempotent, mirrors #009/#011.
   `schema_version 13→14` (`notes/014-gate-expectation.seed.json`; fixture
   built at the OLD ref `bc638dc` so the pre-migration side is genuinely v13 —
   first attempt failed the gate honestly because the fixture had been built
-  post-migration). NOT YET DEPLOYED (deploy applies migration 014 live).
+  post-migration). **DEPLOYED (Aug 21, 2026, 00:00):** `main` advanced to
+`87c1fe7` (`--no-ff` merge, tree byte-identical to `rework`); Alta ran
+`deploy.sh origin/main` on the Pi — dry-run gate **PASS** with exactly the
+enumerated structural diff (`schema_version 13→14`), then
+`migrate.py apply --live` **applied 014** to `finance.db` (**live schema now
+v14**), both services restarted, smoke OK. Rollback backup
+`finance.db.bak-2026-08-21-000006`. Tailnet-verified: `/api/status` OK (the
+app booting at all proves the live DB is v14 — the code hard-rejects any
+other schema), served `app.js`/`render.js` carry the setters, grouped list,
+and snooze drawer under stamp `v=1787284838`.

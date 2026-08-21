@@ -222,8 +222,8 @@ delete zone). Then (Aug 20): **Pantry v2 increment 2 — migration #014**
 metadata setters (no `updated_at` bump — inference-bound rule), the
 store-grouped/deadline-sorted shopping list, view-layer snooze with a Wake
 drawer, and three new Ask tools (19+10). Suite 600+129, GATE PASS by
-enumeration (sole diff schema_version 13→14). On `rework`; **NOT YET
-DEPLOYED** (deploy applies migration 014 live).
+enumeration (sole diff schema_version 13→14). **DEPLOYED** (`main`
+`87c1fe7`, migration 014 applied live — **live schema v14**; tailnet-verified).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
