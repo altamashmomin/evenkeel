@@ -2531,3 +2531,25 @@ mis-signed "Payment Thank You" once, accept the offered rule on the second, and
 every future sync self-flags it (backlog swept via apply_rules). `origin/main` ==
 the deployed tree again; nothing merged-but-undeployed remains. Second live
 schema bump (v11→v12→v13); the money invariants held through both.
+
+**Transfer consistency for the merchant/pantry views — DONE on
+`claude/transfer-merchant-consistency-4lt781` (Aug 21, 2026).** Closes the scope
+boundary T1 deliberately left: the money core (`compute_balance`,
+`spending_summary`, `income_summary`, `member_breakdown`, `settle_breakdown`)
+excluded `is_transfer=1`, but the merchant/pantry inference views still saw
+transfer OUTFLOWS — so a marked "Chase card payment" could show under "top
+merchants" or (worse) be detected as a recurring subscription.
+- **`AND is_transfer = 0` added to every remaining outflow-reading derivation**:
+  `top_merchants`, `recurring_charges`, `new_staple_suggestions`,
+  `last_shopping_trip`, and the pantry purchase-match layer — both
+  `_purchase_index` and `_matching_purchases`' non-index path (kept byte-identical,
+  so restock_suggestions/restock_forecast/unmatched_staples/stale_shopping_items/
+  staple_spend all inherit the exclusion consistently). Now a flagged transfer
+  drops out of EVERY spend/merchant/pantry surface, not just the totals.
+- Pure read-derivation change: no schema, no verb, no money path moved. Tripwire
+  still green (these stay inflow-insensitive — the added filter doesn't change
+  that). Tests: `test_transfer_flag` gains merchant/pantry exclusion cases (a
+  transfer isn't a top merchant, a recurring charge, or a staple purchase). Suite
+  **585 python + 114 render** green; **balance gate PASS zero-diff** (no row
+  flagged in the gate db, and these views aren't gate-checked anyway). NOT
+  DEPLOYED.
