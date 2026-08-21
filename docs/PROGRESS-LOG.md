@@ -2762,7 +2762,51 @@ Guarded-idempotent, mirrors #009/#011.
   `schema_version 13→14` (`notes/014-gate-expectation.seed.json`; fixture
   built at the OLD ref `bc638dc` so the pre-migration side is genuinely v13 —
   first attempt failed the gate honestly because the fixture had been built
-  post-migration). NOT YET DEPLOYED (deploy applies migration 014 live).
+  post-migration). **DEPLOYED (Aug 21, 2026, 00:00):** `main` advanced to
+`87c1fe7` (`--no-ff` merge, tree byte-identical to `rework`); Alta ran
+`deploy.sh origin/main` on the Pi — dry-run gate **PASS** with exactly the
+enumerated structural diff (`schema_version 13→14`), then
+`migrate.py apply --live` **applied 014** to `finance.db` (**live schema now
+v14**), both services restarted, smoke OK. Rollback backup
+`finance.db.bak-2026-08-21-000006`. Tailnet-verified: `/api/status` OK (the
+app booting at all proves the live DB is v14 — the code hard-rejects any
+other schema), served `app.js`/`render.js` carry the setters, grouped list,
+and snooze drawer under stamp `v=1787284838`.
+
+## Aug 21, 2026 — Pantry v2 increment 3: the status-derived cadence
+
+The highest-leverage unbuilt signal from the amendment, now live in the
+forecast: **the household's own stocked→low/out transitions**, already in
+`audit_log`, become a consumption cadence — human-confirmed, immune to the
+merchant-not-product limit (works for items bought inside supermarket runs
+the purchase matcher can't see).
+- **`item_history(db, item_id=None)`** — the status timeline read straight
+  from the audit log (nothing new stored; the log IS the history, this names
+  it): `add_item` / `set_item_status` / `restock_items` rows parsed to
+  {at, actor, action, before, after}. The no-arg form returns the whole map —
+  simultaneously the tripwire-probeable signature and the forecast's shared
+  single-scan index (the `_purchase_index` #16 pattern).
+- **`_status_cycle_days`** — completed cycles only: each 'stocked' to its
+  FIRST departure (low or out); a later low→out doesn't recount; a same-day
+  flip is a correction tap, dropped (mirrors the purchase rung collapsing
+  same-day buys).
+- **`restock_forecast`'s ladder is now three rungs**: manual → **status**
+  (median cycle length, ≥ 2 completed cycles — the same 2-interval bar as the
+  purchase rung's 3-purchase minimum — anchored at `last_stocked_at`) →
+  purchase-median. Recomputed on every read (invariant 4), so each completed
+  cycle tightens the next prediction for free. Clock-free throughout.
+- **Forecast card explainability**: "about every N days (from your last K
+  cycles)" joins the manual/purchases attributions.
+- No migration, no new route, no new Ask tool (the history feeds the forecast;
+  a direct surface can come with a real consumer). Tests: timeline parsing
+  (metadata setters excluded, actors kept), first-departure/same-day cycle
+  rules, rung priority (manual outranks status outranks purchases), the
+  2-cycle bar, a render check for the attribution line — cycle tests pin
+  audit timestamps AND `last_stocked_at` explicitly, and use unmatchable item
+  names so the seed's "Coffee Shop" purchases can't shunt them onto the
+  purchase rung. Suite **604** python + **129** render. **GATE PASS
+  zero-diff** (old=`d10f724`, fixture at the old ref). NOT YET DEPLOYED.
+
 
 ## Aug 21, 2026 — Frontend: extract `txnRow` + `beamHTML` into `render.js` (PR #31)
 
@@ -2828,3 +2872,5 @@ conflict; the combined tree is green (**600** python at time of writing). As of
 this entry `origin/main` = `c5b069c`, **schema v14**, with migration 014 and the
 `urllib3`/`idna` floors both **merged-but-undeployed** — a single `deploy.sh`
 run applies 014 live (→ v14) and, with the venv reinstall, the dep floors.
+
+*(Correction at the Aug 21 sync: the paragraph above was written from the `claude/*` lineage before it saw this log — migration 014 was ALREADY deployed live at 00:00 Aug 21 (see the inc 2 DEPLOYED record above); the `urllib3`/`idna` floors went live with the 12:00 deploy of `2d205dc`.)*

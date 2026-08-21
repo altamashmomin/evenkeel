@@ -716,10 +716,13 @@
       const trailing = days <= 0
         ? `<button class="btn small primary" data-mark-low="${f.item_id}">Mark low</button>`
         : `<span class="badge due">${esc(shortDate(f.predicted_date))}</span>`;
-      // Name where the interval came from, so the prediction isn't a black box:
-      // a manual "every N days" the person set, vs one inferred from the feed.
+      // Name where the interval came from, so the prediction isn't a black
+      // box: a manual "every N days" the person set, the item's own
+      // stocked→out history (inc 3), or a cadence inferred from the feed.
       const cadence = f.interval_source === "manual"
         ? `every ${f.interval_days} days (you set this)`
+        : f.interval_source === "status"
+        ? `about every ${f.interval_days} days (from your last ${f.cycles_seen} cycles)`
         : `about every ${f.interval_days} days (from your purchases)`;
       return `<li>
         <span class="ic">${itemIcon({ name: f.name })}</span>

@@ -191,6 +191,82 @@ class ItemVerbTests(unittest.TestCase):
         # call against the client's today.
         self.assertEqual("2026-09-01", row["snoozed_until"])
 
+    # ---------------- #inc3: item_history + the status-derived cadence rung
+    def set_at(self, item_id, status, at):
+        """A status change pinned to a date: the audit row's `at` (what cycles
+        are computed from) and, for a stock event, last_stocked_at (the
+        forecast's anchor) — both of which the verb stamps with the real now."""
+        actions.set_item_status(self.db, "ui:avery", item_id, status)
+        stamp = at + "T12:00:00+00:00"
+        self.db.execute(
+            "UPDATE audit_log SET at = ? WHERE id = "
+            "(SELECT MAX(id) FROM audit_log WHERE target = ?)",
+            (stamp, f"item:{item_id}"))
+        if status == "stocked":
+            self.db.execute("UPDATE items SET last_stocked_at = ? WHERE id = ?",
+                            (stamp, item_id))
+        self.db.commit()
+
+    def test_item_history_is_the_status_timeline_only(self):
+        item = self.add(name="Coffee")                      # add → stocked
+        other = self.add(name="Milk")
+        actions.set_item_status(self.db, "ui:blake", item["id"], "low")
+        actions.set_item_store(self.db, "ui:avery", item["id"], "Costco")
+        actions.restock_items(self.db, "ui:avery", [item["id"]])
+        events = derivations.item_history(self.db, item["id"])
+        self.assertEqual(
+            [("add_item", None, "stocked"),
+             ("set_item_status", "stocked", "low"),
+             ("restock_items", "low", "stocked")],
+            [(e["action"], e["before"], e["after"]) for e in events])
+        self.assertEqual("ui:blake", events[1]["actor"])
+        # the metadata setter never enters the timeline; the whole-map form
+        # keys by item and includes the other item's add
+        full = derivations.item_history(self.db)
+        self.assertEqual(1, len(full[other["id"]]))
+
+    def test_status_cycles_first_departure_only_and_same_day_dropped(self):
+        item = self.add(name="Moon dust")
+        self.set_at(item["id"], "stocked", "2026-06-01")
+        self.set_at(item["id"], "low", "2026-06-11")        # cycle: 10 days
+        self.set_at(item["id"], "out", "2026-06-14")        # later departure: no
+        self.set_at(item["id"], "stocked", "2026-06-15")
+        self.set_at(item["id"], "out", "2026-06-15")        # same-day: dropped
+        self.set_at(item["id"], "stocked", "2026-06-16")
+        self.set_at(item["id"], "out", "2026-06-28")        # cycle: 12 days
+        cycles = derivations._status_cycle_days(
+            derivations.item_history(self.db, item["id"]))
+        self.assertEqual([10, 12], cycles)
+
+    def test_forecast_status_rung_between_manual_and_purchases(self):
+        item = self.add(name="Moon dust")
+        # two completed cycles (10 and 12 days) then stocked on the 28th
+        self.set_at(item["id"], "stocked", "2026-06-01")
+        self.set_at(item["id"], "low", "2026-06-11")
+        self.set_at(item["id"], "stocked", "2026-06-16")
+        self.set_at(item["id"], "out", "2026-06-28")
+        self.set_at(item["id"], "stocked", "2026-06-28")
+        f = next(f for f in derivations.restock_forecast(self.db)
+                 if f["item_id"] == item["id"])
+        self.assertEqual("status", f["interval_source"])
+        self.assertEqual(2, f["cycles_seen"])
+        self.assertEqual(11, f["interval_days"])            # median of 10, 12
+        # anchored at the last stocked event (last_stocked_at)
+        self.assertEqual("2026-07-09", f["predicted_date"])
+        # a manual interval still outranks the status history
+        actions.set_item_interval(self.db, "ui:avery", item["id"], 30)
+        f = next(f for f in derivations.restock_forecast(self.db)
+                 if f["item_id"] == item["id"])
+        self.assertEqual("manual", f["interval_source"])
+
+    def test_forecast_status_rung_needs_two_cycles(self):
+        item = self.add(name="Moon dust")
+        self.set_at(item["id"], "stocked", "2026-06-01")
+        self.set_at(item["id"], "low", "2026-06-11")        # one cycle only
+        self.set_at(item["id"], "stocked", "2026-06-12")
+        self.assertNotIn(item["id"], [
+            f["item_id"] for f in derivations.restock_forecast(self.db)])
+
     # --------------------------------------------------------- archive_item
     def test_archive_soft_deletes_and_audits(self):
         item = self.add(name="Old thing")
