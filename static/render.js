@@ -1380,8 +1380,29 @@
       </li>`;
   }
 
+  // One Bills-tab row. Pure: paid_this_period picks the "paid" badge + Undo vs
+  // the Mark-paid button; the icon falls back to the bill name when the bill
+  // carries no category. The section-head + empty state stay in app.js, as with
+  // txnRow — this is just the row.
+  function billRowHTML(b) {
+    const action = b.paid_this_period
+      ? `<span class="badge paid">paid</span>
+               <button class="btn small ghost" data-bill-unpay="${b.id}">Undo</button>`
+      : `<button class="btn small" data-bill-pay="${b.id}">Mark paid</button>`;
+    return `
+        <li>
+          <span class="ic">${catEmoji(b.category || b.name)}</span>
+          <div class="grow tap" data-bill-edit="${b.id}">
+            <div class="title">${esc(b.name)}</div>
+            <div class="sub">${esc(b.category)} · due the ${ord(b.due_day)}</div>
+          </div>
+          <span class="amt amount">${fmt(b.amount)}</span>
+          ${action}
+        </li>`;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
-           userById, userColor, beamHTML, txnRow,
+           userById, userColor, beamHTML, txnRow, billRowHTML,
            catEmoji, itemIcon,
            moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
            listEstimateHTML, priceTrendBadge,
