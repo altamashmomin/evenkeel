@@ -3123,6 +3123,11 @@ of touching the database. Now it does, by the book.
 - Tests: 3 verb + 3 route (8 assertions on secrets, refusals, the
   login-follows-the-change proof, anon/bearer refusal, rate limit). Suite
   **624** python + **147** render. **GATE PASS zero-diff** (old=`3210cba`).
-  NOT YET DEPLOYED. Honest note: the dialog wiring in app.js is not
+  **DEPLOYED (Aug 21, 13:08)** — quiet `main`, first try: `4c9d654` on
+  `6b6bbf5` (tree byte-identical to `rework`); live gate PASS zero-diff,
+  "nothing to apply", services restarted, backup
+  `finance.db.bak-2026-08-21-130759`. Tailnet-verified: `POST
+  /api/me/password` **401 unauthenticated**, the Password button + dialog in
+  the served shell, the wiring in `app.js`, `origin/main` == `4c9d654`. Honest note: the dialog wiring in app.js is not
   browser-smoked (seeded users have fake hashes) — Alta's first real use is
   the smoke, and is also the point.
