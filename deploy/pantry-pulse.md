@@ -17,9 +17,17 @@ routines can't reach it and the pantry lives only there.
      -H 'Content-Type: application/json' -d '{"label":"pantry-pulse","scopes":"read"}'
    ```
    Copy the `token` from the response — it is shown exactly once.
-2. Add to `~/pifinance/.env` (never commit it):
+2. Add to `~/pifinance/.env` (never commit it) — the bare token, NO angle
+   brackets (a literal `<…>` breaks `.env` sourcing and the bearer header):
    ```
-   PANTRY_PULSE_TOKEN=<the token>
+   PANTRY_PULSE_TOKEN=the_token_value
+   ```
+   Safer: pipe the mint response straight into `.env` so the token is never
+   displayed or retyped:
+   ```bash
+   curl -s -b cookies.txt -X POST http://127.0.0.1:8080/api/tokens \
+     -H 'Content-Type: application/json' -d '{"label":"pantry-pulse","scopes":"read"}' \
+     | venv/bin/python -c 'import sys,json; t=json.load(sys.stdin)["token"]; open(".env","a").write("PANTRY_PULSE_TOKEN=%s\n"%t)'
    ```
    `OPS_ALERT_GH_REPO` / `OPS_ALERT_GH_TOKEN` are already there from the guardian.
 3. Install the units, rewriting user/paths as for the other units:
@@ -44,5 +52,7 @@ routines can't reach it and the pantry lives only there.
 (default 180) in `.env`. Change the day/time in the timer's `OnCalendar`.
 
 ## Rotation
-The read token doesn't expire but can be revoked in the app
-(`DELETE /api/tokens/<id>`); the GitHub PAT rotates with the guardian's.
+The read token doesn't expire but can be revoked (`POST
+/api/tokens/<id>/revoke` with a session; `GET /api/tokens` lists ids). If a
+token is ever displayed or pasted anywhere, revoke it and mint a fresh one.
+The GitHub PAT rotates with the guardian's.
