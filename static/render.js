@@ -903,8 +903,14 @@
   function inventoryHTML(data, todayISO) {
     const items = data.items || [];
     const shopping = data.shopping || [];
-    const suggestions = data.restock_suggestions || [];
-    const forecastCard = restockForecastHTML(data.restock_forecast, todayISO);
+    // #014 snooze is view-layer: the derivations are clock-free, so "snoozed
+    // right now" means snoozed_until is strictly after the client's today.
+    // A snoozed item leaves the active list AND its restock nudges.
+    const isSnoozed = (x) =>
+      !!(x.snoozed_until && todayISO && x.snoozed_until > todayISO);
+    const suggestions = (data.restock_suggestions || []).filter((s) => !isSnoozed(s));
+    const forecastCard = restockForecastHTML(
+      (data.restock_forecast || []).filter((f) => !isSnoozed(f)), todayISO);
     const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions);
     const matchCard = unmatchedStaplesHTML(data.unmatched_staples, todayISO);
     const staleCard = staleShoppingHTML(data.stale_shopping_items, todayISO);
@@ -929,23 +935,69 @@
         </div>`
       : "";
 
-    const shopRows = shopping.length
-      ? `<ul class="list">${shopping.map((it) => {
-          const tag = it.kind === "oneoff"
-            ? `<span class="badge due">need</span>`
-            : `<span class="badge ${it.status === "out" ? "overdue" : "due"}">${esc(it.status)}</span>`;
-          const sub = it.note ? esc(it.note) : (it.kind === "oneoff" ? "one-off" : "staple");
-          return `<li>
+    const activeShopping = shopping.filter((it) => !isSnoozed(it));
+    const snoozedShopping = shopping.filter(isSnoozed);
+    const shopRow = (it) => {
+      const tag = it.kind === "oneoff"
+        ? `<span class="badge due">need</span>`
+        : `<span class="badge ${it.status === "out" ? "overdue" : "due"}">${esc(it.status)}</span>`;
+      // A deadline badge frames urgency against the client's today (#014).
+      const needBy = it.need_by
+        ? `<span class="badge ${todayISO && it.need_by < todayISO ? "overdue" : "due"}">by ${esc(shortDate(it.need_by))}</span>`
+        : "";
+      const sub = it.note ? esc(it.note) : (it.kind === "oneoff" ? "one-off" : "staple");
+      return `<li>
+        <span class="ic">${itemIcon(it)}</span>
+        <div class="grow">
+          <div class="title">${esc(it.name)}</div>
+          <div class="sub">${sub}</div>
+        </div>
+        ${needBy}
+        ${tag}
+        <button class="btn small" data-item-got="${it.id}">Got it</button>
+        <button class="item-x item-match" data-item-needby="${it.id}"
+                aria-label="Set a deadline for ${esc(it.name)}">📅</button>
+        <button class="item-x item-match" data-item-snooze="${it.id}"
+                aria-label="Snooze ${esc(it.name)}">💤</button>
+      </li>`;
+    };
+    // Grouped by store when any active row has one (#014): stores A→Z, the
+    // ungrouped rest last under "Anywhere". No stores set → the flat list.
+    let shopList;
+    if (activeShopping.some((it) => it.store)) {
+      const groups = new Map();
+      activeShopping.forEach((it) => {
+        const key = it.store || "";
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(it);
+      });
+      const stores = [...groups.keys()].filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      if (groups.has("")) stores.push("");
+      shopList = stores.map((store) => `
+        <p class="sub shop-store">${store ? "🏬 " + esc(store) : "Anywhere"}</p>
+        <ul class="list">${groups.get(store).map(shopRow).join("")}</ul>`).join("");
+    } else {
+      shopList = `<ul class="list">${activeShopping.map(shopRow).join("")}</ul>`;
+    }
+    const snoozedRows = snoozedShopping.length
+      ? `<details class="shop-snoozed">
+          <summary>💤 Snoozed (${snoozedShopping.length})</summary>
+          <ul class="list">${snoozedShopping.map((it) => `<li>
             <span class="ic">${itemIcon(it)}</span>
             <div class="grow">
               <div class="title">${esc(it.name)}</div>
-              <div class="sub">${sub}</div>
+              <div class="sub">until ${esc(shortDate(it.snoozed_until))}</div>
             </div>
-            ${tag}
-            <button class="btn small" data-item-got="${it.id}">Got it</button>
-          </li>`;
-        }).join("")}</ul>`
-      : `<p class="empty">Nothing to buy — you're all stocked 🌿</p>`;
+            <button class="btn small" data-item-wake="${it.id}">Wake</button>
+          </li>`).join("")}</ul>
+        </details>`
+      : "";
+    const shopRows = (activeShopping.length
+      ? shopList
+      : `<p class="empty">${snoozedShopping.length
+          ? "Nothing needed right now — some items are snoozed below."
+          : "Nothing to buy — you're all stocked 🌿"}</p>`) + snoozedRows;
 
     const stapleRows = items.length
       ? `<ul class="list">${items.map((it) => `
@@ -956,10 +1008,13 @@
               ${it.note ? `<div class="sub">${esc(it.note)}</div>` : ""}
               ${it.restock_interval_days ? `<div class="sub match-hint">⏰ remind every ${it.restock_interval_days} days</div>` : ""}
               ${it.restock_match ? `<div class="sub match-hint">🔎 matches “${esc(it.restock_match)}”</div>` : ""}
+              ${it.store ? `<div class="sub match-hint">🏬 ${esc(it.store)}</div>` : ""}
             </div>
             <button class="status-chip ${it.status}" data-item-cycle="${it.id}"
                     data-status="${it.status}"
                     aria-label="${esc(it.name)} is ${it.status}; tap to change">${esc(it.status)}</button>
+            <button class="item-x item-match" data-item-store="${it.id}"
+                    aria-label="Set where ${esc(it.name)} is bought">🏬</button>
             <button class="item-x item-match" data-item-interval="${it.id}"
                     aria-label="Set a restock reminder for ${esc(it.name)}">⏰</button>
             <button class="item-x item-match" data-item-match="${it.id}"
@@ -979,8 +1034,8 @@
       <div class="card">
         <p class="eyebrow">Need to buy</p>
         ${shopRows}
-        ${shopping.length > 1 ? `<button class="btn small" id="inv-got-all"
-          data-got-all="${shopping.map((it) => it.id).join(",")}">Got everything (${shopping.length})</button>` : ""}
+        ${activeShopping.length > 1 ? `<button class="btn small" id="inv-got-all"
+          data-got-all="${activeShopping.map((it) => it.id).join(",")}">Got everything (${activeShopping.length})</button>` : ""}
         <form class="inv-add" id="inv-add-oneoff" autocomplete="off">
           <input name="name" maxlength="100" placeholder="Add something to buy…">
           <button class="btn small primary" type="submit">Add</button>

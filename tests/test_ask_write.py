@@ -181,6 +181,19 @@ class AskWriteTests(unittest.TestCase):
         self.assertEqual("ui:avery", self.audited("restock_items", coffee)["actor"])
         self.assertEqual("ui:avery", self.audited("restock_items", milk)["actor"])
 
+    def test_snooze_tool_sets_the_pause_as_the_person(self):
+        item_id = self.a_staple()
+        mock = MockAnthropic([
+            resp([tool_block("ledger_set_item_snooze",
+                             {"item_id": item_id, "until": "2026-08-30"})], "tool_use"),
+            resp([text_block("Snoozed Coffee until Aug 30 ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="stop reminding us about coffee until the 30th",
+                       caller=self.caller)
+        self.assertEqual(["ledger_set_item_snooze"], out["tools_used"])
+        self.assertEqual("2026-08-30", self.item_row(item_id)["snoozed_until"])
+        self.assertEqual("ui:avery", self.audited("set_item_snooze", item_id)["actor"])
+
     def test_set_match_tool_sets_the_phrase_as_the_person(self):
         item_id = self.a_staple()
         mock = MockAnthropic([
@@ -226,7 +239,7 @@ class AskWriteTests(unittest.TestCase):
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(26, len(tools))  # 19 read + 7 write
+        self.assertEqual(29, len(tools))  # 19 read + 10 write
         names = [t["name"] for t in tools]
         self.assertIn("ledger_classify_inflow", names)
         self.assertIn("ledger_add_item", names)

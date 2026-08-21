@@ -2717,4 +2717,49 @@ Aug 19 recategorize call — no categories table), so the design answer:
   guards, normalization/rename, items.updated_at stability, and
   balance + monthly totals byte-identical across a merge. Suite **595** python
   + **126** render. **GATE PASS zero-diff** (old=`f825d8c` new=`rework`, 42
-  values). No schema change; never touches money. NOT YET DEPLOYED.
+  values). No schema change; never touches money. **DEPLOYED (Aug 20,
+evening):** `main` advanced to `a40e9ff` (`--no-ff` merge in the reused
+deploy worktree; tree verified byte-identical to `rework` pre-push); Alta ran
+`deploy.sh origin/main` on the Pi — the pasted output was actually the SECOND
+run hitting the Aug-8 no-op guard ("target identical to currently-deployed"),
+i.e. the first run had already applied and restarted cleanly (its smoke check
+is fatal, and the backup `finance.db.bak-2026-08-20-234515` exists from the
+guard run). Tailnet-verified from the Mac: `/api/status` OK,
+`POST /api/categories/merge` **401 unauthenticated**, served `app.js` +
+`render.js` carry the delete zone under stamp `v=1787283822`. Remaining manual
+check (Alta): the delete button enables only once a destination is typed.
+
+## Aug 20, 2026 — Pantry v2 increment 2: migration #014 + the store-grouped list
+
+**Migration `014_item_store_needby_snooze`** (schema v13 → **v14**): three
+nullable TEXT columns on `items`, each per the amendment's codified grammar
+(NULL = today's exact behavior) — `store` (where it's bought), `need_by`
+(a 'YYYY-MM-DD' deadline), `snoozed_until` (pause nudges until a date).
+Guarded-idempotent, mirrors #009/#011.
+- **Verbs**: `set_item_store` / `set_item_need_by` / `set_item_snooze` — one
+  shared metadata edit, audited before/after, that deliberately does NOT bump
+  `updated_at` (it's restock inference's since-bound; metadata is not a stock
+  event — the merge_category rationale, now a rule for metadata setters).
+  Dates validated as exact ISO; blank clears. Registry rows in CORE-DESIGN.
+- **Derivations stay clock-free**: `shopping_list` orders deadline-soonest
+  first, then status severity; rows carry the new columns; the three nudge
+  emitters (`restock_suggestions`, both `restock_forecast` branches) pass
+  `snoozed_until` through so the VIEW decides "snoozed right now" against the
+  client's today.
+- **Frontend**: the Need-to-buy card groups by store when any is set (A→Z,
+  ungrouped last as "Anywhere"; flat list otherwise), need-by badges (overdue
+  vs due framed against today), a "💤 Snoozed (N)" drawer with one-tap Wake,
+  "Got everything" now covers only awake rows, snoozed items also drop out of
+  the restock-nudge and forecast cards; 🏬/📅/💤 prompt-setters mirror the
+  match/interval idiom.
+- **Ask**: three new tools (`ledger_set_item_store` / `_need_by` / `_snooze`),
+  19 read + 10 write; prompt prose teaches the phrases ("candles before
+  Saturday", "stop reminding us about milk until the 30th").
+- Tests: setter set/clear/audit + updated_at stability, date validation,
+  deadline sort, snooze passthrough, an Ask snooze flow, and 3 render checks
+  (grouping, badges, snoozed drawer + got-all exclusion). Suite **600** python
+  + **129** render. **GATE PASS by enumeration** — sole diff
+  `schema_version 13→14` (`notes/014-gate-expectation.seed.json`; fixture
+  built at the OLD ref `bc638dc` so the pre-migration side is genuinely v13 —
+  first attempt failed the gate honestly because the fixture had been built
+  post-migration). NOT YET DEPLOYED (deploy applies migration 014 live).

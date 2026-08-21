@@ -1,0 +1,6 @@
+{
+  "note": "Migration #014 (items.store + items.need_by + items.snoozed_until -- Pantry v2 amendment increment 2). Adds THREE nullable TEXT columns to the existing items table: no new table and no new rows, so the only row-count change is the schema_version record itself. Every column defaults to NULL (= the pre-#014 behavior: ungrouped, no deadline, not snoozed), the setters land in this same increment but nothing writes the columns until a person does, and the pantry never touches money -- the who-owes-whom balance and every monthly total are byte-identical, so they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 13, "new": 14}
+  ]
+}

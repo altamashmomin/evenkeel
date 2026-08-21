@@ -776,11 +776,16 @@ _ITEM_STATUS_ORDER = "CASE status WHEN 'out' THEN 0 WHEN 'low' THEN 1 ELSE 2 END
 def shopping_list(db):
     """Everything that needs buying: active staples at 'low'/'out', plus every
     active one-off need. The "what do we need?" read the SPA and the assistant
-    both call. Ordered most-urgent (out) first, then by name."""
+    both call. Ordered by deadline first (a need_by item is urgent by
+    declaration, soonest first — #014), then most-urgent status (out), then
+    name. Rows carry store/need_by/snoozed_until (SELECT *); grouping by store
+    and hiding currently-snoozed rows are VIEW-layer concerns against the
+    client's date — this stays clock-free."""
     rows = db.execute(
         "SELECT * FROM items WHERE active = 1 AND ("
         "  (kind = 'staple' AND status IN ('low', 'out')) OR kind = 'oneoff'"
-        f") ORDER BY {_ITEM_STATUS_ORDER}, name COLLATE NOCASE").fetchall()
+        f") ORDER BY (need_by IS NULL), need_by, {_ITEM_STATUS_ORDER}, "
+        "name COLLATE NOCASE").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -891,6 +896,7 @@ def restock_suggestions(db):
         row = rows[0]  # most recent matching purchase (helper orders DESC)
         out.append({
             "item_id": it["id"], "name": it["name"], "status": it["status"],
+            "snoozed_until": it["snoozed_until"],
             "matched_by": "phrase" if it["restock_match"] else "name",
             "purchase": {"date": row["txn_date"], "description": row["description"],
                          "amount_cents": row["amount_cents"]},
@@ -957,6 +963,7 @@ def restock_forecast(db, min_purchases=3):
             predicted = date.fromisoformat(anchor) + timedelta(days=interval)
             out.append({
                 "item_id": it["id"], "name": it["name"], "status": it["status"],
+                "snoozed_until": it["snoozed_until"],
                 "purchases_seen": len(days),
                 "interval_days": interval,
                 "interval_source": "manual",
@@ -974,6 +981,7 @@ def restock_forecast(db, min_purchases=3):
         predicted = dates[-1] + timedelta(days=interval)
         out.append({
             "item_id": it["id"], "name": it["name"], "status": it["status"],
+            "snoozed_until": it["snoozed_until"],
             "purchases_seen": len(days),
             "interval_days": interval,
             "interval_source": "cadence",

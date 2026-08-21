@@ -42,8 +42,9 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual(201, created.status_code)
         item = created.get_json()
         self.assertEqual(
-            ["category", "id", "kind", "last_stocked_at", "name", "note",
-             "restock_interval_days", "restock_match", "status", "updated_at"],
+            ["category", "id", "kind", "last_stocked_at", "name", "need_by",
+             "note", "restock_interval_days", "restock_match", "snoozed_until",
+             "status", "store", "updated_at"],
             sorted(item))
         self.assertEqual("stocked", item["status"])
 

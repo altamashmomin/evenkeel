@@ -140,6 +140,57 @@ class ItemVerbTests(unittest.TestCase):
         self.assertEqual(1, len(self.db.execute(
             "SELECT 1 FROM audit_log WHERE action = 'restock_items'").fetchall()))
 
+    # ------------------------- #014 metadata setters (store/need_by/snooze)
+    def test_metadata_setters_set_clear_and_audit_without_touching_updated_at(self):
+        item = self.add(name="Dog food")
+        for verb, column, value in (
+                (actions.set_item_store, "store", "Costco"),
+                (actions.set_item_need_by, "need_by", "2026-08-22"),
+                (actions.set_item_snooze, "snoozed_until", "2026-08-30")):
+            row = verb(self.db, "ui:avery", item["id"], value)
+            self.assertEqual(value, row[column])
+            # Metadata is not a stock event: updated_at (restock inference's
+            # since-bound) must not move.
+            self.assertEqual(item["updated_at"], row["updated_at"])
+            row = verb(self.db, "ui:avery", item["id"], "")     # blank clears
+            self.assertIsNone(row[column])
+        audits = [r["action"] for r in self.db.execute(
+            "SELECT action FROM audit_log WHERE target = ? "
+            "AND action LIKE 'set_item_%' ORDER BY id",
+            (f"item:{item['id']}",)).fetchall()]
+        self.assertEqual(["set_item_store"] * 2 + ["set_item_need_by"] * 2
+                         + ["set_item_snooze"] * 2, audits)
+
+    def test_metadata_setters_validate_dates_and_missing_items(self):
+        item = self.add(name="Rice")
+        for verb in (actions.set_item_need_by, actions.set_item_snooze):
+            for bad in ("tomorrow", "2026-8-2", "08/30/2026"):
+                with self.assertRaisesRegex(actions.ActionError, "date like"):
+                    verb(self.db, "ui:avery", item["id"], bad)
+            with self.assertRaises(actions.NotFound):
+                verb(self.db, "ui:avery", 999999, "2026-08-30")
+        with self.assertRaises(actions.NotFound):
+            actions.set_item_store(self.db, "ui:avery", 999999, "Costco")
+
+    def test_shopping_list_sorts_need_by_soonest_first(self):
+        later = self.add(name="Zebra snacks", kind="oneoff")
+        soon = self.add(name="Candles", kind="oneoff")
+        undated = self.add(name="Milk", status="out")
+        actions.set_item_need_by(self.db, "ui:avery", later["id"], "2026-09-15")
+        actions.set_item_need_by(self.db, "ui:avery", soon["id"], "2026-08-22")
+        names = [i["name"] for i in derivations.shopping_list(self.db)]
+        # deadlined items first (soonest first), the undated after
+        self.assertEqual(["Candles", "Zebra snacks", "Milk"], names)
+
+    def test_snoozed_until_rides_along_on_the_nudge_derivations(self):
+        item = self.add(name="Coffee", status="low")
+        actions.set_item_snooze(self.db, "ui:avery", item["id"], "2026-09-01")
+        row = next(i for i in derivations.shopping_list(self.db)
+                   if i["id"] == item["id"])
+        # clock-free: the row CARRIES the date; hiding it "now" is the view's
+        # call against the client's today.
+        self.assertEqual("2026-09-01", row["snoozed_until"])
+
     # --------------------------------------------------------- archive_item
     def test_archive_soft_deletes_and_audits(self):
         item = self.add(name="Old thing")
