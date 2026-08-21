@@ -237,7 +237,13 @@ from median restock cost (unpriced lines stay honest; coverage reported) and
 badges; Ask's inventory tool taught the questions. Suite 608+135, GATE PASS
 zero-diff. **DEPLOYED** (`main` `7f5334a`, alongside the cloud lineage's PR
 #34 billRow extraction folded in pre-push; tailnet-verified). `origin/main`
-== the deployed tree.
+== the deployed tree. Then (Aug 21): **Pantry v2 increment 5 — the trip
+composition**: `trip_plan` (the priced list + `due_soon` stocked staples with
+store/price — "also grab while you're out") and `trip_closure` (restock hints
+grouped by the purchase behind them → one "Yes, restocked all N" feeding
+`restock_items`); estimate priced two ways; generic nudge yields to a concrete
+closure card. Reads only. Suite 611+138, GATE PASS zero-diff. On `rework`;
+**NOT YET DEPLOYED**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

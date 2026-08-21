@@ -2935,3 +2935,45 @@ exactly these two). Reads only; outflows only; never moves money.
   `billRowHTML` served, `origin/main` == `7f5334a`. The ritual now includes
   a fetch immediately before building the merge — it turned a post-deploy
   surprise into a pre-push detour.
+
+## Aug 21, 2026 — Pantry v2 increment 5: the trip composition
+
+The "compose" increment: every primitive already existed (the list, the
+forecast, the estimate, `restock_items`, `last_shopping_trip`); this wires
+them into the shape of an actual shopping trip. Reads only, no migration, no
+new verb, suggest-don't-assert throughout.
+- **`trip_plan(db)`** — the priced list PLUS `due_soon`: stocked,
+  forecast-able staples (not already listed) with `predicted_date`,
+  `interval_source`, `store`, and `typical_cents` via a new shared
+  `_typical_cost` (so `list_estimate` and the plan price an item identically).
+  Clock-free like the forecast it composes — "due this week" and "not snoozed
+  right now" are the view's calls. `restock_forecast` emits now carry `store`
+  so the composition can be per-store.
+- **`trip_closure(db)`** — `restock_suggestions` grouped by the purchase
+  behind them (date + description + amount; purchase rows carry no id). Only
+  groups of 2+ qualify — one supermarket visit that plausibly restocked
+  coffee AND milk becomes one decision; a lone hint stays per-item. Feeds the
+  `restock_items` batch verb (inc 1). Inherits the outflows-only /
+  since-it-ran-low filters, so inflow-insensitive by construction.
+- **Frontend**: under the Need-to-buy list, "Also grab while you're out (N)"
+  (7-day horizon against today; each row shows due-in, 🏬 store, ~price; its
+  action is the existing "Mark low" relabelled "Add to list"); the estimate
+  line prices the trip two ways — "This trip ≈ $85 · ≈ $110 with the 2 due
+  soon". Above the cards, "Looks like a restock trip — 🛒 COSTCO · Aug 19 ·
+  $142" with item chips and ONE "Yes, restocked all N" (→ `POST
+  /api/inventory/restock`); its items leave the per-item "Looks like you
+  restocked?" card, and the generic "You shopped — check your list" nudge
+  yields to it (same event, one card). Snoozed items are dropped from both
+  views before grouping.
+- **Ask**: `ledger_inventory`'s description teaches `trip_plan` ("judge
+  'soon' against today's date yourself") and `trip_closure` ("confirm with
+  ledger_restock_items, never assume"); payload flows through the existing
+  tool, read pins unchanged.
+- Tests: plan composition (listed items excluded from due_soon; store /
+  source / typical / anchor date; list total == `list_estimate`'s), closure
+  grouping (2+ by purchase, lone hint stays per-item), an explicit
+  `trip_closure_ignores_inflows`, the route + MCP key pins, and 3 render
+  checks (due block with horizon + snooze + price; closure confirm carries
+  ids; closure hides covered per-item hints and the generic nudge). Suite
+  **611** python + **138** render. **GATE PASS zero-diff** (old=`c93adc8`).
+  NOT YET DEPLOYED.
