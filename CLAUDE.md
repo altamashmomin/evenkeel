@@ -223,7 +223,12 @@ metadata setters (no `updated_at` bump — inference-bound rule), the
 store-grouped/deadline-sorted shopping list, view-layer snooze with a Wake
 drawer, and three new Ask tools (19+10). Suite 600+129, GATE PASS by
 enumeration (sole diff schema_version 13→14). **DEPLOYED** (`main`
-`87c1fe7`, migration 014 applied live — **live schema v14**; tailnet-verified).
+`87c1fe7`, migration 014 applied live — **live schema v14**; tailnet-verified). Then (Aug 21): **Pantry v2 increment 3 — the status-derived
+cadence**: `item_history` (the audit log's status timeline, named) +
+`restock_forecast`'s third rung (manual → status → purchase-median; median
+stocked→low/out cycle, ≥ 2 cycles, anchored at `last_stocked_at`), with the
+forecast card attributing it ("from your last K cycles"). No migration.
+Suite 604+129, GATE PASS zero-diff. On `rework`; **NOT YET DEPLOYED**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
