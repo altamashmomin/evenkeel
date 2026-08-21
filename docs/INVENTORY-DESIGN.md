@@ -300,7 +300,7 @@ never count an inflow as a "matched purchase" (they bottom out in
 
 Steps 1–3 are the daily-feel wave; 4–5 make it magic; 6 keeps it alive for
 years. Every step is one verb, one migration, or one derivation — none
-touches a money write path, so all gate zero-diff except #012's enumerated
+touches a money write path, so all gate zero-diff except #014's enumerated
 schema bump.
 
 ## Still refused (v2 edition)
