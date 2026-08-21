@@ -14,7 +14,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         goalWhatIfText, goalPaceLineHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
-        beamHTML, txnRow } = window.Render;
+        beamHTML, txnRow, billRowHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -498,19 +498,7 @@ async function renderBills() {
   const bills = await api("/api/bills");
   window._bills = bills;
   const rows = bills.length
-    ? `<ul class="list">${bills.map((b) => `
-        <li>
-          <span class="ic">${catEmoji(b.category || b.name)}</span>
-          <div class="grow tap" data-bill-edit="${b.id}">
-            <div class="title">${esc(b.name)}</div>
-            <div class="sub">${esc(b.category)} · due the ${ord(b.due_day)}</div>
-          </div>
-          <span class="amt amount">${fmt(b.amount)}</span>
-          ${b.paid_this_period
-            ? `<span class="badge paid">paid</span>
-               <button class="btn small ghost" data-bill-unpay="${b.id}">Undo</button>`
-            : `<button class="btn small" data-bill-pay="${b.id}">Mark paid</button>`}
-        </li>`).join("")}</ul>`
+    ? `<ul class="list">${bills.map(billRowHTML).join("")}</ul>`
     : `<p class="empty">No recurring bills yet.</p>`;
   return `
     <div class="section-head">

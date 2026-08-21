@@ -1232,4 +1232,34 @@ check("txnRow escapes hostile description/category (no breakout)", () => {
   assert.ok(r.includes("&lt;img"));
 });
 
+// ---- billRowHTML: the Bills-tab row (paid/unpaid branch, icon fallback) ----
+check("billRowHTML paid: 'paid' badge + Undo, no Mark-paid button", () => {
+  const h = R.billRowHTML({ id: 7, name: "Rent", category: "Housing",
+    due_day: 1, amount: 1800, paid_this_period: true });
+  assert.ok(h.includes("badge paid"), "paid badge shown");
+  assert.ok(h.includes('data-bill-unpay="7"'), "Undo wired");
+  assert.ok(!h.includes("data-bill-pay="), "no Mark-paid button when already paid");
+  assert.ok(h.includes("Rent") && h.includes("$1,800.00") && h.includes("due the 1st"));
+  assert.ok(h.includes('data-bill-edit="7"'), "row body taps through to edit");
+});
+check("billRowHTML unpaid: Mark-paid button, no paid badge/Undo", () => {
+  const h = R.billRowHTML({ id: 8, name: "Netflix", category: "Entertainment",
+    due_day: 22, amount: 15.49, paid_this_period: false });
+  assert.ok(h.includes('data-bill-pay="8"'), "Mark-paid wired");
+  assert.ok(!h.includes("badge paid") && !h.includes("data-bill-unpay"), "no paid affordances");
+  assert.ok(h.includes("due the 22nd"));
+});
+check("billRowHTML icon falls back to the bill name when category is blank", () => {
+  // catEmoji(category || name): "Water Co" has no category -> matches /water/.
+  const h = R.billRowHTML({ id: 9, name: "Water Co", category: "",
+    due_day: 3, amount: 42, paid_this_period: false });
+  assert.ok(h.includes("💧"), "name-derived emoji when category empty");
+});
+check("billRowHTML escapes hostile name/category (no breakout)", () => {
+  const h = R.billRowHTML({ id: 10, name: 'A"<b>&', category: 'C"<x>',
+    due_day: 21, amount: 1, paid_this_period: true });
+  assert.ok(!h.includes("<b>") && !h.includes("<x>"), "markup neutralized");
+  assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
+});
+
 console.log(`render tests passed (${passed} checks)`);
