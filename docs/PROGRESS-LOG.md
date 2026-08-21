@@ -2977,3 +2977,42 @@ new verb, suggest-don't-assert throughout.
   ids; closure hides covered per-item hints and the generic nudge). Suite
   **611** python + **138** render. **GATE PASS zero-diff** (old=`c93adc8`).
   NOT YET DEPLOYED.
+
+## Aug 21, 2026 — Frontend seam thread: extract billRowHTML, goalCardHTML, contribLogHTML (PRs #34, #35)
+
+Two more increments continuing the render-extraction thread started by
+txnRow/beamHTML (PR #31): the remaining high-value pure `data -> HTML` builders
+still inline in `app.js` moved into `render.js`, where node can unit-test them
+headless. All behaviour-neutral.
+- **PR #34 — `billRowHTML(b)`** (the Bills-tab row). Fully pure (esc/ord/fmt/
+  catEmoji) so **no dependency injection needed**. Captures the paid/unpaid
+  branch (paid -> "paid" badge + Undo vs Mark-paid) and the category-or-name
+  icon fallback. `renderBills` now does `bills.map(billRowHTML)`; the wireMain
+  handlers are untouched (row still emits `data-bill-edit`/`-pay`/`-unpay`).
+  **+4 seam checks** (node 129 -> 133 at merge).
+- **PR #35 — `goalCardHTML(g, paceEntry, logOpen, logHTML)` + `contribLogHTML(rows)`**
+  (the Goals-tab card + its contribution log), finishing the seam that
+  `goalPaceLineHTML` started. The card takes state by **injection** — the pace
+  entry, whether the log is expanded (drives the toggle label AND whether the
+  log is shown), and the pre-rendered log — so it stays pure. The what-if input
+  gate (pace exists && status != complete) and the log toggle are now covered.
+  `goalPaceLineHTML` moved *inside* `goalCardHTML`, so `app.js` dropped it as a
+  dead import (`goalWhatIfText` stays — the what-if keyup handler uses it).
+  `renderGoals` shrinks to fetch + orchestration. **+10 seam checks**
+  (contribLogHTML 3 + goalCardHTML 7).
+- **Render-parity gate** (the frontend analog for a pure move, scratch harness):
+  each increment's OLD inline builder vs its NEW render.js fn is byte-identical
+  on content — bill across 5 rows, goals across 16 cases (pace on_track /
+  complete / none x logOpen x log present; contrib log empty / deposit + /
+  withdrawal - / note+escape) — identical only modulo render.js's indentation,
+  which collapses on `innerHTML`. Every byte of text/attr content preserved.
+- **No money path** in either — frontend-only, so the balance gate does not
+  apply (zero Python changed). Both merged to main (`47cb836`, `53db45a`); the
+  combined tree with the parallel Pantry v2 work is green (**611** python +
+  **146** render at time of writing). NOT YET DEPLOYED (rides the next deploy;
+  behaviour-neutral, no migration).
+
+That closes the seam thread's high-value targets — activity row, balance hero,
+bill row, goal card. The one builder left inline (the Dashboard mini-cards) is
+low logic-density and deliberately left for when it's next touched, per the
+CLAUDE.md "extract when touched" rule.
