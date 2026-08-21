@@ -322,6 +322,22 @@ READ_TOOLS = [
         "input_schema": _obj(),
         "fetch": lambda g, a: g("/api/inventory", {}),
     },
+    {
+        "name": "ledger_pantry_pulse",
+        "description":
+            "The weekly pantry digest in one read: what's on the shopping list "
+            "(with ≈ cost and how many lines are priced), due_soon (stocked "
+            "staples the forecast expects to run out — each with predicted_date, "
+            "store, typical cost; judge 'soon' against today's date yourself), "
+            "stale_staples (stocked for a long time with no status change or "
+            "purchase — last_activity per item; ~6 months is the usual grace; a "
+            "prompt to review, never a verdict: salt lasts), stale_shopping_items "
+            "(on the list a while), one new_staple_suggestion, and unmatched_count. "
+            "Use it for 'how's the pantry looking?' / a weekly check-in. Groceries "
+            "and supplies, never money; nothing here changes anything.",
+        "input_schema": _obj(),
+        "fetch": lambda g, a: g("/api/inventory/pulse", {}),
+    },
 ]
 
 _BY_NAME = {t["name"]: t for t in READ_TOOLS}

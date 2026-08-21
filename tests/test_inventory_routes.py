@@ -56,7 +56,7 @@ class InventoryRouteTests(unittest.TestCase):
             {"items", "shopping", "low_count", "restock_suggestions",
              "restock_forecast", "new_staple_suggestions", "unmatched_staples",
              "stale_shopping_items", "staple_spend", "last_shopping_trip",
-             "list_estimate", "trip_plan", "trip_closure"},
+             "list_estimate", "trip_plan", "trip_closure", "stale_staples"},
             set(view))
         self.assertEqual(1, view["low_count"])                 # the low staple
         names_on_list = {i["name"] for i in view["shopping"]}
@@ -136,6 +136,20 @@ class InventoryRouteTests(unittest.TestCase):
         self.assertEqual(1, len(mine))
         self.assertEqual({"cents": 6000, "display": "$60.00"}, mine[0]["total"])
         self.assertEqual({"cents": 2000, "display": "$20.00"}, mine[0]["monthly"])
+
+    def test_pulse_route_and_dashboard_pantry_count(self):
+        c = self.client()
+        anon = self.app_module.app.test_client()
+        self.assertEqual(401, anon.get("/api/inventory/pulse").status_code)
+        c.post("/api/inventory", json={"name": "Cake", "kind": "oneoff"})
+        pulse = c.get("/api/inventory/pulse").get_json()
+        self.assertEqual(1, pulse["list_count"])
+        self.assertEqual({"cents": 0, "display": "$0.00"}, pulse["list_total"])  # unpriced
+        self.assertIn("stale_staples", pulse)
+        # the Garden line's source: its own tiny endpoint (the dashboard payload
+        # is frozen byte-identical to v1 — test_api_parity)
+        self.assertEqual(401, anon.get("/api/inventory/badge").status_code)
+        self.assertEqual({"list_count": 1}, c.get("/api/inventory/badge").get_json())
 
     def test_requires_auth_and_write_scope(self):
         anon = self.app_module.app.test_client()

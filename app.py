@@ -29,7 +29,7 @@ from derivations import (anomaly_flags, bill_variance, budget_status,
                          new_staple_suggestions,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
-                         spending_summary, stale_shopping_items, staple_spend, list_estimate, trip_plan, trip_closure,
+                         spending_summary, stale_shopping_items, staple_spend, list_estimate, trip_plan, trip_closure, stale_staples, pantry_pulse,
                          top_merchants, unmatched_staples)
 from schema_runtime import connect_existing, require_current_schema
 
@@ -857,7 +857,45 @@ def inventory_view():
         "list_estimate": estimate,
         "trip_plan": plan,
         "trip_closure": closure,
+        "stale_staples": stale_staples(db),
     })
+
+
+def _pulse_to_json(p):
+    """pantry_pulse with its cents converted to {cents, display} at the edge."""
+    for line in p["list"]:
+        cents = line.pop("typical_cents")
+        line["typical"] = ({"cents": cents, "display": money_display(cents)}
+                           if cents is not None else None)
+    for d in p["due_soon"]:
+        cents = d.pop("typical_cents")
+        d["typical"] = ({"cents": cents, "display": money_display(cents)}
+                        if cents is not None else None)
+    cents = p.pop("list_total_cents")
+    p["list_total"] = {"cents": cents, "display": money_display(cents)}
+    if p["new_staple_suggestion"]:
+        cents = p["new_staple_suggestion"].pop("total_spent_cents")
+        p["new_staple_suggestion"]["total_spent"] = {
+            "cents": cents, "display": money_display(cents)}
+    return p
+
+
+@app.get("/api/inventory/badge")
+@login_required
+def inventory_badge():
+    """The Garden's one ambient pantry fact (Pantry v2 inc 6): how many things
+    are on the shopping list. Its own tiny endpoint because /api/dashboard is
+    frozen byte-identical to v1 (test_api_parity) — the frontend fetches this
+    alongside the dashboard. One read of shopping_list; never touches money."""
+    return jsonify({"list_count": len(shopping_list(get_db()))})
+
+
+@app.get("/api/inventory/pulse")
+@login_required
+def inventory_pulse():
+    """The weekly pantry digest (pantry_pulse) — read by the Pi-side pulse job
+    (bearer read token) and the Ask/MCP tool; the same function, so they agree."""
+    return jsonify(_pulse_to_json(pantry_pulse(get_db())))
 
 
 @app.post("/api/inventory")

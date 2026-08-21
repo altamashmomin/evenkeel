@@ -1,0 +1,29 @@
+# Ledger weekly pantry pulse — /etc/systemd/system/pifinance-pantry-pulse.service
+# Triggered by pifinance-pantry-pulse.timer; not enabled directly. Reads the
+# pantry digest through the app's own API with a read-scope bearer token
+# (PANTRY_PULSE_TOKEN in .env) and files it as a `pantry-pulse` GitHub issue
+# over the existing alert bridge (OPS_ALERT_GH_*). Read-only; never touches
+# finance.db; never stops the app. Pi-side because the cloud can't reach the
+# Pi, and the pantry lives only here (Pantry v2 inc 6).
+#
+# Adjust User and paths if your username or install dir differs (the deployed
+# Pi is user `altamash` at /home/altamash/pifinance; rewrite with sed on copy,
+# never edit this tracked file — a future `git pull` would conflict).
+[Unit]
+Description=Ledger weekly pantry pulse
+After=pifinance.service
+Requires=pifinance.service
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/pifinance
+EnvironmentFile=-/home/pi/pifinance/.env
+ExecStart=/home/pi/pifinance/venv/bin/python /home/pi/pifinance/deploy/pantry_pulse.py
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

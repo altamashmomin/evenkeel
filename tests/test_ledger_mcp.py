@@ -185,7 +185,16 @@ class LedgerMcpReadTierTests(unittest.TestCase):
             {"items", "shopping", "low_count", "restock_suggestions",
              "restock_forecast", "new_staple_suggestions", "unmatched_staples",
              "stale_shopping_items", "staple_spend", "last_shopping_trip",
-             "list_estimate", "trip_plan", "trip_closure"},
+             "list_estimate", "trip_plan", "trip_closure", "stale_staples"},
+            set(body))
+
+    def test_pantry_pulse_matches_direct_api(self):
+        body = self.call("ledger_pantry_pulse")
+        self.assertEqual(self.direct("/api/inventory/pulse"), body)
+        self.assertEqual(
+            {"list_count", "list_total", "priced_count", "unpriced_count", "list",
+             "due_soon", "stale_staples", "stale_shopping_items",
+             "new_staple_suggestion", "unmatched_count"},
             set(body))
 
     # -- money shape ----------------------------------------------------------

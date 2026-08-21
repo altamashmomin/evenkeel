@@ -101,7 +101,7 @@ class AskLoopTests(unittest.TestCase):
         self.assertIn("spend", json.loads(tr["content"].split("\n", 1)[1]))
         self.assertFalse(tr["is_error"])
         # tools were passed and prompt-cache-marked
-        self.assertEqual(19, len(mock.calls[0]["tools"]))
+        self.assertEqual(20, len(mock.calls[0]["tools"]))
 
     def test_round_cap_holds(self):
         # A model that never stops asking for tools must be bounded.

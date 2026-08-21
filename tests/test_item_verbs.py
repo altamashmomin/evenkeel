@@ -802,6 +802,37 @@ class ItemVerbTests(unittest.TestCase):
                        direction="in", income_type="refund")
         self.assertEqual([], derivations.trip_closure(self.db))
 
+    # ---- inc 6: stale_staples + pantry_pulse --------------------------------
+    def test_stale_staples_last_activity_is_the_latest_sign_of_life(self):
+        quiet = self.add(name="Moon dust")                  # stocked, add only
+        touched = self.add(name="Star salt")
+        bought = self.add(name="Comet chips")
+        low = self.add(name="Milk", status="low")           # not stocked → excluded
+        self.set_at(touched["id"], "stocked", "2026-06-01")  # a status event
+        self._outflow("COMET CHIPS CO", "2026-07-04", 500)   # a matched purchase
+        by = {s["name"]: s for s in derivations.stale_staples(self.db)}
+        self.assertNotIn("Milk", by)
+        self.assertEqual(quiet["created_at"][:10], by["Moon dust"]["last_activity"])
+        self.assertIsNone(by["Moon dust"]["last_status_change"])
+        self.assertEqual("2026-06-01", by["Star salt"]["last_status_change"])
+        self.assertEqual("2026-07-04", by["Comet chips"]["last_purchase"])
+        # last_activity is the max of the three signals
+        self.assertEqual(max(bought["created_at"][:10], "2026-07-04"),
+                         by["Comet chips"]["last_activity"])
+
+    def test_pantry_pulse_composes_the_named_derivations(self):
+        self.add(name="Milk", status="out")
+        self.add(name="Moon dust")
+        pulse = derivations.pantry_pulse(self.db)
+        self.assertEqual(1, pulse["list_count"])
+        self.assertEqual(derivations.list_estimate(self.db)["total_cents"],
+                         pulse["list_total_cents"])
+        self.assertEqual([s["item_id"] for s in derivations.stale_staples(self.db)],
+                         [s["item_id"] for s in pulse["stale_staples"]])
+        self.assertEqual(len(derivations.unmatched_staples(self.db)),
+                         pulse["unmatched_count"])
+        self.assertIn("new_staple_suggestion", pulse)
+
     # ---- last_shopping_trip derivation (post-shopping review nudge) ----------
     def test_last_shopping_trip_returns_most_recent_grocery_outflow(self):
         # _purchase inserts a Groceries outflow; dated later than the seed's.

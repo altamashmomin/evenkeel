@@ -1,0 +1,13 @@
+# Weekly pantry pulse — /etc/systemd/system/pifinance-pantry-pulse.timer
+# Sunday 09:00 local: after the 06:30 sync has landed the week's purchases,
+# before the household's usual shopping. Quiet weeks post nothing.
+[Unit]
+Description=Run the Ledger weekly pantry pulse
+
+[Timer]
+OnCalendar=Sun *-*-* 09:00:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target
