@@ -210,7 +210,12 @@ batch verb ("we got everything"): all-or-nothing validation, per-item audit
 rows via a helper shared with `set_item_status`, callers = thin route + a
 "Got everything (N)" shopping-card button + `ledger_restock_items` in the Ask
 write tier; PARAM_SPECS gained array support. Suite 589+125, GATE PASS
-zero-diff, no schema change. **DEPLOYED** (`main` `6b3fba9`, live gate PASS zero-diff, tailnet-verified; the deploy also revealed PR #28 had never actually been live — shipped now).
+zero-diff, no schema change. **DEPLOYED** (`main` `6b3fba9`, live gate PASS zero-diff, tailnet-verified; the deploy also revealed PR #28 had never actually been live — shipped now). Then (Aug 20): **`merge_category`** — delete/merge/rename a
+category orphan-proof: one atomic relabel of every reference (transactions all
+months, bills, pantry, budget follows-or-retires) into a required destination;
+Settlement protected; UI = a delete zone in the recategorize sheet ("add" is
+already emergent — type a new name at retag time). Suite 595+126, GATE PASS
+zero-diff, no schema change. On `rework`; **NOT YET DEPLOYED**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
