@@ -204,7 +204,13 @@ PROGRESS-LOG); (Aug 20) the **Pantry v2 amendment** landed in
 INVENTORY-DESIGN.md — parameter grammar codified, status-transition cadence,
 migration #014 nouns, `restock_items`, money tie-in, trip composition,
 hygiene layer, a 7-step build order; and (Aug 20) `rework` was synced with
-`origin/main` (this merge), so `rework` again contains the deployed tree.
+`origin/main` (merge `360291c`), so `rework` again contains the deployed tree.
+Then (Aug 20): **Pantry v2 increment 1 — `restock_items`**, the after-shopping
+batch verb ("we got everything"): all-or-nothing validation, per-item audit
+rows via a helper shared with `set_item_status`, callers = thin route + a
+"Got everything (N)" shopping-card button + `ledger_restock_items` in the Ask
+write tier; PARAM_SPECS gained array support. Suite 589+125, GATE PASS
+zero-diff, no schema change. On `rework`; **NOT YET DEPLOYED**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

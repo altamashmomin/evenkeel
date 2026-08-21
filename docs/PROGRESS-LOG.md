@@ -2628,3 +2628,47 @@ views, not just the money totals. No migration (schema stays **v13**). That
 closes the transfer effort end to end and live: mis-signed row → flag → verb +
 UI → auto-tag rule → consistent exclusion across every spend/merchant surface.
 `origin/main` == the deployed tree; nothing merged-but-undeployed remains.
+
+## Aug 20, 2026 — rework↔main sync + Pantry v2 increment 1: `restock_items`
+
+**The sync (merge commit `360291c`).** `rework` had fallen behind the `claude/*`
+PR lineage that advanced `main` to schema v13 (the transfer effort T1–T3,
+settle-up breakdown, recategorize-from-Spent, the forecast-lab add/remove
+cycle, txnRow/beamHTML extraction, HANDOFF.md). Merged `origin/main` into
+`rework`; conflict resolutions recorded in the merge commit (this log keeps
+both lineages, with corrective notes where they contradicted — the ontology
+increment WAS deployed at `a6adc03`; the forecast "set aside, unmerged" entry
+was superseded by main's merge→deploy→remove records). Suite 585+114 green on
+the merged tree before any new work. The sync also revealed the main lineage
+had pre-built three Pantry v2 ideas (`staple_spend`, `last_shopping_trip`,
+`stale_shopping_items`) — the amendment now carries a correction note
+shrinking increments 4–5 accordingly.
+
+**Increment 1 — `restock_items`, the after-shopping batch verb (`2500f3e`).**
+One action marks a bought set stocked ("we got everything"):
+- **The verb**: validates EVERY id before ANY edit (all-or-nothing, ≤ 100,
+  duplicates collapse), then gives each item `set_item_status`'s exact edit via
+  a shared `_apply_item_status` helper — one-off archives itself,
+  `last_stocked_at` re-anchors — plus its OWN audit row under `restock_items`,
+  so the log stays per-item attributable. Registry row added to CORE-DESIGN
+  (the architecture test enforced it before the code could pass).
+- **Callers**: `POST /api/inventory/restock` (thin route); a
+  "Got everything (N)" button on the shopping card when 2+ items are listed
+  (per-row "Got it" stays for partial trips; render.js builds the markup,
+  app.js confirms then batches); `ledger_restock_items` in the Ask write tier
+  ("picked up the milk, eggs, and coffee"). MCP unchanged — its write tier
+  never had pantry tools.
+- **PARAM_SPECS grew array support** (`Param(items=...)` → JSON Schema
+  `{"type":"array","items":{...}}`) for the id-list — the first non-scalar
+  agent parameter; existing schemas byte-identical (the pin tests agree).
+- Tests: 3 verb tests (per-item audits + order, all-or-nothing atomicity,
+  shape validation + duplicate collapse), an Ask flow test (both rows flip,
+  attributed `ui:avery`), a render check (button carries the listed ids; absent
+  for a single item), + the pins that caught the growth honestly
+  (registry/ontology callers/tool counts 19+7). Suite **589** python + **125**
+  render. Honest note: the app.js click handler itself isn't browser-smoked
+  (seeded users have fake password hashes); it mirrors the adjacent
+  `data-item-got` handler line for line — click it once on the Pi after deploy.
+- **GATE PASS zero-diff** (fixture `seed_db --seed 42 --months 8 --as-of
+  2026-07-19` + migrate + seed_income; old=`360291c` new=`rework`, 42 values
+  compared). No schema change; never touches money. NOT YET DEPLOYED.

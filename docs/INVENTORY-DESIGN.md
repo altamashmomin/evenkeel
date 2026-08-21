@@ -171,7 +171,19 @@ is step 5+, added once the basics stick.
 
 The MVP and step 5 are deployed and in daily use; the discipline held (curated
 staples, no quantities, suggest-don't-assert). This amendment sequences the
-next wave. Nothing here revisits a settled decision — every idea below is an
+next wave.
+
+> **Correction (same day, after the rework↔main sync):** the main lineage had
+> already built three of this amendment's ideas before the sync surfaced them:
+> `staple_spend` (≈ the planned `item_spend` — per-staple monthly cost),
+> `last_shopping_trip` (the post-shopping review nudge — a lean INTO the
+> merchant-not-product limit that partially covers "trip closure"), and
+> `stale_shopping_items` (list-rot on low/out staples; the planned
+> `stale_staples` — stocked-forever rot — remains distinct and unbuilt). So
+> increment 4 below shrinks to `list_estimate` + the price-per-restock trend,
+> and increment 5's trip-closure half starts from `last_shopping_trip` rather
+> than from scratch. **Increment 1 (`restock_items`) shipped the day of this
+> amendment.** The rest stands as written. Nothing here revisits a settled decision — every idea below is an
 add that the original grammar was built to take cheaply.
 
 ## The parameter grammar, now codified
