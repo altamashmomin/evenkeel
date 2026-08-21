@@ -3134,3 +3134,46 @@ of touching the database. Now it does, by the book.
   password exposed in transcript during the pulse install is retired. Honest note: the dialog wiring in app.js is not
   browser-smoked (seeded users have fake hashes) — Alta's first real use is
   the smoke, and is also the point.
+
+## Aug 21, 2026 — Pantry v2 increment 7: the `ordered` status (migration #015)
+
+The last item of the amendment, built after the Alta/Charlee call it asked
+for. `ordered` = bought online, not yet arrived: **off the shopping list
+(handled) but not stocked (don't count on it)** — the state that prevents
+real double-buys.
+- **Migration `015_item_status_ordered`** (schema v14 → **v15**) — a TABLE
+  REBUILD, because #008's `CHECK (status IN ('stocked','low','out'))` can't be
+  altered in SQLite: `items_new` with the widened CHECK and every accumulated
+  column (#008 base, #009, #011, #014), a total row copy preserving ids (audit
+  targets `item:<id>` stay attributable; the AUTOINCREMENT sequence follows
+  the rename), drop, rename. Idempotent on the LIVE DDL in `sqlite_master`
+  (`'ordered'` already present → no-op). No FK or index references items, so
+  nothing else moves; row counts identical.
+- **Vocabulary**: `ITEM_STATUS_ORDER` gains the value once; every tool enum
+  (Ask + MCP `set_item_status`, `add_item`) follows from that one source (the
+  enum-binding test and the ontology `item_statuses` pin both agree
+  automatically). `shopping_list` excludes `ordered` for both kinds;
+  `on_the_way(db)` names the set; `low_stock` unchanged (ordered is handled,
+  not "low"); `list_estimate`/`trip_plan` inherit the exclusion.
+- **The timeline parser had a gap the tests caught**: `_parse_status_event`
+  whitelisted the three old statuses, so an `ordered` event was silently
+  dropped from `item_history` — one test failed on first run, the vocab
+  became a named constant, and re-ordering from stocked now ends a
+  consumption cycle on purpose (the household saying "running down").
+- **Frontend**: a 📦 action on list rows marks ordered; an "📦 On the way
+  (N)" drawer (open by default) offers **Arrived** (→ stocked; a one-off then
+  archives as bought) and **Didn't come** (→ out); past 7 days a row says
+  "still waiting? (N days)" — the anti-forget mechanism is deliberately
+  view-layer, NOT the feed: an online order's charge lands at order time and
+  proves nothing about arrival. Chip style + cycle map (ordered → stocked on
+  tap). The weekly pulse gains an "On the way" section with the same nudge.
+  Ask prose teaches "I ordered the dog food" / "it came" / "it never came".
+- Tests: ordered leaves the list without stocking (both kinds; low_stock and
+  the pulse agree), arrived/didn't-come transitions, the cycle-departure
+  rule, key pins (payload + pulse), a render check for the drawer and
+  nudge, the formatter's new section. Suite **627** python + **148** render.
+  **GATE PASS by enumeration** — sole diff `schema_version 14→15`
+  (`notes/015-gate-expectation.seed.json`; fixture built at the OLD ref
+  `b090360`, v14, so the rebuild was exercised against genuine pre-#015 rows).
+  NOT YET DEPLOYED (deploy applies migration 015 — the rebuild — live).
+  **With this, the Pantry v2 amendment is fully built (1–7).**

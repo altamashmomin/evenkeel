@@ -3,11 +3,12 @@
 Ledger's first step beyond money: a shared, low-upkeep way to track the
 household staples the two of you don't want to run out of — and a shopping
 list — so you never buy the same thing twice or run too low.
-Status: **built and live through step 5** (migrations #008–#011: MVP +
-purchase-feed inference — restock suggestions/forecast, new-staple discovery,
-broken-match detection; the pantry views are transfer-consistent since the
-v12/v13 transfer work). The original design below stands as written; the
-**Pantry v2 amendment at the bottom (Aug 20, 2026)** sequences what comes next.
+Status: **fully built.** The MVP + step 5 (migrations #008–#011) are live, and
+the **Pantry v2 amendment at the bottom (Aug 20, 2026) was built end to end on
+Aug 21** — increments 1–7 (batch restock, #014 store/need_by/snooze, the
+status-derived cadence, the priced list + price drift, the trip composition,
+the hygiene layer with the Sunday pulse, and the `ordered` status via #015).
+The original design below stands as written.
 
 ## The core claim
 
