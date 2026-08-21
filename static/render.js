@@ -846,6 +846,35 @@
      the server verbatim ({cents,display}) — the pantry reports money, never
      moves it. Honest limit: merchant-level, so it's the whole coffee shop, not
      one cup, and a grocery-hidden staple shows nothing. */
+  /* ===== "Still tracking these?" — the curation guard (Pantry v2 inc 6)
+     Pure function of stale_staples[] (each { item_id, name, last_activity,
+     tracked_since, last_status_change, last_purchase }) and the client's
+     today. The derivation is clock-free; the ~6-month grace is decided here.
+     A prompt to review, never an assertion — the action is the existing
+     "stop tracking" (data-item-remove, with its confirm), and leaving it is
+     fine: salt is stocked forever. */
+  function staleStaplesHTML(stale, todayISO, graceDays) {
+    if (!stale || !stale.length || !todayISO) return "";
+    const grace = graceDays == null ? 180 : graceDays;
+    const rows = stale
+      .map((s) => ({ s, days: daysBetween(s.last_activity, todayISO) }))
+      .filter((x) => x.days >= grace);
+    if (!rows.length) return "";
+    const li = rows.map(({ s, days }) => `<li>
+        <span class="ic">${itemIcon({ name: s.name })}</span>
+        <div class="grow">
+          <div class="title">${esc(s.name)}</div>
+          <div class="sub">no sign of life since ${esc(shortDate(s.last_activity))} · ${Math.floor(days / 30)} mo</div>
+        </div>
+        <button class="btn small" data-item-remove="${s.item_id}">Stop tracking</button>
+      </li>`).join("");
+    return `<div class="card suggest-card">
+        <p class="eyebrow">Still tracking these?</p>
+        <ul class="list">${li}</ul>
+        <p class="recat-note">Stocked for months with no restock seen — keep the list to the things you'd hate to run out of. Leaving one is fine.</p>
+      </div>`;
+  }
+
   /* ===== "Also grab while you're out" — the trip, composed (Pantry v2 inc 5)
      Pure function of trip_plan.due_soon[] (each { item_id, name, store,
      snoozed_until, predicted_date, typical }) and the client's today. The
@@ -1015,6 +1044,7 @@
     const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions);
     const matchCard = unmatchedStaplesHTML(data.unmatched_staples, todayISO);
     const staleCard = staleShoppingHTML(data.stale_shopping_items, todayISO);
+    const curationCard = staleStaplesHTML(data.stale_staples, todayISO);
     const spendCard = stapleSpendHTML(data.staple_spend);
     // The generic "you shopped — check your list" nudge yields to a concrete
     // closure card when one exists for a recent trip (same event, one card).
@@ -1149,6 +1179,7 @@
       </div>
       ${staleCard}
       ${forecastCard}
+      ${curationCard}
       <div class="card">
         <p class="eyebrow">Staples</p>
         ${stapleRows}
@@ -1542,6 +1573,7 @@
            moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
            listEstimateHTML, priceTrendBadge,
            tripDueHTML, tripClosureHTML,
+           staleStaplesHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,

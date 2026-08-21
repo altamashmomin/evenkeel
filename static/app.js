@@ -92,7 +92,12 @@ function renderHeader() {
   if (!state.users) return; // not logged in yet — nothing to render
   const h = new Date().getHours();
   const part = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-  $("#greet-kicker").textContent = `${part} 🌿`;
+  // The Garden's one ambient pantry line (Pantry v2 inc 6): the list count
+  // from /api/inventory/badge (fetched with the dashboard; /api/dashboard
+  // itself is frozen byte-identical to v1). Nothing shows when it's empty.
+  const n = window._pantryBadge ? window._pantryBadge.list_count : 0;
+  const pantry = n ? ` · ${n} thing${n === 1 ? "" : "s"} on the list` : "";
+  $("#greet-kicker").textContent = `${part} 🌿${pantry}`;
   $("#avatars").innerHTML = state.users.map((u, i) => {
     const color = i === 0 ? "var(--p1)" : "var(--p2)";
     const initial = (u.display_name || "?").trim().charAt(0).toUpperCase();
@@ -382,6 +387,10 @@ async function renderDashboard() {
   const trend = await api(`/api/income/trend?months_back=2&anchor=${d.month}`);
   const spentPill = vsLastMonth(trend.series);
   window._dash = d;
+  // The pantry badge rides alongside (not inside) the frozen dashboard payload;
+  // a failure here only costs the ambient line, never the Home render.
+  api("/api/inventory/badge").then((b) => { window._pantryBadge = b; renderHeader(); })
+    .catch(() => {});
   const maxCat = Math.max(1, ...d.by_category.map((c) => c.amount));
   // Each row taps through to the recategorize sheet for that category+month —
   // a button, not a div, so it's keyboard-reachable; the chevron is the

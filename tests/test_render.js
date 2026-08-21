@@ -715,6 +715,17 @@ check("staleShoppingHTML is empty without a today (derivation is clock-free)", (
 });
 
 // ---- money tie-in ("What your staples cost") — step 5's named future ----
+check("staleStaplesHTML surfaces only staples past the grace, with stop-tracking", () => {
+  const html = R.staleStaplesHTML([
+    { item_id: 1, name: "Moon dust", last_activity: "2026-01-10" },
+    { item_id: 2, name: "Star salt", last_activity: "2026-08-01" },
+  ], "2026-08-21");
+  assert.ok(html.includes("Still tracking these?"), "card");
+  assert.ok(html.includes('data-item-remove="1"'), "stale one gets the stop-tracking action");
+  assert.ok(!html.includes('data-item-remove="2"'), "recent one is not listed");
+  assert.ok(html.includes("7 mo"), "months quiet shown");
+  assert.equal(R.staleStaplesHTML([{ item_id: 2, name: "X", last_activity: "2026-08-01" }], "2026-08-21"), "", "nothing past grace → no card");
+});
 check("tripDueHTML lists due-this-week stocked staples with store and price, skipping snoozed", () => {
   const out = R.tripDueHTML({ due_soon: [
     { item_id: 1, name: "Coffee", store: "Costco", predicted_date: "2026-08-24", typical: { cents: 1200, display: "$12.00" } },

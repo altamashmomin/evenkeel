@@ -425,6 +425,12 @@ def ledger_inventory() -> str:
     return _json(api_get("/api/inventory"))
 
 
+@mcp.tool(name="ledger_pantry_pulse", title="Weekly pantry digest",
+          description=DESCRIPTIONS["ledger_pantry_pulse"], annotations=_READ)
+def ledger_pantry_pulse() -> str:
+    return _json(api_get("/api/inventory/pulse"))
+
+
 # ═══════════════════════════ DIRECT WRITE TIER ══════════════════════════════
 # Logged, reversible, single-row/flag — no preview (AGENT-DESIGN's routine
 # teaching actions; a two-call dance for every tag would make the agent worse

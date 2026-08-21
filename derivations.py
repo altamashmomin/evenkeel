@@ -1447,6 +1447,75 @@ def trip_closure(db):
     return out
 
 
+def stale_staples(db):
+    """The curation guard (Pantry v2 inc 6): STOCKED staples showing no sign of
+    life — no status change, no matching purchase — for a long time, offered
+    for archive so the tracked set stays the ~20–30 things you'd hate to run
+    out of instead of silently growing into the exhaustive inventory nobody
+    maintains (INVENTORY-DESIGN's core refusal). The mirror of
+    stale_shopping_items (low/out rot) and unmatched_staples (broken matches):
+    this one watches the quietly-stocked-forever.
+
+    Per stocked staple: tracked_since (created_at), last_status_change (the
+    latest non-add event in item_history), last_purchase (latest matched
+    outflow), and last_activity = the max of the three. Clock-free: "a long
+    time" (~6 months) is the VIEW's grace against the client's date, the same
+    split every pantry derivation uses. A prompt to REVIEW, not an assertion
+    — salt is stocked forever and perfectly fine. Oldest activity first.
+    Reads items + audit_log + transactions (outflows only via the shared
+    helper); never touches money.
+    """
+    staples = db.execute(
+        "SELECT * FROM items WHERE active = 1 AND kind = 'staple' "
+        "AND status = 'stocked'").fetchall()
+    index = _purchase_index(db)
+    histories = item_history(db)
+    out = []
+    for it in staples:
+        rows = _matching_purchases(db, it, index=index)
+        last_purchase = max(r["txn_date"][:10] for r in rows) if rows else None
+        events = [e for e in histories.get(it["id"], []) if e["action"] != "add_item"]
+        last_status_change = events[-1]["at"][:10] if events else None
+        tracked_since = it["created_at"][:10]
+        last_activity = max(d for d in (tracked_since, last_status_change,
+                                        last_purchase) if d)
+        out.append({
+            "item_id": it["id"], "name": it["name"], "store": it["store"],
+            "tracked_since": tracked_since,
+            "last_status_change": last_status_change,
+            "last_purchase": last_purchase,
+            "last_activity": last_activity,
+        })
+    out.sort(key=lambda s: (s["last_activity"], s["name"].lower()))
+    return out
+
+
+def pantry_pulse(db):
+    """The weekly pantry digest, named (Pantry v2 inc 6): ONE read composing
+    what a periodic nudge should say — what's on the list (and what it costs),
+    what's coming due, what's gone quiet (stale staples, list rot), one
+    new-staple suggestion, and how many staples have never matched a purchase
+    — so the Pi-side pulse job, the Ask tool, and any future surface say the
+    same thing. Purely a composition of the named derivations (nothing new is
+    computed here); clock-free like all of them — the consumer applies its
+    own "today" for horizons and graces. Never touches money.
+    """
+    plan = trip_plan(db)
+    suggestions = new_staple_suggestions(db)
+    return {
+        "list_count": len(plan["list"]),
+        "list_total_cents": plan["list_total_cents"],
+        "priced_count": plan["priced_count"],
+        "unpriced_count": plan["unpriced_count"],
+        "list": plan["list"],
+        "due_soon": plan["due_soon"],
+        "stale_staples": stale_staples(db),
+        "stale_shopping_items": stale_shopping_items(db),
+        "new_staple_suggestion": suggestions[0] if suggestions else None,
+        "unmatched_count": len(unmatched_staples(db)),
+    }
+
+
 # The transaction categories that count as a "shopping trip" for the pantry —
 # the pantry-supply subset of app.DEFAULT_CATEGORIES. Kept here (not imported
 # from app) so the derivation layer has no route dependency.
