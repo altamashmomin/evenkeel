@@ -3029,7 +3029,18 @@ no new verb, never touches money.
   pulse + badge routes (401 anon), MCP parity for the new tool, a render check
   for the curation card, the formatter suite, and the payload/count pins that
   caught every new key. Suite **618** python + **139** render. **GATE PASS
-  zero-diff** (old=`611575f`). NOT YET DEPLOYED.
+  zero-diff** (old=`611575f`). **DEPLOYED (Aug 21, 12:44)** — the pre-merge
+  fetch found `origin/main` at `80003a1` (PRs #35 goalCard extraction + #36
+  log, landed since inc 5); folded into `rework` (`4867038` — the only
+  conflict was the log's tail, their stale "NOT YET DEPLOYED" copy of the
+  inc 5 line dropped), suite 618 + **147** on the merged tree, delta re-gated
+  (`ba008a1`→`rework`, zero-diff), `main` rebuilt as `6b6bbf5` on `80003a1`,
+  pushed + deployed back-to-back. Live gate PASS zero-diff, "nothing to
+  apply", services restarted, backup `finance.db.bak-2026-08-21-124448`.
+  Tailnet-verified: `/api/inventory/pulse` + `/badge` **401 unauthenticated**,
+  `staleStaplesHTML` served (5), the Garden badge fetch in `app.js` (2),
+  `origin/main` == `6b6bbf5`. **The pulse timer is NOT yet installed on the
+  Pi** — Alta's sudo step, `deploy/pantry-pulse.md`.
 
 ## Aug 21, 2026 — Frontend seam thread: extract billRowHTML, goalCardHTML, contribLogHTML (PRs #34, #35)
 

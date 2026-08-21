@@ -250,8 +250,11 @@ these?"), `pantry_pulse` (the weekly digest named; route + Ask/MCP read tool,
 20+10), the Pi-side pulse job (`deploy/pantry_pulse.py` + weekly units +
 install doc — the cloud can't reach the Pi; **awaits Alta's install**), and
 the Garden line via `GET /api/inventory/badge` (the dashboard payload is
-frozen to v1 — parity test enforced it). Suite 618+139, GATE PASS zero-diff.
-On `rework`; **NOT YET DEPLOYED**.
+frozen to v1 — parity test enforced it). Suite 618+147, GATE PASS zero-diff.
+**DEPLOYED** (`main` `6b6bbf5`, with PRs #35/#36 folded in pre-push;
+tailnet-verified). `origin/main` == the deployed tree. **Pantry v2 increments
+1–6 are live; 7 (the `ordered` status) awaits Alta/Charlee's call; the pulse
+timer awaits Alta's Pi install.**
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
