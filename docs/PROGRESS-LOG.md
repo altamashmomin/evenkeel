@@ -2160,3 +2160,31 @@ the suite + zero-diff gate. Two superseded copies exist only in the local
 against a ~115-commit-stale base); its untracked
 `docs/FORECAST-INTEGRATION-BRIEF.md` carries real pay/fixed-cost figures —
 never push or commit that file as-is.
+
+## Aug 20, 2026 — Pantry v2 amendment (design only)
+
+- **INVENTORY-DESIGN.md gains the "Pantry v2" amendment** — the post-MVP wave,
+  sequenced. Stale status line at the top corrected (the doc still said "design
+  only, not built"; the pantry is live through step 5, migrations #008–#011 —
+  the live schema itself is v13 after the transfer work).
+- Codifies the **parameter grammar** #009/#011 established: *explicit nullable
+  override; NULL = infer/fall back* — every future per-item parameter is a
+  structured, migration-owned, opt-in column; JSON attrs blob and
+  maintenance-demanding parameters permanently refused.
+- Names the highest-leverage unbuilt signal: **status transitions in
+  `audit_log`** — human-confirmed stocked→out consumption cadence, immune to
+  the merchant-not-product limit; becomes `restock_forecast`'s third source
+  rung (manual → status-derived → purchase-median). No migration needed.
+- Sequences 7 increments: (1) `restock_items` batch verb; (2) migration
+  **#014** (`store`, `need_by`, `snoozed_until` — #012/#013 were claimed by the
+  transfer increments) + setters + grouped shopping list; (3) status-derived
+  cadence + `item_history`; (4) money tie-in (`item_spend`, `list_estimate`,
+  price trend); (5) trip composition (trip closure + `trip_plan`); (6) hygiene
+  (`stale_staples`, weekly pulse, Garden line); (7) the `ordered` status, only
+  after an Alta/Charlee debate.
+- Tripwire honesty carried forward: each new transaction-reading derivation
+  must be verified reachable by the fixture's contaminating inflows before
+  "tripwire-covered" is claimed — and every new purchase-reading derivation
+  inherits the v12/v13 posture too: `is_transfer` rows are excluded alongside
+  inflows and settlements (the merchant/pantry transfer-consistency rule).
+- Docs-only — no code, no schema, **no gate**.
