@@ -8,7 +8,9 @@ to the person (`ui:<name>`), validated by the verb, logged, and reversible.
 
 Tools exposed: classify_inflow (tag an inflow) and the household-pantry set —
 add_item, set_item_status, restock_items (the after-shopping batch: mark a
-bought set stocked in one action), archive_item (remove), set_item_match, and
+bought set stocked in one action), archive_item (remove), set_item_match,
+set_item_store / set_item_need_by / set_item_snooze (the #014 metadata: where
+it's bought, a deadline, pause-until), and
 set_item_interval (a user-set restock cadence, "remind me every N days") — the
 pantry is groceries/supplies, never money, so it needs no two-phase choreography
 and
@@ -109,6 +111,45 @@ WRITE_TOOLS = [
         "execute": lambda caller, a: caller(
             "PUT", f"/api/inventory/{a['item_id']}",
             {"restock_match": a.get("restock_match", "")}),
+    },
+    {
+        "name": "ledger_set_item_store",
+        "description":
+            "Remember where an item is bought ('we get dog food at Costco') so "
+            "the shopping list can group by store. Find the item's id with "
+            "ledger_inventory first. Pass an empty string to clear it. Logged "
+            "and reversible; pantry only — never money.",
+        "input_schema": actions.param_schema("set_item_store"),
+        "execute": lambda caller, a: caller(
+            "PUT", f"/api/inventory/{a['item_id']}",
+            {"store": a.get("store", "")}),
+    },
+    {
+        "name": "ledger_set_item_need_by",
+        "description":
+            "Set a deadline on something to buy ('we need candles before "
+            "Saturday') — the shopping list sorts needed-soonest first. Work "
+            "the YYYY-MM-DD out from what they said. Find the item's id with "
+            "ledger_inventory first (add it with ledger_add_item if it's new). "
+            "Pass an empty string to clear the deadline. Logged and "
+            "reversible; pantry only — never money.",
+        "input_schema": actions.param_schema("set_item_need_by"),
+        "execute": lambda caller, a: caller(
+            "PUT", f"/api/inventory/{a['item_id']}",
+            {"need_by": a.get("need_by", "")}),
+    },
+    {
+        "name": "ledger_set_item_snooze",
+        "description":
+            "Pause an item's nudges until a date ('stop reminding us about "
+            "milk until the 30th' — travel, guests, whatever). It keeps its "
+            "status but stops nagging until then. Find the item's id with "
+            "ledger_inventory first. Pass an empty string to wake it now. "
+            "Logged and reversible; pantry only — never money.",
+        "input_schema": actions.param_schema("set_item_snooze"),
+        "execute": lambda caller, a: caller(
+            "PUT", f"/api/inventory/{a['item_id']}",
+            {"snoozed_until": a.get("until", "")}),
     },
     {
         "name": "ledger_set_item_interval",

@@ -448,6 +448,56 @@ check("recatSheetHTML offers the delete-category zone only when rows exist", () 
   const empty = R.recatSheetHTML("Doomed", "August 2026", []);
   assert.ok(!empty.includes("recat-delete-cat"), "no delete zone without rows");
 });
+check("inventoryHTML groups the shopping list by store when any is set", () => {
+  const html = R.inventoryHTML({
+    items: [],
+    shopping: [
+      { id: 2, name: "Milk", kind: "staple", status: "out", store: "Trader Joes" },
+      { id: 3, name: "Paper towels", kind: "staple", status: "low", store: "Costco" },
+      { id: 4, name: "Candles", kind: "oneoff", status: "out", store: null },
+    ],
+    low_count: 2,
+  }, "2026-08-20");
+  assert.ok(html.includes("🏬 Costco") && html.includes("🏬 Trader Joes"), "store headers");
+  assert.ok(html.indexOf("Costco") < html.indexOf("Trader Joes"), "stores A→Z");
+  assert.ok(html.indexOf("Trader Joes") < html.indexOf("Anywhere"), "ungrouped last");
+  const flat = R.inventoryHTML({
+    items: [],
+    shopping: [{ id: 2, name: "Milk", kind: "staple", status: "out", store: null }],
+    low_count: 1,
+  }, "2026-08-20");
+  assert.ok(!flat.includes("Anywhere"), "no store set → flat list, no headers");
+});
+check("inventoryHTML shows need-by badges framed against today", () => {
+  const html = R.inventoryHTML({
+    items: [],
+    shopping: [
+      { id: 2, name: "Candles", kind: "oneoff", status: "out", need_by: "2026-08-22" },
+      { id: 3, name: "Card", kind: "oneoff", status: "out", need_by: "2026-08-10" },
+    ],
+    low_count: 0,
+  }, "2026-08-20");
+  assert.ok(/badge due">by /.test(html), "future deadline badged due");
+  assert.ok(/badge overdue">by /.test(html), "past deadline badged overdue");
+});
+check("inventoryHTML snoozed items leave the active list, nudges, and got-all", () => {
+  const html = R.inventoryHTML({
+    items: [],
+    shopping: [
+      { id: 2, name: "Milk", kind: "staple", status: "out", snoozed_until: "2026-09-01" },
+      { id: 3, name: "Eggs", kind: "staple", status: "out" },
+      { id: 4, name: "Bread", kind: "staple", status: "low" },
+    ],
+    restock_suggestions: [
+      { item_id: 2, name: "Milk", status: "out", snoozed_until: "2026-09-01", matched_by: "name", purchase: { date: "2026-08-19", description: "MILK RUN" } },
+    ],
+    low_count: 3,
+  }, "2026-08-20");
+  assert.ok(html.includes("💤 Snoozed (1)"), "snoozed drawer with count");
+  assert.ok(html.includes('data-item-wake="2"'), "wake control");
+  assert.ok(html.includes('data-got-all="3,4"'), "got-all covers only awake rows");
+  assert.ok(!html.includes("Yes, restocked"), "snoozed item's restock nudge suppressed");
+});
 check("inventoryHTML offers Got-everything only for 2+ shopping items", () => {
   const two = R.inventoryHTML({
     items: [],

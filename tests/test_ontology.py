@@ -187,7 +187,8 @@ class ManifestEdgeTests(unittest.TestCase):
                           "set_rule_enabled"], c["mcp"])
         self.assertEqual(["add_item", "archive_item", "classify_inflow",
                           "restock_items", "set_item_interval", "set_item_match",
-                          "set_item_status"], c["ask"])
+                          "set_item_need_by", "set_item_snooze",
+                          "set_item_status", "set_item_store"], c["ask"])
 
     def test_every_caller_verb_is_real(self):
         verb_names = {a["name"] for a in MANIFEST["actions"]}

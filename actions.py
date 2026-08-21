@@ -1817,6 +1817,88 @@ def _clean_interval_days(days):
     return n
 
 
+def _clean_iso_date(value, label):
+    """Validate an optional 'YYYY-MM-DD': None/blank clears (returns None);
+    otherwise the exact 10-char ISO form, returned as given."""
+    if value is None or str(value).strip() == "":
+        return None
+    text = str(value).strip()
+    try:
+        if len(text) != 10:
+            raise ValueError
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        raise ActionError(f"{label} must be a date like 2026-08-22")
+    return text
+
+
+def _set_item_meta(db, actor, verb, item_id, column, value):
+    """The shared edit for the #014 metadata setters (store / need_by /
+    snoozed_until): one transaction, the column + an audit row with
+    before/after. Deliberately does NOT bump updated_at — these are metadata,
+    not stock events, and updated_at is restock_suggestions' since-the-item-
+    changed bound (the merge_category rationale). Validation stays with each
+    verb; the item must exist and be active."""
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if existing is None or not existing["active"]:
+            raise NotFound("not found")
+        db.execute(f"UPDATE items SET {column} = ? WHERE id = ?",
+                   (value, item_id))
+        _write_audit(db, actor, verb, f"item:{item_id}",
+                     {"before": existing[column], "after": value})
+    return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+
+
+def set_item_store(db, actor, item_id, store):
+    """Set or clear where an item is bought (Pantry v2 inc 2) — powers the
+    store-grouped shopping list ("at Costco — what do we need here?"). Set
+    once per item, zero upkeep; blank clears (NULL = ungrouped, the pre-#014
+    list). Never touches money.
+
+    validate — the item exists and is active (NotFound otherwise); store
+    trimmed, ≤ 60 chars, blank clears.
+    edit — the shared metadata edit (audited before/after; updated_at
+    untouched). Returns the updated row.
+    """
+    value = (store or "").strip()[:60] or None
+    return _set_item_meta(db, actor, "set_item_store", item_id, "store", value)
+
+
+def set_item_need_by(db, actor, item_id, need_by):
+    """Set or clear an item's deadline (Pantry v2 inc 2) — "candles before
+    Saturday". The shopping list sorts needed-by-soonest first; the view
+    frames overdue against the client's date (derivations stay clock-free).
+    Blank clears (NULL = whenever). Never touches money.
+
+    validate — the item exists and is active (NotFound otherwise); need_by is
+    a 'YYYY-MM-DD' or blank-to-clear.
+    edit — the shared metadata edit (audited before/after; updated_at
+    untouched). Returns the updated row.
+    """
+    value = _clean_iso_date(need_by, "need_by")
+    return _set_item_meta(db, actor, "set_item_need_by", item_id, "need_by",
+                          value)
+
+
+def set_item_snooze(db, actor, item_id, until):
+    """Snooze or wake an item (Pantry v2 inc 2) — pause its nudges until a
+    date ("we're traveling; stop nagging about milk"). The row keeps its
+    status; the VIEW hides snoozed rows from the active list and their
+    restock nudges against the client's today (derivations stay clock-free).
+    Blank clears (NULL = live now). Never touches money.
+
+    validate — the item exists and is active (NotFound otherwise); until is a
+    'YYYY-MM-DD' or blank-to-wake.
+    edit — the shared metadata edit (audited before/after; updated_at
+    untouched — snoozing must not shift restock inference). Returns the row.
+    """
+    value = _clean_iso_date(until, "snoozed_until")
+    return _set_item_meta(db, actor, "set_item_snooze", item_id,
+                          "snoozed_until", value)
+
+
 # ─────────────────── declarative action parameters (ACTION-SCHEMA-DESIGN) ──────
 # The single source for each agent-exposed write verb's PARAMETER schema. Enums
 # reference the ordered vocabulary tuples the frozensets also derive from, so the
@@ -1882,6 +1964,24 @@ PARAM_SPECS = {
         Param("days", "integer",
               "How many days between restocks — e.g. 14 for every two weeks, 30 "
               "for monthly. A whole number from 1 to 365."),
+    ],
+    "set_item_store": [
+        Param("item_id", "integer", "The item's id, from ledger_inventory."),
+        Param("store", "string",
+              "Where it's bought (e.g. 'Costco'), or an empty string to "
+              "clear it."),
+    ],
+    "set_item_need_by": [
+        Param("item_id", "integer", "The item's id, from ledger_inventory."),
+        Param("need_by", "string",
+              "The deadline as YYYY-MM-DD (work it out from what they said, "
+              "e.g. 'before Saturday'), or an empty string to clear it."),
+    ],
+    "set_item_snooze": [
+        Param("item_id", "integer", "The item's id, from ledger_inventory."),
+        Param("until", "string",
+              "Snooze nudges until this YYYY-MM-DD, or an empty string to "
+              "wake it now."),
     ],
 }
 

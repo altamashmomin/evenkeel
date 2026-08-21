@@ -22,6 +22,9 @@ VERB_TOOL = {
     "archive_item": "ledger_archive_item",
     "set_item_match": "ledger_set_item_match",
     "set_item_interval": "ledger_set_item_interval",
+    "set_item_store": "ledger_set_item_store",
+    "set_item_need_by": "ledger_set_item_need_by",
+    "set_item_snooze": "ledger_set_item_snooze",
 }
 
 

@@ -790,7 +790,9 @@ def item_to_json(r):
             "kind": r["kind"], "status": r["status"], "note": r["note"],
             "restock_match": r["restock_match"],
             "restock_interval_days": r["restock_interval_days"],
-            "last_stocked_at": r["last_stocked_at"], "updated_at": r["updated_at"]}
+            "last_stocked_at": r["last_stocked_at"], "updated_at": r["updated_at"],
+            "store": r["store"], "need_by": r["need_by"],
+            "snoozed_until": r["snoozed_until"]}
 
 
 @app.get("/api/inventory")
@@ -867,14 +869,21 @@ def update_inventory_item(item_id):
         if "restock_interval_days" in data:
             row = actions.set_item_interval(
                 db, ui_actor(db), item_id, data.get("restock_interval_days"))
+        if "store" in data:
+            row = actions.set_item_store(db, ui_actor(db), item_id, data.get("store"))
+        if "need_by" in data:
+            row = actions.set_item_need_by(db, ui_actor(db), item_id, data.get("need_by"))
+        if "snoozed_until" in data:
+            row = actions.set_item_snooze(
+                db, ui_actor(db), item_id, data.get("snoozed_until"))
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
     except ValueError as e:
         return bad_request(str(e))
     if row is None:
         return bad_request(
-            "nothing to change: pass 'status', 'restock_match', and/or "
-            "'restock_interval_days'")
+            "nothing to change: pass 'status', 'restock_match', "
+            "'restock_interval_days', 'store', 'need_by', and/or 'snoozed_until'")
     return jsonify(item_to_json(row))
 
 

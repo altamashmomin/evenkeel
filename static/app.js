@@ -703,6 +703,42 @@ async function setItemMatch(id) {
   render();
 }
 
+// Look an item up across both pantry lists (staples + shopping, which also
+// holds one-offs) so the #014 prompt-setters can pre-fill current values.
+function invItem(id) {
+  const inv = window._inv || {};
+  return [...(inv.items || []), ...(inv.shopping || [])].find((x) => x.id === id);
+}
+
+// Set (or clear) where an item is bought — the store the shopping list groups
+// by (#014). Blank clears it (ungrouped).
+async function setItemStore(id) {
+  const cur = (invItem(id) || {}).store || "";
+  const next = prompt("Where do you buy this? (leave blank to ungroup)", cur);
+  if (next === null || next.trim() === cur) return;
+  await api(`/api/inventory/${id}`, { method: "PUT", body: { store: next.trim() } });
+  render();
+}
+
+// Set (or clear) an item's deadline — sorts the list needed-soonest (#014).
+async function setItemNeedBy(id) {
+  const cur = (invItem(id) || {}).need_by || "";
+  const next = prompt("Needed by (YYYY-MM-DD, blank to clear)", cur);
+  if (next === null || next.trim() === cur) return;
+  await api(`/api/inventory/${id}`, { method: "PUT", body: { need_by: next.trim() } });
+  render();
+}
+
+// Snooze an item's nudges until a date, or wake it (#014). The row keeps its
+// status; it just stops nagging (and leaves the active list) until then.
+async function setItemSnooze(id) {
+  const cur = (invItem(id) || {}).snoozed_until || "";
+  const next = prompt("Snooze until (YYYY-MM-DD, blank to wake)", cur);
+  if (next === null || next.trim() === cur) return;
+  await api(`/api/inventory/${id}`, { method: "PUT", body: { snoozed_until: next.trim() } });
+  render();
+}
+
 // Set (or clear) a staple's manual restock cadence — "remind me every N days".
 // When set, the forecast counts N days from the last time it was marked stocked
 // instead of inferring the interval from purchase history. Blank clears it (back
@@ -891,6 +927,19 @@ function wireMain() {
     el.addEventListener("click", () => setItemMatch(+el.dataset.itemMatch)));
   $$("[data-item-interval]").forEach((el) =>
     el.addEventListener("click", () => setItemInterval(+el.dataset.itemInterval)));
+  // #014 metadata setters (store / deadline / snooze) + one-tap wake.
+  $$("[data-item-store]").forEach((el) =>
+    el.addEventListener("click", () => setItemStore(+el.dataset.itemStore)));
+  $$("[data-item-needby]").forEach((el) =>
+    el.addEventListener("click", () => setItemNeedBy(+el.dataset.itemNeedby)));
+  $$("[data-item-snooze]").forEach((el) =>
+    el.addEventListener("click", () => setItemSnooze(+el.dataset.itemSnooze)));
+  $$("[data-item-wake]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      await api(`/api/inventory/${el.dataset.itemWake}`,
+                { method: "PUT", body: { snoozed_until: "" } });
+      render();
+    }));
   // New-staple suggestion: "Track" starts tracking that merchant as a staple.
   $$("[data-track-staple]").forEach((el) =>
     el.addEventListener("click", () => trackSuggestedStaple(+el.dataset.trackStaple)));
