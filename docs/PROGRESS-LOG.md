@@ -2976,4 +2976,14 @@ new verb, suggest-don't-assert throughout.
   checks (due block with horizon + snooze + price; closure confirm carries
   ids; closure hides covered per-item hints and the generic nudge). Suite
   **611** python + **138** render. **GATE PASS zero-diff** (old=`c93adc8`).
-  NOT YET DEPLOYED.
+  **DEPLOYED (Aug 21, 12:30)** — first try: `main` `ba008a1` on `7f5334a`
+  (tree byte-identical to `rework`); live gate PASS zero-diff, "nothing to
+  apply", services restarted, backup `finance.db.bak-2026-08-21-123054`.
+  Tailnet-verified: closure card / "Also grab" / `data-restock-all` served
+  (7 matches) + the app.js handler, `origin/main` == `ba008a1`. Ritual note:
+  the pre-merge preflight's "origin/main is an ancestor of rework" check is
+  wrong by construction (the deployed ref is always the main-only merge
+  commit) — the honest check is "both parents of origin/main are in rework
+  and the tree diff is empty", which is what was used. A new cloud branch
+  (`claude/extract-goalcard`) appeared mid-deploy, no PR yet — the next
+  race candidate.
