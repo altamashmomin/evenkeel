@@ -893,7 +893,8 @@
      Three cards: a purchase-feed "Looks like you restocked?" nudge (each a
      one-tap confirm that marks the staple stocked, showing the evidence
      purchase — INVENTORY-DESIGN step 5), a derived "Need to buy" list (check
-     items off as bought), and the staples tracker (a tap-to-cycle
+     items off as bought; 2+ items also get a one-tap "Got everything" batch —
+     Pantry v2 inc 1), and the staples tracker (a tap-to-cycle
      stocked→low→out chip + a 🔎 to set the item's optional purchase-match
      phrase). Each add/track card ends in a quick-add field. Interaction wiring
      lives in app.js; this only builds the markup + its data-* hooks. A staple
@@ -978,6 +979,8 @@
       <div class="card">
         <p class="eyebrow">Need to buy</p>
         ${shopRows}
+        ${shopping.length > 1 ? `<button class="btn small" id="inv-got-all"
+          data-got-all="${shopping.map((it) => it.id).join(",")}">Got everything (${shopping.length})</button>` : ""}
         <form class="inv-add" id="inv-add-oneoff" autocomplete="off">
           <input name="name" maxlength="100" placeholder="Add something to buy…">
           <button class="btn small primary" type="submit">Add</button>

@@ -166,6 +166,21 @@ class AskWriteTests(unittest.TestCase):
         self.assertEqual(0, self.item_row(item_id)["active"])          # soft-deleted
         self.assertEqual("ui:avery", self.audited("archive_item", item_id)["actor"])
 
+    def test_restock_tool_marks_the_set_stocked_as_the_person(self):
+        coffee = self.a_staple()
+        milk = self.a_staple(name="Milk")
+        mock = MockAnthropic([
+            resp([tool_block("ledger_restock_items",
+                             {"item_ids": [coffee, milk]})], "tool_use"),
+            resp([text_block("Marked Coffee and Milk stocked ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="we got the coffee and milk", caller=self.caller)
+        self.assertEqual(["ledger_restock_items"], out["tools_used"])
+        self.assertEqual("stocked", self.item_row(coffee)["status"])
+        self.assertEqual("stocked", self.item_row(milk)["status"])
+        self.assertEqual("ui:avery", self.audited("restock_items", coffee)["actor"])
+        self.assertEqual("ui:avery", self.audited("restock_items", milk)["actor"])
+
     def test_set_match_tool_sets_the_phrase_as_the_person(self):
         item_id = self.a_staple()
         mock = MockAnthropic([
@@ -211,7 +226,7 @@ class AskWriteTests(unittest.TestCase):
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(25, len(tools))  # 19 read + 6 write
+        self.assertEqual(26, len(tools))  # 19 read + 7 write
         names = [t["name"] for t in tools]
         self.assertIn("ledger_classify_inflow", names)
         self.assertIn("ledger_add_item", names)

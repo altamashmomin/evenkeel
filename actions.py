@@ -1488,20 +1488,65 @@ def set_item_status(db, actor, item_id, status):
         if status not in ITEM_STATUSES:
             raise ActionError(
                 "status must be one of: " + ", ".join(sorted(ITEM_STATUSES)))
-        archived = existing["kind"] == "oneoff" and status == "stocked"
-        now = _now()
-        # Marking an item 'stocked' re-anchors its manual restock cadence (the
-        # last time it was full); low/out leaves the anchor where it was.
-        last_stocked_at = now if status == "stocked" else existing["last_stocked_at"]
-        db.execute(
-            "UPDATE items SET status = ?, updated_at = ?, active = ?, "
-            "last_stocked_at = ? WHERE id = ?",
-            (status, now, 0 if archived else 1, last_stocked_at, item_id))
-        row = db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
-        _write_audit(db, actor, "set_item_status", f"item:{item_id}",
-                     {"before": existing["status"], "after": status,
-                      "archived": bool(archived)})
+        row = _apply_item_status(db, actor, "set_item_status", existing, status)
     return row
+
+
+def _apply_item_status(db, actor, verb, existing, status):
+    """The one status edit, shared by set_item_status and restock_items: the
+    UPDATE plus its per-item audit row (attributed to `verb`), inside the
+    CALLER's transaction. A one-off set 'stocked' (bought) archives itself;
+    'stocked' re-anchors last_stocked_at (the manual-cadence anchor), low/out
+    leaves it where it was. Validation stays with each caller."""
+    archived = existing["kind"] == "oneoff" and status == "stocked"
+    now = _now()
+    last_stocked_at = now if status == "stocked" else existing["last_stocked_at"]
+    db.execute(
+        "UPDATE items SET status = ?, updated_at = ?, active = ?, "
+        "last_stocked_at = ? WHERE id = ?",
+        (status, now, 0 if archived else 1, last_stocked_at, existing["id"]))
+    _write_audit(db, actor, verb, f"item:{existing['id']}",
+                 {"before": existing["status"], "after": status,
+                  "archived": bool(archived)})
+    return db.execute(
+        "SELECT * FROM items WHERE id = ?", (existing["id"],)).fetchone()
+
+
+def restock_items(db, actor, item_ids):
+    """Mark a bought set of items stocked in ONE action — the trip verb
+    (INVENTORY-DESIGN, Pantry v2 amendment increment 1): one grocery run home,
+    one call clears the shopping list instead of a tap per item. Batch pantry
+    convenience only — never money.
+
+    validate — item_ids is a non-empty list of item ids (a bounded batch, ≤ 100);
+    EVERY item must exist and be active before anything changes (all-or-nothing,
+    so a stale id can't half-apply a trip). Duplicates collapse.
+    edit — one transaction: each item gets the same edit set_item_status gives
+    a 'stocked' mark (shared helper) — a one-off archives itself (bought → off
+    the list), last_stocked_at re-anchors — and its OWN audit row under this
+    verb, so the log stays per-item attributable.
+    Returns the updated rows, in the order given.
+    """
+    with action_transaction(db):
+        if not isinstance(item_ids, (list, tuple)) or not item_ids:
+            raise ActionError("item_ids must be a non-empty list of item ids")
+        try:
+            ids = list(dict.fromkeys(int(i) for i in item_ids))
+        except (TypeError, ValueError):
+            raise ActionError("item_ids must be a non-empty list of item ids")
+        if len(ids) > 100:
+            raise ActionError("too many items in one restock (max 100)")
+        existing = {}
+        for item_id in ids:                       # validate ALL before ANY edit
+            row = db.execute(
+                "SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+            if row is None or not row["active"]:
+                raise NotFound(f"item {item_id} not found")
+            existing[item_id] = row
+        rows = [_apply_item_status(db, actor, "restock_items",
+                                   existing[item_id], "stocked")
+                for item_id in ids]
+    return rows
 
 
 def archive_item(db, actor, item_id):
@@ -1711,10 +1756,11 @@ class Param:
     required, an optional ordered enum (a verb vocabulary constant, never a copy),
     and the prose the agent reads."""
     name: str
-    type: str                 # "string" | "integer" — JSON Schema types
+    type: str                 # "string" | "integer" | "array" — JSON Schema types
     description: str
     required: bool = True
     enum: tuple = None        # ordered choices; references a verb constant
+    items: str = None         # for type="array": the element JSON type
 
 
 PARAM_SPECS = {
@@ -1741,6 +1787,10 @@ PARAM_SPECS = {
         Param("item_id", "integer", "The item's id, from ledger_inventory."),
         Param("status", "string", "The new status.", enum=ITEM_STATUS_ORDER),
     ],
+    "restock_items": [
+        Param("item_ids", "array",
+              "The bought items' ids, from ledger_inventory.", items="integer"),
+    ],
     "archive_item": [
         Param("item_id", "integer", "The item's id, from ledger_inventory."),
     ],
@@ -1766,6 +1816,8 @@ def param_schema(verb):
     props, required = {}, []
     for p in PARAM_SPECS[verb]:
         prop = {"type": p.type}
+        if p.items is not None:
+            prop["items"] = {"type": p.items}
         if p.enum is not None:
             prop["enum"] = list(p.enum)
         prop["description"] = p.description

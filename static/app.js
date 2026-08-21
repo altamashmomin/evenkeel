@@ -86,7 +86,10 @@ async function showApp() {
 }
 
 // The Garden greeting: a time-of-day hello + the household's avatars.
+// Called once at login, then kept fresh (see the clock wiring near boot())
+// so a tab left open doesn't say "Good afternoon" at 10pm.
 function renderHeader() {
+  if (!state.users) return; // not logged in yet — nothing to render
   const h = new Date().getHours();
   const part = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
   $("#greet-kicker").textContent = `${part} 🌿`;
@@ -849,6 +852,14 @@ function wireMain() {
       setItemStatus(+el.dataset.itemCycle, NEXT_STATUS[el.dataset.status] || "stocked")));
   $$("[data-item-got]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemGot, "stocked")));
+  // "Got everything": one restock_items call marks the whole list bought
+  // (all-or-nothing server-side; per-row "Got it" stays for partial trips).
+  $("#inv-got-all")?.addEventListener("click", async (e) => {
+    const ids = e.currentTarget.dataset.gotAll.split(",").map(Number);
+    if (!confirm(`Mark all ${ids.length} as bought?`)) return;
+    await api("/api/inventory/restock", { method: "POST", body: { item_ids: ids } });
+    render();
+  });
   // Restock nudge: "Yes, restocked" marks the staple stocked (drops it off the
   // shopping list). Same effect as tapping its chip to stocked.
   $$("[data-restock-confirm]").forEach((el) =>
@@ -1316,5 +1327,15 @@ $("#form-settle").addEventListener("submit", async (ev) => {
     $("#settle-error").textContent = e.message;
   }
 });
+
+// Keep the greeting's time-of-day bucket current for a tab left open across
+// noon/6pm — recheck on tab focus (covers the common case instantly) and on
+// an interval as a fallback for tabs that never lose visibility. Wired once,
+// unconditionally, at top level (not inside showApp(), which can re-run on
+// a logout/login cycle and would otherwise stack duplicate timers).
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) renderHeader();
+});
+setInterval(renderHeader, 5 * 60 * 1000);
 
 boot();

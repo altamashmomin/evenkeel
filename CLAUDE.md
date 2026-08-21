@@ -198,7 +198,19 @@ zero-diff. **DEPLOYED (Aug 21, PR #28, tree `4dc262a`→`e4a728f`):** Alta ran
 `deploy.sh origin/main` on the Pi, live gate PASS zero-diff, no migration
 (schema still v13). `origin/main` == the deployed tree; nothing
 merged-but-undeployed remains. That closes the transfer effort end to end and
-live.
+live. Meanwhile on the rework lineage: (Aug 18) the Pi's `ANTHROPIC_API_KEY`
+rotated on schedule — new expiry 2026-09-17, ops guardian green (see
+PROGRESS-LOG); (Aug 20) the **Pantry v2 amendment** landed in
+INVENTORY-DESIGN.md — parameter grammar codified, status-transition cadence,
+migration #014 nouns, `restock_items`, money tie-in, trip composition,
+hygiene layer, a 7-step build order; and (Aug 20) `rework` was synced with
+`origin/main` (merge `360291c`), so `rework` again contains the deployed tree.
+Then (Aug 20): **Pantry v2 increment 1 — `restock_items`**, the after-shopping
+batch verb ("we got everything"): all-or-nothing validation, per-item audit
+rows via a helper shared with `set_item_status`, callers = thin route + a
+"Got everything (N)" shopping-card button + `ledger_restock_items` in the Ask
+write tier; PARAM_SPECS gained array support. Suite 589+125, GATE PASS
+zero-diff, no schema change. On `rework`; **NOT YET DEPLOYED**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

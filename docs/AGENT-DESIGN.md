@@ -884,5 +884,6 @@ Charlee's in-app, session-based door.
 4. **Later:** rules (two-phase across turns), streaming, conversation
    persistence, per-day cost controls.
 
-**Prereqs:** `ANTHROPIC_API_KEY` already on the Pi (⚠ expires ~Aug 30, 2026 —
-rotate then; increments 1 and the tests need no key). No new dependency.
+**Prereqs:** `ANTHROPIC_API_KEY` already on the Pi (rotated Aug 18, 2026;
+expires 2026-09-17 — the ops guardian tracks `ASK_KEY_EXPIRES`; increments 1
+and the tests need no key). No new dependency.

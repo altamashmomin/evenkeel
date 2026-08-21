@@ -741,7 +741,8 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
   read-only shared registry) + loop routing, mocked-client tests assert the
   db row flips; (2) `POST /api/ask` write-enabled + updated system prompt; (3)
   Ask-tab "tagged ✓" UI feedback. No schema/migration/gate (existing verb).
-  Prereq: `ANTHROPIC_API_KEY` already on the Pi (⚠ expires ~Aug 30, 2026).
+  Prereq: `ANTHROPIC_API_KEY` already on the Pi (rotated Aug 18, 2026;
+  expires 2026-09-17).
   - **Inc 1 done (Aug 2, 2026).** `agent_write_tools.py` — one-tool surface
     (`ledger_classify_inflow`), kept out of the read-only shared registry,
     executing via an injected caller against the same `PUT …/classify` route
@@ -787,8 +788,8 @@ the tree on purpose: `ask_smoke.py` (live-checks `POST /api/ask`) and
     "never changes" gone), `/app.js` reads `tools_used`→`tagged` (stale
     "Read-only" gone), `/style.css` has `.ask-tagged`; app healthy. **Charlee
     can now tag inflows by chatting in the Ask tab** — write path is
-    session-based and live wherever `ANTHROPIC_API_KEY` is set (⚠ expires
-    ~Aug 30). **CONFIRMED LIVE (Aug 2, 2026): Charlee tagged a real deposit
+    session-based and live wherever `ANTHROPIC_API_KEY` is set (rotated
+    Aug 18, 2026; expires 2026-09-17). **CONFIRMED LIVE (Aug 2, 2026): Charlee tagged a real deposit
     through the Ask tab on her phone** — the full chat→tag path works end to end
     for the priority user. Ask-tab tagging is DONE and in use.
 
@@ -943,7 +944,7 @@ shortcut pill, 5-slot nav unchanged) → chat input → later inference/predicti
   loop/route count bumps. Pure clients of gated endpoints → no balance gate;
   suite 346→350 python + 48 render. `ask_smoke.py` migrates to v8, so a live
   pantry question ("add coffee, we're low") is runnable with an
-  `ANTHROPIC_API_KEY` (⚠ Pi key expires ~Aug 30). **The pantry MVP (INVENTORY-
+  `ANTHROPIC_API_KEY` (Pi key rotated Aug 18, 2026; expires 2026-09-17). **The pantry MVP (INVENTORY-
   DESIGN steps 1–4) is now CODE-COMPLETE** — tap OR talk.
 - **DEPLOYED TO THE PI (Aug 3, 2026) — pantry MVP is LIVE.** Advanced `main`
   to rework's tree via `--no-ff` merge `0eb0301` (first parent = old main
@@ -1917,7 +1918,8 @@ inventory route → **no balance gate**; suite 510→**512** python + 97 render.
 **Deploy is a plain frontend/agent path** (no migration, schema stays v11):
 advance `main` to rework, `deploy.sh origin/main <deployed-ref>`, GATE PASS
 zero-diff, `ledger-mcp` restarts (no new MCP tool, but the restart is harmless).
-Prereq already met: `ANTHROPIC_API_KEY` on the Pi (⚠ expires ~Aug 30). No
+Prereq already met: `ANTHROPIC_API_KEY` on the Pi (rotated Aug 18, 2026;
+expires 2026-09-17). No
 per-device refresh needed for this one (backend + prompt only — the ⏰ editor UI
 already shipped with #011).
 
@@ -2130,7 +2132,69 @@ check that the FK is still real).
 - Manifest edge pins in `test_ontology` were chosen to bite on the exact bugs
   above; `test_trace_route` covers the endpoint, its gate, and the fetch wiring.
   Backend read route + frontend — no schema/verb/derivation/money path, **no
-  balance gate**. Suite **536** python + **98** render. NOT YET DEPLOYED.
+  balance gate**. Suite **536** python + **98** render. **DEPLOYED** via `main` `a6adc03` (`--no-ff` merge, first parent = prior main; merged in an isolated worktree, local `main` synced) → GATE PASS zero-diff, no migration; `pifinance` + `ledger-mcp` restarted, `/api/status` OK, and `GET /api/ontology` verified **401 unauthenticated** (the gate holds). `deploy.sh` reported an older `old ref` (`c5989e2`) and fired its **local-branch heal** — the Pi's local `main` had drifted behind the session's detached-checkout deploys; the safeguard snapped it back to `a6adc03`. Gate still valid (both sides v11, no migration). Rollback backup `finance.db.bak-2026-08-10-172646`. Hard-refresh the `/trace` tab to pick up the new script.
+
+**ANTHROPIC_API_KEY rotated (Aug 18, 2026).** The Pi's Ask-tab key (set
+Jul 31, expiring ~Aug 30) was replaced on schedule: new key minted in the
+Anthropic Console (billing/credits carried over), `.env` updated
+(`ANTHROPIC_API_KEY` + `ASK_KEY_EXPIRES=2026-09-17`), `pifinance` and
+`ledger-mcp` restarted, and the ops guardian re-run — **all green**
+(heartbeat `~/pifinance-ops/ops-status.txt`; the guardian lives OUT of the
+repo per its out-of-tree install, and the installed unit pins
+`OPS_STATUS_FILE` there explicitly). Old key retired in the Console.
+**Next rotation due ~Sep 17, 2026** — the guardian ambers 14 days out.
+Doc-only; the stale "expires ~Aug 30" warnings in this log and
+AGENT-DESIGN were corrected in place.
+
+**Forecast lab — SET ASIDE (Aug 18, 2026); scenario branch stays parked.**
+The Cowork scenario-planner port (the Aug-12 "Sorting Finances" integration:
+`forecast_baselines` + `/api/forecast/baselines` + the Analytics slider card,
+plus goal-pace what-ifs and the savings optimizer, rebuilt on current code as
+`claude/scenario-planning-ledger-4lt781`, ports 1-3) does NOT land — Alta's
+call, made with Tier B fully shipped: #14 (cash-flow forecast) and #16 (goal
+pace) already cover the forward-looking roadmap, so the what-if slider lab is
+surplus. Nothing to remove from `rework` (it never merged); the origin branch
+remains parked, unmerged, as the archive — revive by rebasing it and running
+the suite + zero-diff gate. Two superseded copies exist only in the local
+"Ledger copy" clone (branches `forecast-lab` / `stale-doc-commits`, built
+against a ~115-commit-stale base); its untracked
+`docs/FORECAST-INTEGRATION-BRIEF.md` carries real pay/fixed-cost figures —
+never push or commit that file as-is.
+*(Correction at the Aug 20 branch sync: the main-lineage records below
+supersede this entry's "stays parked, unmerged" — the port HAD merged (PR #10)
+and deployed (Aug 19), then was removed as a product call (PR #18). The
+sensitive-clone warning above still stands.)*
+
+## Aug 20, 2026 — Pantry v2 amendment (design only)
+
+- **INVENTORY-DESIGN.md gains the "Pantry v2" amendment** — the post-MVP wave,
+  sequenced. Stale status line at the top corrected (the doc still said "design
+  only, not built"; the pantry is live through step 5, migrations #008–#011 —
+  the live schema itself is v13 after the transfer work).
+- Codifies the **parameter grammar** #009/#011 established: *explicit nullable
+  override; NULL = infer/fall back* — every future per-item parameter is a
+  structured, migration-owned, opt-in column; JSON attrs blob and
+  maintenance-demanding parameters permanently refused.
+- Names the highest-leverage unbuilt signal: **status transitions in
+  `audit_log`** — human-confirmed stocked→out consumption cadence, immune to
+  the merchant-not-product limit; becomes `restock_forecast`'s third source
+  rung (manual → status-derived → purchase-median). No migration needed.
+- Sequences 7 increments: (1) `restock_items` batch verb; (2) migration
+  **#014** (`store`, `need_by`, `snoozed_until` — #012/#013 were claimed by the
+  transfer increments) + setters + grouped shopping list; (3) status-derived
+  cadence + `item_history`; (4) money tie-in (`item_spend`, `list_estimate`,
+  price trend); (5) trip composition (trip closure + `trip_plan`); (6) hygiene
+  (`stale_staples`, weekly pulse, Garden line); (7) the `ordered` status, only
+  after an Alta/Charlee debate.
+- Tripwire honesty carried forward: each new transaction-reading derivation
+  must be verified reachable by the fixture's contaminating inflows before
+  "tripwire-covered" is claimed — and every new purchase-reading derivation
+  inherits the v12/v13 posture too: `is_transfer` rows are excluded alongside
+  inflows and settlements (the merchant/pantry transfer-consistency rule).
+- Docs-only — no code, no schema, **no gate**.
+
+*(The entries below arrived via the `claude/*` PR lineage and were merged into
+this log at the Aug 20 branch sync — they overlap the dates above.)*
 
 **Forecast lab (scenario planning, port increment 1) — DONE on
 `claude/scenario-planning-ledger-4lt781` (Aug 12, 2026).** First Ledger increment
@@ -2564,3 +2628,47 @@ views, not just the money totals. No migration (schema stays **v13**). That
 closes the transfer effort end to end and live: mis-signed row → flag → verb +
 UI → auto-tag rule → consistent exclusion across every spend/merchant surface.
 `origin/main` == the deployed tree; nothing merged-but-undeployed remains.
+
+## Aug 20, 2026 — rework↔main sync + Pantry v2 increment 1: `restock_items`
+
+**The sync (merge commit `360291c`).** `rework` had fallen behind the `claude/*`
+PR lineage that advanced `main` to schema v13 (the transfer effort T1–T3,
+settle-up breakdown, recategorize-from-Spent, the forecast-lab add/remove
+cycle, txnRow/beamHTML extraction, HANDOFF.md). Merged `origin/main` into
+`rework`; conflict resolutions recorded in the merge commit (this log keeps
+both lineages, with corrective notes where they contradicted — the ontology
+increment WAS deployed at `a6adc03`; the forecast "set aside, unmerged" entry
+was superseded by main's merge→deploy→remove records). Suite 585+114 green on
+the merged tree before any new work. The sync also revealed the main lineage
+had pre-built three Pantry v2 ideas (`staple_spend`, `last_shopping_trip`,
+`stale_shopping_items`) — the amendment now carries a correction note
+shrinking increments 4–5 accordingly.
+
+**Increment 1 — `restock_items`, the after-shopping batch verb (`2500f3e`).**
+One action marks a bought set stocked ("we got everything"):
+- **The verb**: validates EVERY id before ANY edit (all-or-nothing, ≤ 100,
+  duplicates collapse), then gives each item `set_item_status`'s exact edit via
+  a shared `_apply_item_status` helper — one-off archives itself,
+  `last_stocked_at` re-anchors — plus its OWN audit row under `restock_items`,
+  so the log stays per-item attributable. Registry row added to CORE-DESIGN
+  (the architecture test enforced it before the code could pass).
+- **Callers**: `POST /api/inventory/restock` (thin route); a
+  "Got everything (N)" button on the shopping card when 2+ items are listed
+  (per-row "Got it" stays for partial trips; render.js builds the markup,
+  app.js confirms then batches); `ledger_restock_items` in the Ask write tier
+  ("picked up the milk, eggs, and coffee"). MCP unchanged — its write tier
+  never had pantry tools.
+- **PARAM_SPECS grew array support** (`Param(items=...)` → JSON Schema
+  `{"type":"array","items":{...}}`) for the id-list — the first non-scalar
+  agent parameter; existing schemas byte-identical (the pin tests agree).
+- Tests: 3 verb tests (per-item audits + order, all-or-nothing atomicity,
+  shape validation + duplicate collapse), an Ask flow test (both rows flip,
+  attributed `ui:avery`), a render check (button carries the listed ids; absent
+  for a single item), + the pins that caught the growth honestly
+  (registry/ontology callers/tool counts 19+7). Suite **589** python + **125**
+  render. Honest note: the app.js click handler itself isn't browser-smoked
+  (seeded users have fake password hashes); it mirrors the adjacent
+  `data-item-got` handler line for line — click it once on the Pi after deploy.
+- **GATE PASS zero-diff** (fixture `seed_db --seed 42 --months 8 --as-of
+  2026-07-19` + migrate + seed_income; old=`360291c` new=`rework`, 42 values
+  compared). No schema change; never touches money. NOT YET DEPLOYED.
