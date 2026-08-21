@@ -3179,5 +3179,14 @@ real double-buys.
   **GATE PASS by enumeration** — sole diff `schema_version 14→15`
   (`notes/015-gate-expectation.seed.json`; fixture built at the OLD ref
   `b090360`, v14, so the rebuild was exercised against genuine pre-#015 rows).
-  NOT YET DEPLOYED (deploy applies migration 015 — the rebuild — live).
-  **With this, the Pantry v2 amendment is fully built (1–7).**
+  **DEPLOYED (Aug 21, 13:36)** — the rebuild, live: `main` `910ba8a` on
+  `23d1fbd` (PR #38, docs-only, folded in pre-push); the dry-run gate
+  rehearsed the rebuild on the backup copy and printed exactly ONE structural
+  line, `schema_version: 14 -> 15` (no `items` count change — the copy was
+  total), money byte-identical; `migrate.py apply --live` **applied 015**
+  (**live schema now v15**); services restarted; smoke OK. Rollback backup
+  `finance.db.bak-2026-08-21-133611` (the pre-rebuild `items`). Tailnet-
+  verified: the app boots (v15 code refuses any other schema), "On the way"
+  / ordered / arrived markup served (4), the ordered chip style served,
+  `origin/main` == `910ba8a`. **With this, the Pantry v2 amendment is fully
+  built AND live (1–7).**
