@@ -217,7 +217,13 @@ Settlement protected; UI = a delete zone in the recategorize sheet ("add" is
 already emergent — type a new name at retag time). Suite 595+126, GATE PASS
 zero-diff, no schema change. **DEPLOYED** (`main` `a40e9ff`, live no-op
 guard confirmed the apply; tailnet-verified: route 401s, JS carries the
-delete zone).
+delete zone). Then (Aug 20): **Pantry v2 increment 2 — migration #014**
+(`items.store` / `need_by` / `snoozed_until`, schema v13→v14) + the three
+metadata setters (no `updated_at` bump — inference-bound rule), the
+store-grouped/deadline-sorted shopping list, view-layer snooze with a Wake
+drawer, and three new Ask tools (19+10). Suite 600+129, GATE PASS by
+enumeration (sole diff schema_version 13→14). On `rework`; **NOT YET
+DEPLOYED** (deploy applies migration 014 live).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
