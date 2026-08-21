@@ -1181,7 +1181,117 @@
     return `<p class="sheet-title">Recategorize · ${esc(category)} · ${esc(monthLabel)}</p>${body}`;
   }
 
+  // ---- state-injected row renderers ----
+  // These two were the last presentation fns stuck in app.js because they read
+  // household state — which member paid, their palette color. Extracted here
+  // per the CLAUDE.md testability note by DEPENDENCY-INJECTING `users` rather
+  // than reaching for a global: pass the members array in and they're pure
+  // again (same (row, users) in, same string out), so test_render.js covers
+  // them headless. app.js keeps a thin wrapper that supplies state.users.
+  function userById(users, id) {
+    return (users || []).find((u) => u.id === id) || { display_name: "?" };
+  }
+  function userColor(users, id) {
+    // First member gets palette slot 1, everyone else slot 2 — the same
+    // 2-swatch palette the avatars use, reused for the payer dot. Not a
+    // member-count assumption: identical to the deployed behavior.
+    const idx = (users || []).findIndex((u) => u.id === id);
+    return idx === 0 ? "var(--p1)" : "var(--p2)";
+  }
+
+  // The Garden hero: the who-owes-who number as the emotional centerpiece.
+  function beamHTML(bal) {
+    const msg = bal.settled
+      ? `<p class="bh-who">All settled up</p>
+         <p class="bh-sub">No one owes anything on shared expenses</p>`
+      : `<p class="bh-who">${esc(bal.owes.name)} owes ${esc(bal.owed.name)}
+           <b>${fmt(bal.amount)}</b></p>
+         <p class="bh-sub">across all shared expenses</p>`;
+    const settleBtn = bal.settled
+      ? ""
+      : `<button class="bh-settle" id="btn-settle" type="button">Settle up</button>`;
+    return `
+      <div class="balance-hero">
+        <p class="bh-eyebrow">Between you two</p>
+        ${msg}
+        ${settleBtn}
+      </div>`;
+  }
+
+  // One activity/recent row. `users` is injected (the household members) so the
+  // payer name + color stay data-driven without a global.
+  function txnRow(t, users) {
+    const payer = userById(users, t.paid_by);
+    // A transfer between the household's own accounts is neither income nor
+    // spend — render it neutrally (a grey chip, no +/− coloring) so it reads as
+    // "money moved, not earned or spent." Tapping still opens its dialog.
+    if (t.is_transfer) {
+      const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
+      const sign = t.direction === "in" ? "+" : "−";
+      return `
+      <li class="tap" data-txn="${t.id}">
+        <span class="ic">🔁</span>
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(users, t.paid_by)}"></span>${esc(payer.display_name)}
+            · transfer${src} <span class="badge">transfer</span>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount transfer-amt">${sign}${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+    }
+    // direction is absent on the dashboard's "recent" rows (they come from
+    // the frozen txn_to_json), so treat missing as an outflow — those keep
+    // their existing spend styling untouched.
+    if (t.direction === "in") {
+      const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
+      const chip = t.income_type === "unclassified"
+        ? `<span class="badge untagged">tag</span>`
+        : `<span class="badge income">${esc(t.income_type)}</span>`;
+      return `
+      <li class="tap" data-txn="${t.id}">
+        <span class="ic in">💵</span>
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(users, t.paid_by)}"></span>${esc(payer.display_name)}
+            · money in${src} ${chip}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount income-in">+${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+    }
+    const shared = t.is_shared
+      ? t.payer_share_pct === 50 ? "shared 50/50" : `shared · payer ${t.payer_share_pct}%`
+      : "personal";
+    const src = t.source === "manual" ? "" :
+      ` · <span class="badge">${esc(t.source)}</span>`;
+    return `
+      <li class="tap" data-txn="${t.id}">
+        <span class="ic">${catEmoji(t.category)}</span>
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">
+            <span class="dot" style="--pcolor:${userColor(users, t.paid_by)}"></span>${esc(payer.display_name)}
+            · ${esc(t.category)} · ${shared}${src}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount">${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
+           userById, userColor, beamHTML, txnRow,
            catEmoji, itemIcon,
            moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,

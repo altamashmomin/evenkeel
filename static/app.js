@@ -13,7 +13,8 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText, goalPaceLineHTML,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
-        moreSheetHTML, recatSheetHTML, settleBreakdownHTML } = window.Render;
+        moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
+        beamHTML, txnRow } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -40,13 +41,10 @@ const state = {
   ask: { messages: [], pending: false },   // Ask tab: client-held chat history
 };
 
-function userById(id) {
-  return state.users.find((u) => u.id === id) || { display_name: "?" };
-}
-function userColor(id) {
-  const idx = state.users.findIndex((u) => u.id === id);
-  return idx === 0 ? "var(--p1)" : "var(--p2)";
-}
+// userById / userColor moved into render.js (pure, users injected) alongside
+// txnRow — its only callers. app.js reaches them as window.Render.userById(
+// state.users, id) at the few remaining sites, so nothing here reads them off
+// a global.
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -352,25 +350,6 @@ async function render() {
 
 /* ================= dashboard ================= */
 
-function beamHTML(bal) {
-  // The Garden hero: the who-owes-who number as the emotional centerpiece.
-  const msg = bal.settled
-    ? `<p class="bh-who">All settled up</p>
-       <p class="bh-sub">No one owes anything on shared expenses</p>`
-    : `<p class="bh-who">${esc(bal.owes.name)} owes ${esc(bal.owed.name)}
-         <b>${fmt(bal.amount)}</b></p>
-       <p class="bh-sub">across all shared expenses</p>`;
-  const settleBtn = bal.settled
-    ? ""
-    : `<button class="bh-settle" id="btn-settle" type="button">Settle up</button>`;
-  return `
-    <div class="balance-hero">
-      <p class="bh-eyebrow">Between you two</p>
-      ${msg}
-      ${settleBtn}
-    </div>`;
-}
-
 async function renderDashboard() {
   const d = await api("/api/dashboard");
   // Same month the dashboard resolved to, so the two cards always agree;
@@ -433,7 +412,7 @@ async function renderDashboard() {
   const recentTxns = (await api("/api/activity?filter=all")).transactions.slice(0, 6);
   window._recent = recentTxns;   // income-aware rows for the tap handler
   const recent = recentTxns.length
-    ? `<ul class="list">${recentTxns.map(txnRow).join("")}</ul>`
+    ? `<ul class="list">${recentTxns.map((t) => txnRow(t, state.users)).join("")}</ul>`
     : `<p class="empty">No transactions yet. Tap + to add the first one.</p>`;
 
   return `
@@ -462,76 +441,6 @@ async function renderAgents() {
 
 /* ================= activity ================= */
 
-function txnRow(t) {
-  const payer = userById(t.paid_by);
-  // A transfer between the household's own accounts is neither income nor
-  // spend — render it neutrally (a grey chip, no +/− coloring) so it reads as
-  // "money moved, not earned or spent." Tapping still opens its dialog.
-  if (t.is_transfer) {
-    const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
-    const sign = t.direction === "in" ? "+" : "−";
-    return `
-      <li class="tap" data-txn="${t.id}">
-        <span class="ic">🔁</span>
-        <div class="grow">
-          <div class="title">${esc(t.description)}</div>
-          <div class="sub">
-            <span class="dot" style="--pcolor:${userColor(t.paid_by)}"></span>${esc(payer.display_name)}
-            · transfer${src} <span class="badge">transfer</span>
-          </div>
-        </div>
-        <div style="text-align:right">
-          <div class="amt amount transfer-amt">${sign}${fmt(t.amount)}</div>
-          <div class="sub">${t.date.slice(5)}</div>
-        </div>
-      </li>`;
-  }
-  // direction is absent on the dashboard's "recent" rows (they come from
-  // the frozen txn_to_json), so treat missing as an outflow — those keep
-  // their existing spend styling untouched.
-  if (t.direction === "in") {
-    const src = t.source === "manual" ? "" : ` · ${esc(t.source)}`;
-    const chip = t.income_type === "unclassified"
-      ? `<span class="badge untagged">tag</span>`
-      : `<span class="badge income">${esc(t.income_type)}</span>`;
-    return `
-      <li class="tap" data-txn="${t.id}">
-        <span class="ic in">💵</span>
-        <div class="grow">
-          <div class="title">${esc(t.description)}</div>
-          <div class="sub">
-            <span class="dot" style="--pcolor:${userColor(t.paid_by)}"></span>${esc(payer.display_name)}
-            · money in${src} ${chip}
-          </div>
-        </div>
-        <div style="text-align:right">
-          <div class="amt amount income-in">+${fmt(t.amount)}</div>
-          <div class="sub">${t.date.slice(5)}</div>
-        </div>
-      </li>`;
-  }
-  const shared = t.is_shared
-    ? t.payer_share_pct === 50 ? "shared 50/50" : `shared · payer ${t.payer_share_pct}%`
-    : "personal";
-  const src = t.source === "manual" ? "" :
-    ` · <span class="badge">${esc(t.source)}</span>`;
-  return `
-    <li class="tap" data-txn="${t.id}">
-      <span class="ic">${catEmoji(t.category)}</span>
-      <div class="grow">
-        <div class="title">${esc(t.description)}</div>
-        <div class="sub">
-          <span class="dot" style="--pcolor:${userColor(t.paid_by)}"></span>${esc(payer.display_name)}
-          · ${esc(t.category)} · ${shared}${src}
-        </div>
-      </div>
-      <div style="text-align:right">
-        <div class="amt amount">${fmt(t.amount)}</div>
-        <div class="sub">${t.date.slice(5)}</div>
-      </div>
-    </li>`;
-}
-
 async function renderActivity() {
   const data = await api(
     `/api/activity?month=${state.month}&filter=${state.activityFilter}`);
@@ -540,7 +449,7 @@ async function renderActivity() {
   const emptyLabel = { all: "No transactions", spending: "No spending",
                        income: "No income" }[state.activityFilter];
   const list = txns.length
-    ? `<ul class="list">${txns.map(txnRow).join("")}</ul>`
+    ? `<ul class="list">${txns.map((t) => txnRow(t, state.users)).join("")}</ul>`
     : `<p class="empty">${emptyLabel} in ${monthName(state.month)}.</p>`;
   const seg = (key, label) =>
     `<button data-filter="${key}"${state.activityFilter === key ? ' class="on"' : ""}>${label}</button>`;
@@ -1030,7 +939,7 @@ const formTxn = $("#form-txn");
 function updateSplitHint() {
   const pct = +formTxn.payer_share_pct.value;
   const payerId = +$("#txn-paidby").dataset.value;
-  const payer = userById(payerId);
+  const payer = window.Render.userById(state.users, payerId);
   const other = state.users.find((u) => u.id !== payerId) || { display_name: "Partner" };
   $("#split-readout").textContent = `${pct}%`;
   $("#split-hint").textContent =

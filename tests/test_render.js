@@ -1051,4 +1051,102 @@ check("goalPaceLineHTML: complete / no_pace / projected forms", () => {
   assert.strictEqual(R.goalPaceLineHTML(null), "", "no pace entry, no line");
 });
 
+// ---- userById / userColor: the dependency-injected household lookups ----
+// (extracted from app.js with txnRow; app.js now passes state.users in.)
+check("userById finds the member, falls back to '?'", () => {
+  const users = [{ id: 1, display_name: "Alta" }, { id: 2, display_name: "Charlee" }];
+  assert.strictEqual(R.userById(users, 2).display_name, "Charlee");
+  assert.strictEqual(R.userById(users, 999).display_name, "?", "unknown id -> placeholder");
+  assert.strictEqual(R.userById([], 1).display_name, "?");
+  assert.strictEqual(R.userById(undefined, 1).display_name, "?", "missing users survives");
+});
+check("userColor: first member slot 1, everyone else slot 2", () => {
+  const users = [{ id: 7, display_name: "A" }, { id: 9, display_name: "B" }];
+  assert.strictEqual(R.userColor(users, 7), "var(--p1)");
+  assert.strictEqual(R.userColor(users, 9), "var(--p2)");
+  assert.strictEqual(R.userColor(users, 999), "var(--p2)", "unknown id -> slot 2");
+});
+
+// ---- beamHTML: the Garden hero (who-owes-who) ----
+check("beamHTML settled: no name, no settle button", () => {
+  const h = R.beamHTML({ settled: true });
+  assert.ok(h.includes("All settled up"));
+  assert.ok(!h.includes("btn-settle"), "settled state shows no Settle button");
+});
+check("beamHTML unsettled: names + amount + settle button", () => {
+  const h = R.beamHTML({ settled: false, owes: { name: "Alta" },
+    owed: { name: "Charlee" }, amount: 353.51 });
+  assert.ok(h.includes("Alta owes"));
+  assert.ok(h.includes("Charlee"));
+  assert.ok(h.includes("$353.51"));
+  assert.ok(h.includes('id="btn-settle"'), "unsettled shows the Settle button");
+});
+check("beamHTML escapes member names (no attribute/markup breakout)", () => {
+  const h = R.beamHTML({ settled: false, owes: { name: 'A<img src=x>' },
+    owed: { name: 'B"&' }, amount: 1 });
+  assert.ok(!h.includes("<img"), "hostile name is escaped, not injected");
+  assert.ok(h.includes("&lt;img"));
+  assert.ok(h.includes("&amp;"));
+});
+
+// ---- txnRow: transfer / income-in / spend branches, users injected ----
+const RUSERS = [{ id: 1, display_name: "Alta" }, { id: 2, display_name: "Charlee" }];
+check("txnRow transfer: neutral 🔁, transfer badge, signed but no in/out color class", () => {
+  const inb = R.txnRow({ id: 10, paid_by: 1, is_transfer: 1, direction: "in",
+    source: "simplefin", description: "Payment Thank You", date: "2026-08-05", amount: 270.36 }, RUSERS);
+  assert.ok(inb.includes("🔁"), "transfer glyph");
+  assert.ok(inb.includes("transfer-amt"), "neutral amount class");
+  assert.ok(inb.includes(">transfer<") || inb.includes("transfer"), "transfer label");
+  assert.ok(inb.includes("+$270.36"), "inbound transfer keeps + sign");
+  assert.ok(!inb.includes("income-in"), "a transfer is not colored as income");
+  assert.ok(inb.includes('data-txn="10"'), "still tappable");
+  assert.ok(inb.includes("Alta"), "injected payer name");
+  const out = R.txnRow({ id: 11, paid_by: 2, is_transfer: 1, direction: "out",
+    source: "manual", description: "CHASE EPAY", date: "2026-07-15", amount: 500 }, RUSERS);
+  assert.ok(out.includes("−$500.00"), "outbound transfer shows minus");
+  assert.ok(out.includes("var(--p2)"), "second member's color for Charlee");
+});
+check("txnRow income-in: 💵, +amount, income class, tag chip when unclassified", () => {
+  const tagged = R.txnRow({ id: 12, paid_by: 1, direction: "in", income_type: "paycheck",
+    source: "simplefin", description: "ACME", date: "2026-08-01", amount: 3200 }, RUSERS);
+  assert.ok(tagged.includes("💵"));
+  assert.ok(tagged.includes("income-in"));
+  assert.ok(tagged.includes("+$3,200.00"));
+  assert.ok(tagged.includes("badge income"), "classified inflow shows its type chip");
+  const untagged = R.txnRow({ id: 13, paid_by: 2, direction: "in", income_type: "unclassified",
+    source: "manual", description: "Venmo", date: "2026-08-02", amount: 40 }, RUSERS);
+  assert.ok(untagged.includes("badge untagged"), "unclassified inflow nags with a tag chip");
+});
+check("txnRow spend: category emoji, shared/personal sub, plain amount", () => {
+  const shared = R.txnRow({ id: 14, paid_by: 1, direction: "out", is_shared: 1,
+    payer_share_pct: 50, category: "Groceries", source: "simplefin",
+    description: "Whole Foods", date: "2026-08-03", amount: 88.2 }, RUSERS);
+  assert.ok(shared.includes("shared 50/50"));
+  assert.ok(shared.includes("$88.20"));
+  assert.ok(!shared.includes("income-in") && !shared.includes("transfer-amt"), "plain spend styling");
+  const pct = R.txnRow({ id: 15, paid_by: 2, direction: "out", is_shared: 1,
+    payer_share_pct: 70, category: "Rent", source: "manual", description: "Rent",
+    date: "2026-08-01", amount: 1800 }, RUSERS);
+  assert.ok(pct.includes("payer 70%"), "non-50 split spells the payer share");
+  const personal = R.txnRow({ id: 16, paid_by: 1, direction: "out", is_shared: 0,
+    category: "Coffee", source: "manual", description: "Cafe", date: "2026-08-04", amount: 5 }, RUSERS);
+  assert.ok(personal.includes("personal"));
+});
+check("txnRow missing direction (frozen dashboard shape) renders as spend, not income", () => {
+  // dashboard 'recent' rows come from txn_to_json with no direction — must not
+  // fall into the income branch.
+  const r = R.txnRow({ id: 17, paid_by: 999, category: "Misc", source: "manual",
+    description: "No direction", date: "2026-08-06", amount: 9.99 }, RUSERS);
+  assert.ok(!r.includes("income-in"), "no-direction row is not income-colored");
+  assert.ok(r.includes("?"), "unknown payer falls back to '?'");
+});
+check("txnRow escapes hostile description/category (no breakout)", () => {
+  const r = R.txnRow({ id: 18, paid_by: 1, direction: "out", is_shared: 0,
+    category: 'C"<b>', source: "manual", description: 'D<img src=x onerror=alert(1)>',
+    date: "2026-08-07", amount: 1 }, RUSERS);
+  assert.ok(!r.includes("<img"), "description injection neutralized");
+  assert.ok(!r.includes("<b>"), "category injection neutralized");
+  assert.ok(r.includes("&lt;img"));
+});
+
 console.log(`render tests passed (${passed} checks)`);
