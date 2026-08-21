@@ -3029,7 +3029,27 @@ no new verb, never touches money.
   pulse + badge routes (401 anon), MCP parity for the new tool, a render check
   for the curation card, the formatter suite, and the payload/count pins that
   caught every new key. Suite **618** python + **139** render. **GATE PASS
-  zero-diff** (old=`611575f`). NOT YET DEPLOYED.
+  zero-diff** (old=`611575f`). **DEPLOYED (Aug 21, 12:44)** — the pre-merge
+  fetch found `origin/main` at `80003a1` (PRs #35 goalCard extraction + #36
+  log, landed since inc 5); folded into `rework` (`4867038` — the only
+  conflict was the log's tail, their stale "NOT YET DEPLOYED" copy of the
+  inc 5 line dropped), suite 618 + **147** on the merged tree, delta re-gated
+  (`ba008a1`→`rework`, zero-diff), `main` rebuilt as `6b6bbf5` on `80003a1`,
+  pushed + deployed back-to-back. Live gate PASS zero-diff, "nothing to
+  apply", services restarted, backup `finance.db.bak-2026-08-21-124448`.
+  Tailnet-verified: `/api/inventory/pulse` + `/badge` **401 unauthenticated**,
+  `staleStaplesHTML` served (5), the Garden badge fetch in `app.js` (2),
+  `origin/main` == `6b6bbf5`. **Pulse timer INSTALLED (Aug 21, 12:59)**: Alta
+  minted a read token, installed the sed-rewritten units, enabled the Sunday
+  09:00 timer; `--dry-run` produced a real digest (1 on the list, a Quick Chek
+  new-staple suggestion, 3 never-matched staples) and the first live run
+  **filed `pantry-pulse` issue #37** on evenkeel. Two install stumbles, both
+  now in the doc: the placeholder's angle brackets were pasted literally into
+  `.env` (breaks sourcing + the bearer header), and in the process the first
+  token was displayed in a chat transcript — so it was **revoked (id 4)** and
+  re-minted via a pipe-to-`.env` one-liner that never prints the token (the
+  doc now recommends that form). A password was also shared in transcript
+  during the walk; Alta was advised to change it.
 
 ## Aug 21, 2026 — Frontend seam thread: extract billRowHTML, goalCardHTML, contribLogHTML (PRs #34, #35)
 
@@ -3069,3 +3089,40 @@ That closes the seam thread's high-value targets — activity row, balance hero,
 bill row, goal card. The one builder left inline (the Dashboard mini-cards) is
 low logic-density and deliberately left for when it's next touched, per the
 CLAUDE.md "extract when touched" rule.
+
+## Aug 21, 2026 — `change_password`: a member changes their own password
+
+Prompted by the pulse-timer install walk, during which Alta's app password
+was shared in a chat transcript — and the app had no way to change it short
+of touching the database. Now it does, by the book.
+- **The verb** (`change_password(db, actor, member_id, current, new)`) —
+  the FIRST write verb over `members` (the table's only prior writer was the
+  first-run `setup()` route). validate: member exists & active; current
+  password verifies (werkzeug `check_password_hash`); new ≥ 8 chars (the
+  setup floor) and differs from current. edit: one transaction replaces the
+  hash. audit: the row carries **only the member id** — never a password or
+  hash (the log is readable by both members and the agents; the test asserts
+  no secret material appears). No session revocation: sessions are signed
+  cookies with no server-side store, so other devices stay signed in until
+  their cookie expires — a later increment if wanted, stated in the docstring
+  and the dialog.
+- **The route** — `POST /api/me/password`, **session-only**: a bearer token,
+  even `read,write`, must never change a password (tested). Wrong current
+  passwords are rate-limited per member on the login buckets (5 / 15 min →
+  429), so the route can't be a guessing oracle for the current password.
+- **The UI** — a "Password" button beside "Sign out" opens a dialog (current
+  / new / confirm; the mismatch is caught client-side, every other rule by
+  the verb; errors inline, success closes). Static markup + wiring, no
+  render.js change.
+- **Coherence pins did their job**: the ontology test "members has no verb
+  writer" failed on first run and was FLIPPED to "every governed table has a
+  verb writer; members' is change_password" — it now guards against a
+  second, accidental writer. `test_architecture`'s `setup()` exception
+  stays (the bootstrap has no member to act as yet) with its note reworded.
+  CORE-DESIGN registry row added.
+- Tests: 3 verb + 3 route (8 assertions on secrets, refusals, the
+  login-follows-the-change proof, anon/bearer refusal, rate limit). Suite
+  **624** python + **147** render. **GATE PASS zero-diff** (old=`3210cba`).
+  NOT YET DEPLOYED. Honest note: the dialog wiring in app.js is not
+  browser-smoked (seeded users have fake hashes) — Alta's first real use is
+  the smoke, and is also the point.

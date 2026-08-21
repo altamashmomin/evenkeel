@@ -47,8 +47,10 @@ ALLOWED_DIRS = {"migrations", "tests", ".venv", "venv", "__pycache__",
 # deleting the entry here — the test then guards the newly-governed table.
 KNOWN_EXCEPTIONS = {
     ("app.py", "members"):
-        "one-time account creation in the setup() route; member/auth "
-        "management is not yet a verb (CORE-DESIGN open question)",
+        "one-time account creation in the setup() route — the bootstrap has "
+        "no member to act as yet. Password CHANGE is a verb since Aug 21, "
+        "2026 (change_password); extracting setup itself is the remaining "
+        "CORE-DESIGN open question",
 }
 
 

@@ -51,16 +51,18 @@ class ManifestObjectTests(unittest.TestCase):
                 self.assertIn(t, actions.GOVERNED_TABLES,
                               f"{a['name']} writes ungoverned table {t}")
 
-    def test_members_has_no_verb_writer(self):
-        # members is the one governed table written outside a verb (the
-        # setup() route — test_architecture's KNOWN_EXCEPTIONS). If a
-        # member/auth verb is ever extracted, this assertion flips and both
-        # this and that exception get removed together.
+    def test_every_governed_table_has_a_verb_writer(self):
+        # Flipped Aug 21, 2026: change_password is the first verb over
+        # members, so EVERY governed table now has a verb writer. The
+        # first-run setup() route still INSERTs members directly (the
+        # bootstrap has no member to act as yet) — that stays as
+        # test_architecture's KNOWN_EXCEPTION until setup is itself
+        # extracted; this pin names the writer so a second, accidental one
+        # can't slip in unnoticed.
         members = next(o for o in MANIFEST["objects"] if o["name"] == "members")
-        self.assertEqual([], members["written_by"])
-        others = [o for o in MANIFEST["objects"] if o["name"] != "members"]
-        self.assertTrue(all(o["written_by"] for o in others),
-                        "every governed table except members has a verb writer")
+        self.assertEqual(["change_password"], members["written_by"])
+        self.assertTrue(all(o["written_by"] for o in MANIFEST["objects"]),
+                        "every governed table has a verb writer")
 
 
 class ManifestActionTests(unittest.TestCase):

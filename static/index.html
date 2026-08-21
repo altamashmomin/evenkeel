@@ -58,6 +58,7 @@
       <span class="avatars" id="avatars"></span>
       <button class="icon-btn" id="theme-toggle" type="button"
               aria-label="Switch between light and dark">☾</button>
+      <button class="btn ghost" id="btn-password" type="button">Password</button>
       <button class="btn ghost" id="btn-logout" type="button">Sign out</button>
     </div>
   </header>
@@ -204,6 +205,21 @@
   </form>
 </dialog>
 
+<dialog id="dlg-password">
+  <form method="dialog" id="form-password" autocomplete="off">
+    <h2>Change password</h2>
+    <label>Current password <input name="current_password" type="password" autocomplete="current-password" required></label>
+    <label>New password <input name="new_password" type="password" autocomplete="new-password" minlength="8" required></label>
+    <label>New password again <input name="confirm_password" type="password" autocomplete="new-password" minlength="8" required></label>
+    <p class="split-hint">At least 8 characters. Other signed-in devices stay signed in until they next expire.</p>
+    <p class="form-error" id="password-error"></p>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" type="submit">Change password</button>
+    </div>
+  </form>
+</dialog>
 <dialog id="dlg-settle">
   <form method="dialog" id="form-settle">
     <h2>Settle up</h2>

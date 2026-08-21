@@ -76,6 +76,7 @@ _DUMMY_PW_HASH = generate_password_hash("timing-equalizer-not-a-real-password")
 # for a two-person home app on a tailnet (a DB-backed counter would be exact but
 # needs a migration). It still stops brute force and bounds API spend.
 LOGIN_MAX_FAILS, LOGIN_WINDOW_S = 10, 900       # 10 failed logins / 15 min
+PASSWORD_MAX_FAILS, PASSWORD_WINDOW_S = 5, 900  # 5 wrong current-passwords / 15 min
 ASK_MAX, ASK_WINDOW_S = 30, 3600                # 30 assistant queries / hour
 _RATE_BUCKETS = {}  # key -> (window_start_epoch, count)
 
@@ -466,6 +467,33 @@ def create_token():
         "created_at": result["created_at"],
         "token": result["token"],   # shown once — cannot be recovered later
     }), 201
+
+
+@app.post("/api/me/password")
+@session_required
+def change_my_password():
+    """Thin caller: change_password for the signed-in member. Session-only — a
+    bearer token must never be able to change a password. Wrong current
+    passwords are rate-limited per member (same buckets as login), so the
+    route can't be used to guess the current password."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    member_id = g.auth["user_id"]
+    rl_key = f"pw:{member_id}"
+    if _rate_over(rl_key, PASSWORD_MAX_FAILS, PASSWORD_WINDOW_S):
+        return jsonify({"error": "too many attempts — wait a few minutes"}), 429
+    try:
+        actions.change_password(db, ui_actor(db), member_id,
+                                data.get("current_password"),
+                                data.get("new_password"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except actions.ActionError as e:
+        if "current password" in str(e):
+            _rate_hit(rl_key, PASSWORD_WINDOW_S)
+        return bad_request(str(e))
+    _RATE_BUCKETS.pop(rl_key, None)
+    return jsonify({"ok": True})
 
 
 @app.get("/api/tokens")
