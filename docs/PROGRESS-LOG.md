@@ -3082,8 +3082,12 @@ headless. All behaviour-neutral.
 - **No money path** in either — frontend-only, so the balance gate does not
   apply (zero Python changed). Both merged to main (`47cb836`, `53db45a`); the
   combined tree with the parallel Pantry v2 work is green (**611** python +
-  **146** render at time of writing). NOT YET DEPLOYED (rides the next deploy;
-  behaviour-neutral, no migration).
+  **146** render at time of writing). **DEPLOYED (Aug 21)** — rode the deploy of
+  `main` `6b6bbf5` (which also carried Pantry v2 inc 6); cloud-prepped go/no-go
+  (GATE PASS zero-diff, no migration, schema stays v14) caught a live-moving
+  target on the first guard and was re-gated `ba008a1`→`6b6bbf5` before Alta
+  ran `deploy.sh origin/main`; the live real-data gate then passed zero-diff.
+  Behaviour-neutral, no migration.
 
 That closes the seam thread's high-value targets — activity row, balance hero,
 bill row, goal card. The one builder left inline (the Dashboard mini-cards) is
