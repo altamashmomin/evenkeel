@@ -3229,3 +3229,33 @@ text with a single non-tappable "✓ tagged" badge on a classify.
   is byte-identical by construction. Committed on `rework` `c4dd1b1`; **not yet
   deployed** (awaits Alta's merge-to-main + Pi deploy). A live browser smoke of
   the chip is still worth doing before it ships.
+
+## Aug 22, 2026 — Ask interactivity, increment A2: adaptive follow-up chips
+
+**A2** — the thread now suggests where to go next. After each reply, up to three
+tappable follow-up questions hang under the latest bubble, chosen from what that
+reply actually DID rather than a fixed list.
+- **Frontend only** (`render.js`): a pure `askFollowups(messages)` picks
+  suggestions — writes first (`FOLLOWUPS_BY_TAB`: a pantry write → "What else
+  are we low on?" / "What's the shopping trip look like?"; a deposit tag →
+  income/tag prompts), then topical by the read tools the reply used
+  (`FOLLOWUPS_BY_TOOL`, keyed on the 20 read tools), then the starter examples
+  as a fallback so there's always a nudge. Never suggests back the question just
+  asked (case-insensitive), capped at 3, hidden while a reply is pending.
+  `askThreadHTML` renders them as `.ask-followup` chips reusing the existing
+  `data-ask-eg → askSend` wiring (no new handler). `askSend` (`app.js`) now
+  stores `tools_used` on the assistant message so the helper can key off it;
+  the history POST still sends only `{role, content}`, so nothing new leaks to
+  the server. `askFollowups` is exported for unit tests.
+- Tests: pantry-next-steps after a pantry write, topical-to-tool (budget),
+  never-suggest-back, always-a-nudge fallback, none when the last turn isn't a
+  reply, and the render row present-when-idle / hidden-while-pending — render
+  suite **156** (+6). No Python touched.
+- **Gate unaffected** — the diff is `static/*` + `tests/test_render.js` only; no
+  `derivations.py`, `migrations/`, schema, or route. Money math byte-identical.
+- **Browser-smoke verified** (Flask on a synthetic dev.db, `/api/ask` stubbed
+  in-page so the real `askSend → render → wiring` path ran without an API key):
+  the A1 chip navigated to Pantry; the A2 row rendered pantry-flavored chips
+  after a pantry turn; tapping one sent it as a new question AND the next row
+  correctly dropped that just-asked question. Committed on `rework` `4fbb336`;
+  **not yet deployed** (rides with A1 to the Pi on Alta's merge + deploy).
