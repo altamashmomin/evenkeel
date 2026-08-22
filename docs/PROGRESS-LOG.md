@@ -3300,3 +3300,43 @@ zero-diff, "nothing to apply", services restarted, backup
 `render.js` and `app.js` under fresh stamps (a probe fired during the
 restart window saw the old files first — re-probed, then confirmed),
 `origin/main` == `ea13e5e`. B1 + B4 (the write increments) remain unbuilt.
+
+## Aug 22, 2026 — Ask interactivity, increment B1: recategorize from Ask (write)
+
+**B1** — the first of the two approved write powers: Charlee's Ask bot can move
+ONE spending transaction to a different category. (Alta's Lane-B scope was B1 +
+B4; B2 create-rule / B3 set-budget stay app-only.)
+- **The verb** (`actions.recategorize_transaction`): a category-only facade over
+  `edit_transaction` (the single transaction-edit write path) — it delegates a
+  `{category}` payload, inheriting that verb's validation, split preservation,
+  settlement freeze, and audit row (recorded as `edit_transaction`,
+  changed={category}). Its `PARAM_SPECS` schema (`additionalProperties:false`)
+  admits only `transaction_id` + `category`, so the model structurally cannot
+  reach amount/splits/description. A category-only edit is already proven not to
+  move the balance or any month total (`test_recategorize_leaves_balance_and_
+  month_total_unchanged`).
+- **The door**: a dedicated route `PUT /api/transactions/<id>/recategorize`
+  (reads ONLY category → the constraint holds at the HTTP edge too), so the verb
+  is genuinely invoked and reachable — not a schema-only orphan. Surfaced as the
+  11th Ask write tool `ledger_recategorize_transaction` with **confirm-first**
+  prompt discipline (find the exact row via `ledger_search_transactions`, state
+  the from→to category, act only on an explicit yes — never guess) and an A1
+  "Review in Activity" tap-through chip. Chosen over the structural
+  `pending_actions` two-phase (rules-only, over-engineered for a reversible,
+  category-only, single-row, audited relabel).
+- **Governance gates it tripped (as designed) and satisfied**: the CORE-DESIGN
+  verb registry (added the `recategorize_transaction` row) and the ontology — it
+  is the **second cascader** (→ `edit_transaction`) and a *pure delegator* (empty
+  direct footprint), so its audit trail comes through the cascade; the
+  audit-coverage and cascader tests were updated to recognize that shape, and the
+  callers manifest now lists it under ui + ask (no longer door-less/cli).
+- Tests: verb-level (category-only facade preserves amount/splits; refuses a
+  settlement), tool-level (relabels + logs as the person; A1 activity chip;
+  schema is category-only), roster counts 30→31 (two call sites). Suite **632**
+  (+4). **GATE PASS zero-diff** — no derivation/migration/schema change.
+- **Browser-smoked** (Flask on synthetic dev.db): the live route relabeled txn 1
+  Rent→Household, **ignored smuggled `amount:1` and `description:"HACKED"`**
+  (category-only enforced at the edge), and left the who-owes-whom balance
+  ($940.49) and the month total ($2,927.54) unchanged. Committed on `rework`
+  `59fdb69`; **not yet deployed** (rides with A1/A2/A4 on Alta's merge + deploy).
+  A `ledger-mirage` re-run against the new write surface is worth doing pre-deploy.
