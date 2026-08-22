@@ -800,10 +800,11 @@ async function askSend(text) {
   render();
   try {
     const res = await api("/api/ask", { method: "POST", body: { message: text, history } });
-    // A1: the assistant returns `actions` — one per screen a write touched — so
-    // the reply can render tap-through chips (see/adjust the change).
+    // A1: `actions` (one per screen a write touched) drives the tap-through
+    // chips. A2: `tools_used` lets the thread suggest topical follow-ups.
     const actions = Array.isArray(res.actions) ? res.actions : [];
-    state.ask.messages.push({ role: "assistant", content: res.answer, actions });
+    const tools_used = Array.isArray(res.tools_used) ? res.tools_used : [];
+    state.ask.messages.push({ role: "assistant", content: res.answer, actions, tools_used });
   } catch (e) {
     state.ask.messages.push({ role: "assistant", content: "Sorry — " + e.message });
   } finally {

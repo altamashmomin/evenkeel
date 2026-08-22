@@ -698,6 +698,11 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   color: var(--brass); border-radius: 999px; padding: 9px 16px; font-size: 14px;
   font-family: inherit; cursor: pointer; }
 .ask-eg:active { background: var(--surface-2); }
+/* A2: follow-up chips under the latest reply — a left-aligned wrap of smaller
+   example chips that adapt to what was just asked. */
+.ask-followups { display: flex; flex-wrap: wrap; gap: 6px; align-self: flex-start;
+  max-width: 92%; margin: 2px 0 4px; }
+.ask-followup { padding: 6px 12px; font-size: 13px; }
 
 /* ---------- inventory ("the pantry") ---------- */
 /* The tap-to-cycle status chip — same three-colour language as the badges

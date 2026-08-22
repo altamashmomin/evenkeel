@@ -415,6 +415,53 @@ check("askThread shows a thinking bubble while pending", () => {
   const html = R.askThreadHTML([{ role: "user", content: "hi" }], true);
   assert.ok(html.includes("ask-thinking"), "thinking indicator present");
 });
+// ---- A2: adaptive follow-up prompts ----
+check("askFollowups suggests pantry next steps after a pantry write (A2)", () => {
+  const fu = R.askFollowups([
+    { role: "user", content: "we're out of coffee" },
+    { role: "assistant", content: "Marked coffee out.",
+      actions: [{ tab: "inventory", label: "Open Pantry" }], tools_used: ["ledger_set_item_status"] },
+  ]);
+  assert.ok(fu.length >= 1 && fu.length <= 3, "1–3 suggestions");
+  assert.ok(fu.some((q) => /low|shopping trip/i.test(q)), "pantry-flavored");
+});
+check("askFollowups is topical to the read tools used (A2)", () => {
+  const fu = R.askFollowups([
+    { role: "user", content: "how are the budgets?" },
+    { role: "assistant", content: "You're under on all but dining.",
+      actions: [], tools_used: ["ledger_budget_status"] },
+  ]);
+  assert.ok(fu.some((q) => /budget|cut back/i.test(q)), "budget follow-ups");
+});
+check("askFollowups never suggests back the question just asked (A2)", () => {
+  const q = "Who owes who right now?";
+  const fu = R.askFollowups([
+    { role: "user", content: q },
+    { role: "assistant", content: "Charlee owes you $20.",
+      actions: [], tools_used: ["ledger_household_snapshot"] },
+  ]);
+  assert.ok(!fu.map((s) => s.toLowerCase()).includes(q.toLowerCase()), "excluded");
+  assert.ok(fu.length <= 3, "still capped");
+});
+check("askFollowups falls back to examples when nothing keys (A2)", () => {
+  const fu = R.askFollowups([
+    { role: "user", content: "hello" },
+    { role: "assistant", content: "Hi!", actions: [], tools_used: [] },
+  ]);
+  assert.ok(fu.length >= 1, "always offers a nudge");
+});
+check("askFollowups: none when the last turn isn't an assistant reply (A2)", () => {
+  assert.deepEqual(R.askFollowups([{ role: "user", content: "hi" }]), []);
+  assert.deepEqual(R.askFollowups([]), []);
+});
+check("askThread renders a follow-up row after a reply, none while pending (A2)", () => {
+  const msgs = [
+    { role: "user", content: "how's the pantry?" },
+    { role: "assistant", content: "All stocked.", actions: [], tools_used: ["ledger_inventory"] },
+  ];
+  assert.ok(R.askThreadHTML(msgs, false).includes("ask-followups"), "row shown when idle");
+  assert.ok(!R.askThreadHTML(msgs, true).includes("ask-followups"), "hidden while thinking");
+});
 check("askThread escapes message content (no HTML injection)", () => {
   const html = R.askThreadHTML([{ role: "assistant", content: "<img src=x onerror=1>" }], false);
   assert.ok(html.includes("&lt;img"), "content escaped");
