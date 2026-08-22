@@ -111,6 +111,9 @@ class AskWriteTests(unittest.TestCase):
 
         self.assertEqual("Tagged that deposit as your paycheck ✓", out["answer"])
         self.assertEqual(["ledger_classify_inflow"], out["tools_used"])
+        # A1: a landed write carries a tap-through chip to where it lives.
+        self.assertEqual([{"tab": "activity", "label": "Review in Activity"}],
+                         out["actions"])
         # the row really changed, through the route
         self.assertEqual("paycheck", self.income_type(txn_id))
         # the model saw a NON-error tool_result carrying the updated row
@@ -176,6 +179,9 @@ class AskWriteTests(unittest.TestCase):
         ])
         out = self.ask(mock, msg="we got the coffee and milk", caller=self.caller)
         self.assertEqual(["ledger_restock_items"], out["tools_used"])
+        # A1: a pantry write lands one "Open Pantry" chip (deduped by tab).
+        self.assertEqual([{"tab": "inventory", "label": "Open Pantry"}],
+                         out["actions"])
         self.assertEqual("stocked", self.item_row(coffee)["status"])
         self.assertEqual("stocked", self.item_row(milk)["status"])
         self.assertEqual("ui:avery", self.audited("restock_items", coffee)["actor"])
@@ -262,6 +268,16 @@ class AskWriteTests(unittest.TestCase):
         tr = mock.calls[1]["messages"][-1]["content"][0]
         self.assertTrue(tr["is_error"])
         self.assertIn("tool error", tr["content"])
+        # A1: a write that FAILED changed nothing, so it earns no chip.
+        self.assertEqual([], out["actions"])
+
+    # -- a plain read answer carries no tap-through chips (A1) ----------------
+    def test_read_only_answer_has_no_actions(self):
+        mock = MockAnthropic([resp([text_block("You're doing great this month.")],
+                                   "end_turn")])
+        out = self.ask(mock, caller=self.caller)
+        self.assertEqual([], out["tools_used"])
+        self.assertEqual([], out["actions"])
 
     # -- an outflow can't be tagged (the verb's submission criterion holds) ---
     def test_outflow_write_is_refused_by_the_verb(self):

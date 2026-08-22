@@ -663,11 +663,15 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   border-bottom-right-radius: 4px; }
 .ask-bot { align-self: flex-start; background: var(--surface-2);
   border: 1px solid var(--line); border-bottom-left-radius: 4px; }
-/* Shown on an assistant reply that actually tagged an inflow. */
-.ask-tagged { display: block; width: fit-content; margin-top: 8px;
+/* A1: a tap-through chip on an assistant reply that changed something — one
+   per screen the write touched. Tapping jumps there to see or adjust it. */
+.ask-nav { display: block; width: fit-content; margin-top: 8px;
   font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
   color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent);
-  border-radius: 6px; padding: 2px 8px; }
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+.ask-nav + .ask-nav { margin-top: 6px; }
+.ask-nav:active { background: color-mix(in srgb, var(--ok) 28%, transparent); }
 .ask-thinking { display: flex; gap: 5px; align-items: center; }
 .ask-thinking span { width: 6px; height: 6px; border-radius: 50%;
   background: var(--muted); animation: askblink 1.2s infinite both; }

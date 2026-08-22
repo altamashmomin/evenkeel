@@ -800,9 +800,10 @@ async function askSend(text) {
   render();
   try {
     const res = await api("/api/ask", { method: "POST", body: { message: text, history } });
-    // The assistant can tag an inflow; flag the reply so the thread shows it.
-    const tagged = (res.tools_used || []).includes("ledger_classify_inflow");
-    state.ask.messages.push({ role: "assistant", content: res.answer, tagged });
+    // A1: the assistant returns `actions` — one per screen a write touched — so
+    // the reply can render tap-through chips (see/adjust the change).
+    const actions = Array.isArray(res.actions) ? res.actions : [];
+    state.ask.messages.push({ role: "assistant", content: res.answer, actions });
   } catch (e) {
     state.ask.messages.push({ role: "assistant", content: "Sorry — " + e.message });
   } finally {
@@ -983,6 +984,10 @@ function wireMain() {
   });
   $$("[data-ask-eg]").forEach((el) =>
     el.addEventListener("click", () => askSend(el.dataset.askEg)));
+  // A1: a reply's tap-through chip jumps to the screen a write touched, so the
+  // person can see or adjust the change (the screen is itself the way back).
+  $$("[data-ask-nav]").forEach((el) =>
+    el.addEventListener("click", () => setTab(el.dataset.askNav)));
   const thread = $("#ask-thread");
   if (thread) thread.scrollTop = thread.scrollHeight;
   // Auto-focus the Ask input only once a conversation exists (keeps the

@@ -380,14 +380,31 @@ check("askThread renders user and assistant bubbles", () => {
   assert.ok(html.includes('ask-msg ask-bot') && html.includes("Yes, on the 2nd."), "assistant bubble");
   assert.ok(!html.includes("ask-thinking"), "no thinking bubble when not pending");
 });
-check("askThread shows a ✓ tagged chip only on a write reply", () => {
+check("askThread shows tap-through nav chips only on a write reply (A1)", () => {
   const html = R.askThreadHTML([
-    { role: "assistant", content: "Tagged it as your paycheck", tagged: true },
+    { role: "assistant", content: "Tagged it as your paycheck",
+      actions: [{ tab: "activity", label: "Review in Activity" }] },
     { role: "assistant", content: "You spent $40 on coffee." },
   ], false);
-  const chips = html.match(/ask-tagged/g) || [];
-  assert.equal(chips.length, 1, "exactly one chip — only the tagged reply");
-  assert.ok(html.includes("✓ tagged"), "chip label present");
+  const chips = html.match(/class="ask-nav"/g) || [];
+  assert.equal(chips.length, 1, "exactly one chip — only the write reply");
+  assert.ok(html.includes('data-ask-nav="activity"'), "chip carries its tab");
+  assert.ok(html.includes("Review in Activity"), "chip label present");
+});
+check("askThread renders one chip per action, deduped list preserved (A1)", () => {
+  const html = R.askThreadHTML([
+    { role: "assistant", content: "Marked milk and coffee out",
+      actions: [{ tab: "inventory", label: "Open Pantry" }] },
+  ], false);
+  assert.equal((html.match(/class="ask-nav"/g) || []).length, 1, "one pantry chip");
+  assert.ok(html.includes('data-ask-nav="inventory"'), "targets the pantry tab");
+});
+check("askThread: a plain read reply carries no chip (A1)", () => {
+  const html = R.askThreadHTML([
+    { role: "assistant", content: "You spent $40 on coffee.", actions: [] },
+    { role: "assistant", content: "No actions field at all." },
+  ], false);
+  assert.equal((html.match(/class="ask-nav"/g) || []).length, 0, "reads stay chip-free");
 });
 check("askThread empty state no longer claims it can't change anything", () => {
   const html = R.askThreadHTML([], false);

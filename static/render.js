@@ -603,11 +603,15 @@
       </div>`;
     }
     const bubbles = messages.map((m) => {
-      // A subtle chip when the assistant actually changed something (tagged an
-      // inflow), so a write reads differently from a plain answer.
-      const chip = (m.role === "assistant" && m.tagged)
-        ? `<span class="ask-tagged">✓ tagged</span>` : "";
-      return `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}${chip}</div>`;
+      // A1: when the assistant actually changed something, its reply carries
+      // tap-through chips — one per destination tab (deduped server-side) — so
+      // a write reads differently from a plain answer AND jumps you to where
+      // the change lives to see or adjust it. Reads carry none.
+      const acts = (m.role === "assistant" && Array.isArray(m.actions)) ? m.actions : [];
+      const chips = acts.map((a) =>
+        `<button type="button" class="ask-nav" data-ask-nav="${esc(a.tab)}">✓ ${esc(a.label)} →</button>`
+      ).join("");
+      return `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}${chips}</div>`;
     }).join("");
     const thinking = pending
       ? `<div class="ask-msg ask-bot ask-thinking"><span></span><span></span><span></span></div>`
