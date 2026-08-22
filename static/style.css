@@ -703,6 +703,14 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .ask-followups { display: flex; flex-wrap: wrap; gap: 6px; align-self: flex-start;
   max-width: 92%; margin: 2px 0 4px; }
 .ask-followup { padding: 6px 12px; font-size: 13px; }
+/* A4: "ask from anywhere" entry points — a quiet full-width link at the foot of
+   a card that hands the context to the assistant, pre-filled. */
+.ask-from { display: block; width: 100%; margin-top: 12px; padding: 8px;
+  background: none; border: 1px solid var(--line); border-radius: 10px;
+  color: var(--brass); font-family: inherit; font-size: 13px; cursor: pointer; }
+.ask-from:active { background: var(--surface-2); }
+/* In the settle dialog's action row it sits inline, not full-width. */
+.dlg-actions .ask-from { width: auto; margin-top: 0; }
 
 /* ---------- inventory ("the pantry") ---------- */
 /* The tap-to-cycle status chip — same three-colour language as the badges

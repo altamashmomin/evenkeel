@@ -490,6 +490,11 @@ check("inventoryHTML renders staples with a tap-to-cycle status chip", () => {
   assert.ok(html.includes('data-item-remove="1"'), "remove control present");
   assert.ok(html.includes("1 running low"), "low_count badge");
 });
+check("inventoryHTML offers an ask-from-pantry entry point (A4)", () => {
+  const html = R.inventoryHTML({ items: [], shopping: [], low_count: 0 });
+  assert.ok(html.includes('data-ask="pantry"'), "pantry ask entry present");
+  assert.ok(/ask-from/.test(html), "styled as an ask-from affordance");
+});
 check("inventoryHTML shopping list shows staple status and one-off need", () => {
   const html = R.inventoryHTML({
     items: [],

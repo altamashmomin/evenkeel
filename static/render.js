@@ -1265,6 +1265,7 @@
           <input name="name" maxlength="100" placeholder="Add something to buy…">
           <button class="btn small primary" type="submit">Add</button>
         </form>
+        <button type="button" class="ask-from" data-ask="pantry">💬 Ask about the pantry</button>
       </div>
       ${staleCard}
       ${forecastCard}
