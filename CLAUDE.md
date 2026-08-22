@@ -271,7 +271,17 @@ Suite 627+148, GATE PASS by enumeration (sole diff schema_version 14→15). On
 **DEPLOYED** (`main` `910ba8a`; the rebuild applied live — **live schema
 v15**; tailnet-verified). `origin/main` == the deployed tree; nothing
 merged-but-undeployed remains. **That completes the Pantry v2 amendment, 1–7,
-built and live.**
+built and live.** Then (Aug 22): a new **Ask-interactivity lane** to make
+Charlee's in-app assistant more interactive and further-reaching. Agreed order:
+**A1 tap-through chips → A2 adaptive follow-ups → A4 ask-from-anywhere entry
+points → B1 recategorize (write) → B4 add bill/goal (write)** (B2 create-rule /
+B3 set-budget stay app-only for now; settle/delete/money-movement stay off by
+design). **A1** (`ask_loop` emits an `actions` list → the reply renders
+tap-through chips to where a write landed, deduped by tab; no new write path)
+and **A2** (client-side `askFollowups` suggests next questions from what the
+reply just did) are **built, gated (A1 GATE PASS zero-diff), and browser-smoked**
+on `rework` (`c4dd1b1`, `4fbb336`; suite 628, render 156) — **pushed to
+origin/rework, NOT yet merged to main or deployed.** A4/B1/B4 remain.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
