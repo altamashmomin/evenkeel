@@ -3259,3 +3259,32 @@ reply actually DID rather than a fixed list.
   after a pantry turn; tapping one sent it as a new question AND the next row
   correctly dropped that just-asked question. Committed on `rework` `4fbb336`;
   **not yet deployed** (rides with A1 to the Pi on Alta's merge + deploy).
+
+## Aug 22, 2026 — Ask interactivity, increment A4: ask-from-anywhere entry points
+
+**A4** — the "more reach across the app" piece: contextual affordances that hand
+the person into the Ask tab pre-filled with a relevant question.
+- **Mechanism** (`app.js`): `state.ask.prefill` + `askFrom(key)` (sets the seed,
+  closes the settle modal if open, `setTab("ask")`). `renderAsk` seeds
+  `#ask-input`'s value; the Ask wiring focuses it with the cursor at the end,
+  then clears the seed so a later re-render can't clobber typed text. Question
+  text is centralized in `ASK_PREFILLS` (month / pantry / balance) so render fns
+  stay pure — they emit only `data-ask="<key>"`, bound to `askFrom` in wireMain.
+  The history POST is unchanged (`{role, content}` only).
+- **Entry points**: the Home spend card ("💬 Ask about this month" →
+  "How are we doing this month?"), the Pantry header/Need-to-buy card
+  ("💬 Ask about the pantry" → "What do we need from the store?", the one
+  render.js/tested change), and the settle dialog ("💬 Ask about this" →
+  "Why do we owe this amount right now?"; the button closes the modal and hands
+  off — a conversational path alongside the static settle breakdown). CSS:
+  `.ask-from` quiet full-width card-foot link, inline in `.dlg-actions`.
+- Tests: render adds an inventoryHTML ask-from-pantry assertion — **157** (+1).
+  No Python touched.
+- **Gate unaffected** — diff is `static/*` + `static/index.html` +
+  `tests/test_render.js`; no `derivations.py`, `migrations/`, schema, or route.
+- **Browser-smoke verified** (Flask on synthetic dev.db): each entry point
+  switched to Ask with the box pre-filled and focused — Home
+  ("How are we doing this month?"), Pantry ("What do we need from the store?"),
+  and Settle (dialog was open → closed on handoff →
+  "Why do we owe this amount right now?"). Committed on `rework` `d3bec20`;
+  **not yet deployed** (rides with A1+A2 to the Pi on Alta's merge + deploy).
