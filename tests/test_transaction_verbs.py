@@ -127,6 +127,30 @@ class TransactionVerbTests(unittest.TestCase):
         self.assertEqual(5000, by_cat.get("Dining"))
         self.assertNotIn("Groceries", by_cat)
 
+    def test_recategorize_transaction_is_a_category_only_facade(self):
+        # B1: the agent write tier's recategorize verb delegates to
+        # edit_transaction with a category-only payload — same audit action,
+        # amount/split untouched, settlement freeze inherited.
+        txn_id = self.a_manual_row()   # 5000c shared Groceries
+        row = actions.recategorize_transaction(self.db, "ui:blake", txn_id, "Dining")
+        self.assertEqual("Dining", row["category"])
+        self.assertEqual(5000, row["amount_cents"])       # amount untouched
+        audit = self.db.execute(
+            "SELECT actor, detail_json FROM audit_log "
+            "WHERE action = 'edit_transaction'").fetchone()
+        self.assertEqual("ui:blake", audit["actor"])
+        self.assertEqual({"category": "Dining"}, json.loads(audit["detail_json"])["changed"])
+        # split preserved (still 50/50)
+        shares = [r["share_bp"] for r in self.db.execute(
+            "SELECT share_bp FROM splits WHERE transaction_id = ? ORDER BY member_id",
+            (txn_id,))]
+        self.assertEqual([5000, 5000], shares)
+
+    def test_recategorize_transaction_refuses_a_settlement(self):
+        settled = self.settle()
+        with self.assertRaisesRegex(actions.ActionError, "settlement rows cannot be edited"):
+            actions.recategorize_transaction(self.db, "ui:avery", settled["id"], "Dining")
+
     def test_edit_without_share_carries_forward_existing_payer_share(self):
         txn_id = self.a_manual_row()
         # Give the row a lopsided share first.

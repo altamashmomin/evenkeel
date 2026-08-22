@@ -674,6 +674,26 @@ def set_transfer_view(txn_id):
                      "rule_suggestion": actions.suggest_transfer_rule_after_mark(db, row)})
 
 
+@app.put("/api/transactions/<int:txn_id>/recategorize")
+@login_required
+def recategorize_transaction_view(txn_id):
+    """Thin caller: the recategorize_transaction verb relabels ONE transaction's
+    category and nothing else (a category-only facade over edit_transaction). A
+    dedicated route so the constraint holds at the HTTP edge too — only the
+    category is read here — giving the in-app Ask tier (B1) a narrow door that
+    cannot reach amount, splits, or description."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.recategorize_transaction(
+            db, ui_actor(db), txn_id, data.get("category"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(txn_to_json(db, row))
+
+
 @app.put("/api/transactions/<int:txn_id>/classify")
 @login_required
 def classify_transaction(txn_id):

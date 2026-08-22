@@ -6,20 +6,24 @@ same Flask write ROUTE the SPA uses (one write path, CORE-DESIGN invariant 2),
 executed in-process under the caller's own session — so the write is attributed
 to the person (`ui:<name>`), validated by the verb, logged, and reversible.
 
-Tools exposed: classify_inflow (tag an inflow) and the household-pantry set —
-add_item, set_item_status, restock_items (the after-shopping batch: mark a
-bought set stocked in one action), archive_item (remove), set_item_match,
-set_item_store / set_item_need_by / set_item_snooze (the #014 metadata: where
-it's bought, a deadline, pause-until), and
-set_item_interval (a user-set restock cadence, "remind me every N days") — the
-pantry is groceries/supplies, never money, so it needs no two-phase choreography
-and
-gets broad conversational control (INVENTORY-DESIGN: direct writes like
-classify; even 'remove' is a reversible soft-delete). Rules (create_income_rule
-/ apply_rules, two-phase) are a later increment; settle-up, transaction edit or
-delete, and money movement deliberately have NO tool here — the money line held
-on purpose (AGENT-DESIGN invariant 3). The pantry READ ('what do we need?', and
-finding an item's id) is the shared ledger_inventory read tool, not here.
+Tools exposed: classify_inflow (tag an inflow); recategorize_transaction (B1 —
+relabel ONE spending row's category, a constrained facade over edit_transaction
+whose schema can't reach amount/splits/description, so it only ever moves a
+label — proven not to move the balance or any month total, and confirm-first in
+the prompt); and the household-pantry set — add_item, set_item_status,
+restock_items (the after-shopping batch: mark a bought set stocked in one
+action), archive_item (remove), set_item_match, set_item_store /
+set_item_need_by / set_item_snooze (the #014 metadata: where it's bought, a
+deadline, pause-until), and set_item_interval (a user-set restock cadence,
+"remind me every N days") — the pantry is groceries/supplies, never money, so it
+needs no two-phase choreography and gets broad conversational control
+(INVENTORY-DESIGN: direct writes like classify; even 'remove' is a reversible
+soft-delete). Rules (create_income_rule / apply_rules, two-phase) stay a later
+increment; settle-up, a general transaction edit (amount/split) or delete, and
+money movement deliberately have NO tool here — the money line held on purpose
+(AGENT-DESIGN invariant 3), recategorize being the one narrow, label-only
+exception. The pantry READ ('what do we need?', and finding an item's id) is the
+shared ledger_inventory read tool, not here.
 """
 from typing import Callable
 
@@ -45,6 +49,26 @@ WRITE_TOOLS = [
         "execute": lambda caller, a: caller(
             "PUT", f"/api/transactions/{a['transaction_id']}/classify",
             {"income_type": a.get("income_type")}),
+    },
+    {
+        "name": "ledger_recategorize_transaction",
+        "description":
+            "Move ONE spending transaction into a different category — the "
+            "everyday relabel ('that Target run was Household, not Groceries'). "
+            "CONFIRM FIRST: find the exact row with ledger_search_transactions, "
+            "tell the person which transaction and the from→to category, and "
+            "only do it once they say yes — never guess which one. Categories "
+            "are just labels, so any name works and a new one creates that "
+            "category. This ONLY changes the label: the amount, the split, the "
+            "who-owes-whom balance, and the month's total all stay exactly the "
+            "same (it's proven). Reversible (recategorize back) and logged. It "
+            "is for spending rows; to tag money that came IN use "
+            "ledger_classify_inflow. You still cannot move money, settle up, or "
+            "edit an amount / delete a row here — those happen in the app.",
+        "input_schema": actions.param_schema("recategorize_transaction"),
+        "execute": lambda caller, a: caller(
+            "PUT", f"/api/transactions/{a['transaction_id']}/recategorize",
+            {"category": a.get("category")}),
     },
     {
         "name": "ledger_add_item",

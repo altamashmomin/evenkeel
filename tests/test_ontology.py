@@ -142,10 +142,15 @@ class ManifestEdgeTests(unittest.TestCase):
                          by_name["create_income_rule"]["writes"])
         self.assertEqual([], by_name["create_income_rule"]["cascades"])
 
-    def test_confirm_action_is_the_only_cascader(self):
+    def test_cascaders_are_confirm_action_and_recategorize(self):
+        # Two verbs dispatch to other verbs: confirm_action (the two-phase
+        # executor) and recategorize_transaction (a category-only facade that
+        # delegates to edit_transaction). Both AST-detected; a new one is picked
+        # up automatically.
         cascaders = {a["name"]: a["cascades"] for a in MANIFEST["actions"]
                      if a["cascades"]}
-        self.assertEqual({"confirm_action": ["apply_rules", "create_income_rule"]},
+        self.assertEqual({"confirm_action": ["apply_rules", "create_income_rule"],
+                          "recategorize_transaction": ["edit_transaction"]},
                          cascaders)
 
     def test_reset_money_carries_its_dynamic_tables(self):
@@ -162,8 +167,16 @@ class ManifestEdgeTests(unittest.TestCase):
         others = [a for a in MANIFEST["actions"]
                   if a["name"] not in ("propose_action",)]
         for a in others:
-            self.assertIn("audit_log", a["writes_direct"],
-                          f"{a['name']} should write an audit row")
+            if a["cascades"] and not a["writes_direct"]:
+                # A pure delegator facade (recategorize_transaction →
+                # edit_transaction): it has no footprint of its own, so its audit
+                # trail comes through the verb it delegates to — assert on the
+                # full closure, which still guarantees an audit row is written.
+                self.assertIn("audit_log", a["writes"],
+                              f"{a['name']} delegates to a verb that writes no audit")
+            else:
+                self.assertIn("audit_log", a["writes_direct"],
+                              f"{a['name']} should write an audit row")
 
     def test_function_reads_are_governed_and_sane(self):
         for f in MANIFEST["functions"]:
@@ -188,7 +201,8 @@ class ManifestEdgeTests(unittest.TestCase):
         self.assertEqual(["classify_inflow", "confirm_action", "propose_action",
                           "set_rule_enabled"], c["mcp"])
         self.assertEqual(["add_item", "archive_item", "classify_inflow",
-                          "restock_items", "set_item_interval", "set_item_match",
+                          "recategorize_transaction", "restock_items",
+                          "set_item_interval", "set_item_match",
                           "set_item_need_by", "set_item_snooze",
                           "set_item_status", "set_item_store"], c["ask"])
 

@@ -214,6 +214,7 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 |---|---|---|---|
 | `record_transaction` | sync, UI | — | Sync's insert path becomes a call to this; dedupe stays inside it |
 | `edit_transaction` / `delete_transaction` | UI only | — | Deliberately absent from MCP (AGENT-DESIGN invariant 3) |
+| `recategorize_transaction` | UI, Ask | delegates to `edit_transaction` (settlement freeze inherited) | Category-only facade over `edit_transaction` — the single narrow transaction-edit the in-app Ask tier may call (B1). Its schema (`PARAM_SPECS`, `additionalProperties:false`) admits only `transaction_id` + `category`, so it structurally cannot reach amount/splits/description; a category-only edit is proven not to move the balance or any month total. Confirm-first in the Ask prompt; reversible; audited as `edit_transaction` |
 | `set_splits` | UI | shared rows only; shares sum to 10000 | Replaces direct split edits |
 | `settle_up` | UI only | **requires exactly 2 active members during the bounded transition**; outstanding balance as of date | Server derives amount, ower, and zero-share split; client values are stale-state assertions; writes `settles` links to covered rows |
 | `mark_bill_paid` | UI | — | Creates the transaction and its `bill_payments` row in one edit |

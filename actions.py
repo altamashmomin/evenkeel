@@ -408,6 +408,23 @@ def edit_transaction(db, actor, txn_id, data):
     return row
 
 
+def recategorize_transaction(db, actor, txn_id, category):
+    """Relabel ONE transaction's category — and nothing else.
+
+    A constrained facade over edit_transaction (the single transaction-edit
+    write path): it delegates a category-only payload, so it inherits that
+    verb's validation, split-preserving behaviour, settlement freeze, and audit
+    row (recorded as 'edit_transaction', changed={category}). It exists so the
+    agent write tier can offer recategorize as its own narrow tool whose schema
+    (PARAM_SPECS, additionalProperties:false) makes it structurally impossible
+    to reach amount, splits, or description through it — the model can pass only
+    a transaction id and a category. A category-only edit is proven not to move
+    the balance or any month total (test_recategorize_leaves_balance_and_month_
+    total_unchanged); only the per-category distribution shifts. Reversible
+    (recategorize back). Returns the updated row."""
+    return edit_transaction(db, actor, txn_id, {"category": category})
+
+
 def delete_transaction(db, actor, txn_id):
     """Delete a transaction and its reversible metadata (splits, links).
 
@@ -1977,6 +1994,14 @@ PARAM_SPECS = {
         Param("income_type", "string",
               "What kind of income it is, per the person's own words.",
               enum=REAL_INCOME_TYPE_ORDER),
+    ],
+    "recategorize_transaction": [
+        Param("transaction_id", "integer",
+              "The SPENDING row's id, from ledger_search_transactions — confirm "
+              "with the person which transaction before changing it."),
+        Param("category", "string",
+              "The destination category, e.g. 'Groceries'. Any label works — "
+              "categories are just tags, so a new name creates that category."),
     ],
     "add_item": [
         Param("name", "string", "The item, e.g. 'Coffee'."),

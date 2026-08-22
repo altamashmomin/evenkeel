@@ -41,7 +41,10 @@ class NotConfigured(RuntimeError):
 # nav chip stays inside CORE-DESIGN invariant 2 (every write is a verb). Keyed
 # by tool → (SPA tab, chip label). Every pantry write lands on the Pantry tab;
 # a deposit tag lands in Activity.
-_ACTION_NAV = {"ledger_classify_inflow": ("activity", "Review in Activity")}
+_ACTION_NAV = {
+    "ledger_classify_inflow": ("activity", "Review in Activity"),
+    "ledger_recategorize_transaction": ("activity", "Review in Activity"),
+}
 for _wt in WRITE_TOOL_NAMES:
     _ACTION_NAV.setdefault(_wt, ("inventory", "Open Pantry"))
 
@@ -172,8 +175,18 @@ def system_prompt(period):
         "totals, only use it when they explicitly say it was a refund or return "
         "— never because a description looks like one. After tagging, say "
         "plainly what you did (it's reversible). You still cannot move money, "
-        "record a settle-up between them, make a rule, or edit or delete "
-        "anything — for those, tell them to do it in the app.\n"
+        "record a settle-up between them, make a rule, or edit an amount or "
+        "delete a row — for those, tell them to do it in the app.\n"
+        "- You CAN move ONE spending transaction to a different category with "
+        "ledger_recategorize_transaction — the everyday relabel ('that Target "
+        "charge was Household, not Groceries'). Do this CAREFULLY and confirm "
+        "first: find the exact row with ledger_search_transactions, tell them "
+        "which transaction and the from→to category, and only change it once "
+        "they say yes — never guess which one. It ONLY changes the label: the "
+        "amount, the split, and the who-owes-whom balance never move. Any "
+        "category name works (a new one just creates that category). Reversible "
+        "(recategorize back) and logged; say plainly what you did. This is for "
+        "spending — to tag money that came IN, use classify_inflow instead.\n"
         "- You also keep the household PANTRY — a simple shopping/staples list "
         "(groceries and supplies, never money) — and here you have broad control "
         "to make their life easy (ledger_pantry_pulse gives the weekly "

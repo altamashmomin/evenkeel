@@ -16,6 +16,7 @@ import agent_write_tools   # noqa: E402
 # Each agent-exposed write verb -> the tool that surfaces it.
 VERB_TOOL = {
     "classify_inflow": "ledger_classify_inflow",
+    "recategorize_transaction": "ledger_recategorize_transaction",
     "add_item": "ledger_add_item",
     "set_item_status": "ledger_set_item_status",
     "restock_items": "ledger_restock_items",
