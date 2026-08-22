@@ -380,14 +380,31 @@ check("askThread renders user and assistant bubbles", () => {
   assert.ok(html.includes('ask-msg ask-bot') && html.includes("Yes, on the 2nd."), "assistant bubble");
   assert.ok(!html.includes("ask-thinking"), "no thinking bubble when not pending");
 });
-check("askThread shows a ✓ tagged chip only on a write reply", () => {
+check("askThread shows tap-through nav chips only on a write reply (A1)", () => {
   const html = R.askThreadHTML([
-    { role: "assistant", content: "Tagged it as your paycheck", tagged: true },
+    { role: "assistant", content: "Tagged it as your paycheck",
+      actions: [{ tab: "activity", label: "Review in Activity" }] },
     { role: "assistant", content: "You spent $40 on coffee." },
   ], false);
-  const chips = html.match(/ask-tagged/g) || [];
-  assert.equal(chips.length, 1, "exactly one chip — only the tagged reply");
-  assert.ok(html.includes("✓ tagged"), "chip label present");
+  const chips = html.match(/class="ask-nav"/g) || [];
+  assert.equal(chips.length, 1, "exactly one chip — only the write reply");
+  assert.ok(html.includes('data-ask-nav="activity"'), "chip carries its tab");
+  assert.ok(html.includes("Review in Activity"), "chip label present");
+});
+check("askThread renders one chip per action, deduped list preserved (A1)", () => {
+  const html = R.askThreadHTML([
+    { role: "assistant", content: "Marked milk and coffee out",
+      actions: [{ tab: "inventory", label: "Open Pantry" }] },
+  ], false);
+  assert.equal((html.match(/class="ask-nav"/g) || []).length, 1, "one pantry chip");
+  assert.ok(html.includes('data-ask-nav="inventory"'), "targets the pantry tab");
+});
+check("askThread: a plain read reply carries no chip (A1)", () => {
+  const html = R.askThreadHTML([
+    { role: "assistant", content: "You spent $40 on coffee.", actions: [] },
+    { role: "assistant", content: "No actions field at all." },
+  ], false);
+  assert.equal((html.match(/class="ask-nav"/g) || []).length, 0, "reads stay chip-free");
 });
 check("askThread empty state no longer claims it can't change anything", () => {
   const html = R.askThreadHTML([], false);
@@ -397,6 +414,53 @@ check("askThread empty state no longer claims it can't change anything", () => {
 check("askThread shows a thinking bubble while pending", () => {
   const html = R.askThreadHTML([{ role: "user", content: "hi" }], true);
   assert.ok(html.includes("ask-thinking"), "thinking indicator present");
+});
+// ---- A2: adaptive follow-up prompts ----
+check("askFollowups suggests pantry next steps after a pantry write (A2)", () => {
+  const fu = R.askFollowups([
+    { role: "user", content: "we're out of coffee" },
+    { role: "assistant", content: "Marked coffee out.",
+      actions: [{ tab: "inventory", label: "Open Pantry" }], tools_used: ["ledger_set_item_status"] },
+  ]);
+  assert.ok(fu.length >= 1 && fu.length <= 3, "1–3 suggestions");
+  assert.ok(fu.some((q) => /low|shopping trip/i.test(q)), "pantry-flavored");
+});
+check("askFollowups is topical to the read tools used (A2)", () => {
+  const fu = R.askFollowups([
+    { role: "user", content: "how are the budgets?" },
+    { role: "assistant", content: "You're under on all but dining.",
+      actions: [], tools_used: ["ledger_budget_status"] },
+  ]);
+  assert.ok(fu.some((q) => /budget|cut back/i.test(q)), "budget follow-ups");
+});
+check("askFollowups never suggests back the question just asked (A2)", () => {
+  const q = "Who owes who right now?";
+  const fu = R.askFollowups([
+    { role: "user", content: q },
+    { role: "assistant", content: "Charlee owes you $20.",
+      actions: [], tools_used: ["ledger_household_snapshot"] },
+  ]);
+  assert.ok(!fu.map((s) => s.toLowerCase()).includes(q.toLowerCase()), "excluded");
+  assert.ok(fu.length <= 3, "still capped");
+});
+check("askFollowups falls back to examples when nothing keys (A2)", () => {
+  const fu = R.askFollowups([
+    { role: "user", content: "hello" },
+    { role: "assistant", content: "Hi!", actions: [], tools_used: [] },
+  ]);
+  assert.ok(fu.length >= 1, "always offers a nudge");
+});
+check("askFollowups: none when the last turn isn't an assistant reply (A2)", () => {
+  assert.deepEqual(R.askFollowups([{ role: "user", content: "hi" }]), []);
+  assert.deepEqual(R.askFollowups([]), []);
+});
+check("askThread renders a follow-up row after a reply, none while pending (A2)", () => {
+  const msgs = [
+    { role: "user", content: "how's the pantry?" },
+    { role: "assistant", content: "All stocked.", actions: [], tools_used: ["ledger_inventory"] },
+  ];
+  assert.ok(R.askThreadHTML(msgs, false).includes("ask-followups"), "row shown when idle");
+  assert.ok(!R.askThreadHTML(msgs, true).includes("ask-followups"), "hidden while thinking");
 });
 check("askThread escapes message content (no HTML injection)", () => {
   const html = R.askThreadHTML([{ role: "assistant", content: "<img src=x onerror=1>" }], false);
@@ -425,6 +489,11 @@ check("inventoryHTML renders staples with a tap-to-cycle status chip", () => {
   assert.ok(html.includes("the dark roast"), "note shown as sub");
   assert.ok(html.includes('data-item-remove="1"'), "remove control present");
   assert.ok(html.includes("1 running low"), "low_count badge");
+});
+check("inventoryHTML offers an ask-from-pantry entry point (A4)", () => {
+  const html = R.inventoryHTML({ items: [], shopping: [], low_count: 0 });
+  assert.ok(html.includes('data-ask="pantry"'), "pantry ask entry present");
+  assert.ok(/ask-from/.test(html), "styled as an ask-from affordance");
 });
 check("inventoryHTML shopping list shows staple status and one-off need", () => {
   const html = R.inventoryHTML({

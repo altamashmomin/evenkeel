@@ -3179,5 +3179,112 @@ real double-buys.
   **GATE PASS by enumeration** — sole diff `schema_version 14→15`
   (`notes/015-gate-expectation.seed.json`; fixture built at the OLD ref
   `b090360`, v14, so the rebuild was exercised against genuine pre-#015 rows).
-  NOT YET DEPLOYED (deploy applies migration 015 — the rebuild — live).
-  **With this, the Pantry v2 amendment is fully built (1–7).**
+  **DEPLOYED (Aug 21, 13:36)** — the rebuild, live: `main` `910ba8a` on
+  `23d1fbd` (PR #38, docs-only, folded in pre-push); the dry-run gate
+  rehearsed the rebuild on the backup copy and printed exactly ONE structural
+  line, `schema_version: 14 -> 15` (no `items` count change — the copy was
+  total), money byte-identical; `migrate.py apply --live` **applied 015**
+  (**live schema now v15**); services restarted; smoke OK. Rollback backup
+  `finance.db.bak-2026-08-21-133611` (the pre-rebuild `items`). Tailnet-
+  verified: the app boots (v15 code refuses any other schema), "On the way"
+  / ordered / arrived markup served (4), the ordered chip style served,
+  `origin/main` == `910ba8a`. **With this, the Pantry v2 amendment is fully
+  built AND live (1–7).**
+
+## Aug 22, 2026 — Ask interactivity, increment A1: tap-through action chips
+
+New effort (Alta's ask: make Charlee's in-app Ask bot "more interactive and
+with more reach across the app"). Agreed lane order after a scoping pass: **A1
+tap-through/undo → A2 adaptive follow-up chips → A4 ask-from-anywhere entry
+points → B1 recategorize (write) → B4 add bill/goal (write)**. B2 (create income
+rule) and B3 (set budget) deliberately stay app-only for now — Alta's governance
+call on which write powers cross the wall; settle-up, delete, and money movement
+stay off-limits by design (AGENT-DESIGN invariant 3).
+
+**A1** — the Ask reply becomes actionable. Before, every reply was flat `esc()`'d
+text with a single non-tappable "✓ tagged" badge on a classify.
+- **Backend** (`ask_loop.py`): `run_ask` now accumulates an `actions` list and
+  returns it alongside `answer`/`tools_used`. When a WRITE tool lands (caller
+  given, name in `WRITE_TOOL_NAMES`, `not is_error`) it appends the tool's
+  tap-through target, **deduped by tab** — several pantry edits collapse to one
+  chip; a failed write or a plain read contributes none. Keyed by
+  `_ACTION_NAV`: `classify_inflow → (activity, "Review in Activity")`, every
+  pantry write → `(inventory, "Open Pantry")`. Both return paths (`end` and
+  `max_rounds`) carry `actions`. **No new write path** — the destination screen
+  is itself the way to reverse the change (re-classify the deposit, re-set the
+  item), so this stays inside CORE-DESIGN invariant 2. `app.py`'s `/api/ask`
+  already `jsonify(result)`s the dict, so the field flows through untouched.
+- **Frontend**: `askThreadHTML` (`render.js`) renders one `.ask-nav` button per
+  action (`✓ {label} →`, carrying `data-ask-nav="{tab}"`); `askSend` (`app.js`)
+  attaches `res.actions` to the assistant message; the Ask wiring binds
+  `[data-ask-nav]` → the existing `setTab`. The old `.ask-tagged` badge/CSS is
+  replaced by the tappable `.ask-nav` chip.
+- Tests: render.js gains chip-per-action / deduped / reads-chip-free checks
+  (**150**, +2); `test_ask_write` asserts the `actions` value on classify (one
+  Activity chip), restock (one deduped Pantry chip), a failed write (none), and
+  a new read-only turn (none) — suite **628** (+1).
+- **GATE PASS zero-diff** (synthetic dev.db, 42 values). Scope proof: the diff
+  touches only `ask_loop.py`, the Ask frontend, and their tests — no
+  `derivations.py`, no `migrations/`, no schema, no route logic — so money math
+  is byte-identical by construction. Committed on `rework` `c4dd1b1`; **not yet
+  deployed** (awaits Alta's merge-to-main + Pi deploy). A live browser smoke of
+  the chip is still worth doing before it ships.
+
+## Aug 22, 2026 — Ask interactivity, increment A2: adaptive follow-up chips
+
+**A2** — the thread now suggests where to go next. After each reply, up to three
+tappable follow-up questions hang under the latest bubble, chosen from what that
+reply actually DID rather than a fixed list.
+- **Frontend only** (`render.js`): a pure `askFollowups(messages)` picks
+  suggestions — writes first (`FOLLOWUPS_BY_TAB`: a pantry write → "What else
+  are we low on?" / "What's the shopping trip look like?"; a deposit tag →
+  income/tag prompts), then topical by the read tools the reply used
+  (`FOLLOWUPS_BY_TOOL`, keyed on the 20 read tools), then the starter examples
+  as a fallback so there's always a nudge. Never suggests back the question just
+  asked (case-insensitive), capped at 3, hidden while a reply is pending.
+  `askThreadHTML` renders them as `.ask-followup` chips reusing the existing
+  `data-ask-eg → askSend` wiring (no new handler). `askSend` (`app.js`) now
+  stores `tools_used` on the assistant message so the helper can key off it;
+  the history POST still sends only `{role, content}`, so nothing new leaks to
+  the server. `askFollowups` is exported for unit tests.
+- Tests: pantry-next-steps after a pantry write, topical-to-tool (budget),
+  never-suggest-back, always-a-nudge fallback, none when the last turn isn't a
+  reply, and the render row present-when-idle / hidden-while-pending — render
+  suite **156** (+6). No Python touched.
+- **Gate unaffected** — the diff is `static/*` + `tests/test_render.js` only; no
+  `derivations.py`, `migrations/`, schema, or route. Money math byte-identical.
+- **Browser-smoke verified** (Flask on a synthetic dev.db, `/api/ask` stubbed
+  in-page so the real `askSend → render → wiring` path ran without an API key):
+  the A1 chip navigated to Pantry; the A2 row rendered pantry-flavored chips
+  after a pantry turn; tapping one sent it as a new question AND the next row
+  correctly dropped that just-asked question. Committed on `rework` `4fbb336`;
+  **not yet deployed** (rides with A1 to the Pi on Alta's merge + deploy).
+
+## Aug 22, 2026 — Ask interactivity, increment A4: ask-from-anywhere entry points
+
+**A4** — the "more reach across the app" piece: contextual affordances that hand
+the person into the Ask tab pre-filled with a relevant question.
+- **Mechanism** (`app.js`): `state.ask.prefill` + `askFrom(key)` (sets the seed,
+  closes the settle modal if open, `setTab("ask")`). `renderAsk` seeds
+  `#ask-input`'s value; the Ask wiring focuses it with the cursor at the end,
+  then clears the seed so a later re-render can't clobber typed text. Question
+  text is centralized in `ASK_PREFILLS` (month / pantry / balance) so render fns
+  stay pure — they emit only `data-ask="<key>"`, bound to `askFrom` in wireMain.
+  The history POST is unchanged (`{role, content}` only).
+- **Entry points**: the Home spend card ("💬 Ask about this month" →
+  "How are we doing this month?"), the Pantry header/Need-to-buy card
+  ("💬 Ask about the pantry" → "What do we need from the store?", the one
+  render.js/tested change), and the settle dialog ("💬 Ask about this" →
+  "Why do we owe this amount right now?"; the button closes the modal and hands
+  off — a conversational path alongside the static settle breakdown). CSS:
+  `.ask-from` quiet full-width card-foot link, inline in `.dlg-actions`.
+- Tests: render adds an inventoryHTML ask-from-pantry assertion — **157** (+1).
+  No Python touched.
+- **Gate unaffected** — diff is `static/*` + `static/index.html` +
+  `tests/test_render.js`; no `derivations.py`, `migrations/`, schema, or route.
+- **Browser-smoke verified** (Flask on synthetic dev.db): each entry point
+  switched to Ask with the box pre-filled and focused — Home
+  ("How are we doing this month?"), Pantry ("What do we need from the store?"),
+  and Settle (dialog was open → closed on handoff →
+  "Why do we owe this amount right now?"). Committed on `rework` `d3bec20`;
+  **not yet deployed** (rides with A1+A2 to the Pi on Alta's merge + deploy).

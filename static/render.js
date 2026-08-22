@@ -587,6 +587,59 @@
   const ASK_EXAMPLES = ["How are we doing this month?", "Did my paycheck land?",
                         "What do we need from the store?", "Who owes who right now?"];
 
+  // A2: adaptive follow-up prompts. After each reply we offer up to three
+  // tappable next questions, chosen from what the reply just DID — the tab a
+  // write landed on, and the read tools it used — so the suggestions track the
+  // conversation instead of being the same four forever. Pure/client-side (no
+  // model call, no cost); the chips reuse the `data-ask-eg` wiring.
+  const FOLLOWUPS_BY_TAB = {
+    inventory: ["What else are we low on?", "What's the shopping trip look like?"],
+    activity: ["How's our income this month?", "Any other deposits to tag?"],
+  };
+  const FOLLOWUPS_BY_TOOL = {
+    ledger_household_snapshot: ["Who owes who right now?", "How's our income this month?"],
+    ledger_balance: ["Why is it that amount?", "When did we last settle up?"],
+    ledger_spending_composition: ["What did we spend most on?", "How's that vs last month?"],
+    ledger_category_trend: ["How's that vs last month?", "What did we spend most on?"],
+    ledger_budget_status: ["Which budget am I closest to?", "Where can we cut back?"],
+    ledger_income_summary: ["Any deposits still to tag?", "How's our savings rate?"],
+    ledger_income_trend: ["How's our savings rate?"],
+    ledger_savings_rate_trend: ["How's our income this month?"],
+    ledger_member_breakdown: ["Who owes who right now?"],
+    ledger_bill_variance: ["What bills are coming up?", "Any charge creeping up?"],
+    ledger_recurring_charges: ["Any charge creeping up?", "What bills are coming up?"],
+    ledger_cash_flow_forecast: ["Can we afford a big purchase?"],
+    ledger_goal_pace: ["How are our goals doing?"],
+    ledger_unclassified_inflows: ["What deposits are unlabeled?", "Tag my paycheck"],
+    ledger_inventory: ["What's running low?", "What's the shopping trip look like?"],
+    ledger_pantry_pulse: ["What's coming due?", "Anything gone quiet?"],
+    ledger_search_transactions: ["Break that down by category"],
+  };
+
+  // Suggestions for the LAST reply: writes first (the natural next thing to do),
+  // then topical by the read tools it used, then a generic fallback so there's
+  // always a nudge. Never suggests back the question just asked; capped at 3.
+  function askFollowups(messages) {
+    if (!Array.isArray(messages) || !messages.length) return [];
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== "assistant") return [];
+    let lastQ = "";
+    for (let i = messages.length - 2; i >= 0; i--) {
+      if (messages[i].role === "user") { lastQ = (messages[i].content || "").trim(); break; }
+    }
+    const out = [];
+    const add = (arr) => (arr || []).forEach((q) => {
+      if (out.length < 3 && !out.includes(q) &&
+          q.toLowerCase() !== lastQ.toLowerCase()) out.push(q);
+    });
+    const tabs = new Set((last.actions || []).map((a) => a.tab));
+    if (tabs.has("inventory")) add(FOLLOWUPS_BY_TAB.inventory);
+    if (tabs.has("activity")) add(FOLLOWUPS_BY_TAB.activity);
+    (last.tools_used || []).forEach((t) => add(FOLLOWUPS_BY_TOOL[t]));
+    if (!out.length) add(ASK_EXAMPLES);
+    return out;
+  }
+
   function askThreadHTML(messages, pending) {
     if (!messages.length && !pending) {
       return `
@@ -603,16 +656,28 @@
       </div>`;
     }
     const bubbles = messages.map((m) => {
-      // A subtle chip when the assistant actually changed something (tagged an
-      // inflow), so a write reads differently from a plain answer.
-      const chip = (m.role === "assistant" && m.tagged)
-        ? `<span class="ask-tagged">✓ tagged</span>` : "";
-      return `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}${chip}</div>`;
+      // A1: when the assistant actually changed something, its reply carries
+      // tap-through chips — one per destination tab (deduped server-side) — so
+      // a write reads differently from a plain answer AND jumps you to where
+      // the change lives to see or adjust it. Reads carry none.
+      const acts = (m.role === "assistant" && Array.isArray(m.actions)) ? m.actions : [];
+      const chips = acts.map((a) =>
+        `<button type="button" class="ask-nav" data-ask-nav="${esc(a.tab)}">✓ ${esc(a.label)} →</button>`
+      ).join("");
+      return `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}${chips}</div>`;
     }).join("");
     const thinking = pending
       ? `<div class="ask-msg ask-bot ask-thinking"><span></span><span></span><span></span></div>`
       : "";
-    return bubbles + thinking;
+    // A2: follow-up chips hang under the latest reply (never mid-think). They
+    // reuse the example-chip wiring (data-ask-eg → askSend).
+    const followups = pending ? [] : askFollowups(messages);
+    const fuHTML = followups.length
+      ? `<div class="ask-followups">${followups.map((q) =>
+          `<button type="button" class="ask-eg ask-followup" data-ask-eg="${esc(q)}">${esc(q)}</button>`
+        ).join("")}</div>`
+      : "";
+    return bubbles + thinking + fuHTML;
   }
 
   // A purchase date (ISO "YYYY-MM-DD") as a friendly "Aug 1". Used by the
@@ -1200,6 +1265,7 @@
           <input name="name" maxlength="100" placeholder="Add something to buy…">
           <button class="btn small primary" type="submit">Add</button>
         </form>
+        <button type="button" class="ask-from" data-ask="pantry">💬 Ask about the pantry</button>
       </div>
       ${staleCard}
       ${forecastCard}
@@ -1607,5 +1673,5 @@
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
            goalWhatIf, addMonths, goalWhatIfText, goalPaceLineHTML,
-           askThreadHTML, agentsHTML, opsPanelHTML };
+           askThreadHTML, askFollowups, agentsHTML, opsPanelHTML };
 });

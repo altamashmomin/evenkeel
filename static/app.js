@@ -38,7 +38,7 @@ const state = {
   contribGoal: null,
   openLogs: new Set(),
 
-  ask: { messages: [], pending: false },   // Ask tab: client-held chat history
+  ask: { messages: [], pending: false, prefill: "" },   // Ask tab: client-held chat history; prefill = A4 seed
 };
 
 // userById / userColor moved into render.js (pure, users injected) alongside
@@ -295,6 +295,21 @@ function setTab(tab) {
   render();
 }
 
+// A4: "ask from anywhere". A contextual affordance around the app opens the Ask
+// tab with the box pre-filled by a fixed, plain-language question keyed here (so
+// render fns stay pure — they only emit `data-ask="<key>"`). The seed is a
+// starting point, not auto-sent: the person can edit or clear it before asking.
+const ASK_PREFILLS = {
+  month: "How are we doing this month?",
+  pantry: "What do we need from the store?",
+  balance: "Why do we owe this amount right now?",
+};
+function askFrom(key) {
+  state.ask.prefill = ASK_PREFILLS[key] || "";
+  if (dlgSettle && dlgSettle.open) dlgSettle.close();  // when reached from a modal
+  setTab("ask");
+}
+
 // The "More" bottom sheet: fill it with every tab, open it, and let a tile
 // switch tabs (then close). Reachable from any page, so all 8 tabs are too.
 const dlgMore = $("#dlg-more");
@@ -489,6 +504,7 @@ async function renderDashboard() {
         ${spentPill ? `<span class="pill ${spentPill.dir}">${spentPill.text}</span>` : ""}
       </div>
       <div style="margin-top:12px">${cats}</div>
+      <button type="button" class="ask-from" data-ask="month">💬 Ask about this month</button>
     </div>
     ${incomeCardHTML(inc, d.month)}
     <div class="card"><p class="eyebrow">Coming up</p>${bills}</div>
@@ -784,7 +800,8 @@ function renderAsk() {
       <div class="ask-thread" id="ask-thread">${askThreadHTML(a.messages, a.pending)}</div>
       <form class="ask-bar" id="ask-form">
         <input id="ask-input" type="text" autocomplete="off" enterkeyhint="send"
-               placeholder="Ask about your money…" ${a.pending ? "disabled" : ""}>
+               placeholder="Ask about your money…" value="${esc(a.prefill || "")}"
+               ${a.pending ? "disabled" : ""}>
         <button class="btn primary" type="submit" ${a.pending ? "disabled" : ""}>Ask</button>
       </form>
       <p class="ask-note">It can answer questions, tag deposits, and keep your pantry list — other changes still happen in the app.</p>`;
@@ -800,9 +817,11 @@ async function askSend(text) {
   render();
   try {
     const res = await api("/api/ask", { method: "POST", body: { message: text, history } });
-    // The assistant can tag an inflow; flag the reply so the thread shows it.
-    const tagged = (res.tools_used || []).includes("ledger_classify_inflow");
-    state.ask.messages.push({ role: "assistant", content: res.answer, tagged });
+    // A1: `actions` (one per screen a write touched) drives the tap-through
+    // chips. A2: `tools_used` lets the thread suggest topical follow-ups.
+    const actions = Array.isArray(res.actions) ? res.actions : [];
+    const tools_used = Array.isArray(res.tools_used) ? res.tools_used : [];
+    state.ask.messages.push({ role: "assistant", content: res.answer, actions, tools_used });
   } catch (e) {
     state.ask.messages.push({ role: "assistant", content: "Sorry — " + e.message });
   } finally {
@@ -840,6 +859,10 @@ function wireMain() {
   // Home "Spent" rows → the recategorize sheet for that category this month.
   $$("[data-spent-cat]").forEach((el) =>
     el.addEventListener("click", () => openRecatSheet(el.dataset.spentCat)));
+  // A4: ask-from-anywhere entry points (Home spend card, Pantry header) →
+  // open Ask pre-filled with the keyed question.
+  $$("[data-ask]").forEach((el) =>
+    el.addEventListener("click", () => askFrom(el.dataset.ask)));
   // Budgets (Analytics Tier C): edit/remove by row index; add via the small form.
   $$("[data-budget-edit]").forEach((el) =>
     el.addEventListener("click", () => editBudget(+el.dataset.budgetEdit)));
@@ -983,6 +1006,21 @@ function wireMain() {
   });
   $$("[data-ask-eg]").forEach((el) =>
     el.addEventListener("click", () => askSend(el.dataset.askEg)));
+  // A1: a reply's tap-through chip jumps to the screen a write touched, so the
+  // person can see or adjust the change (the screen is itself the way back).
+  $$("[data-ask-nav]").forEach((el) =>
+    el.addEventListener("click", () => setTab(el.dataset.askNav)));
+  // A4: a seeded prefill (from an ask-from-anywhere entry point) lands in the
+  // box — focus it and put the cursor at the end so it's ready to send or edit,
+  // then clear the seed so a later re-render won't clobber what was typed.
+  if (state.tab === "ask" && state.ask.prefill) {
+    const seeded = $("#ask-input");
+    if (seeded) {
+      seeded.focus();
+      seeded.setSelectionRange(seeded.value.length, seeded.value.length);
+    }
+    state.ask.prefill = "";
+  }
   const thread = $("#ask-thread");
   if (thread) thread.scrollTop = thread.scrollHeight;
   // Auto-focus the Ask input only once a conversation exists (keeps the
@@ -1381,6 +1419,11 @@ async function openSettle() {
     $("#settle-breakdown").innerHTML = "";   // silent — settling still works
   }
 }
+
+// A4: from the settle dialog, "Ask about this" hands off to the assistant
+// (closing the modal) pre-filled with the balance question — a conversational
+// path alongside the static breakdown already shown above.
+$("#settle-ask")?.addEventListener("click", () => askFrom("balance"));
 
 $("#form-settle").addEventListener("submit", async (ev) => {
   if (ev.submitter && ev.submitter.value === "cancel") return;

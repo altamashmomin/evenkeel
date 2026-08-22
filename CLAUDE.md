@@ -60,7 +60,8 @@ script doesn't exist yet, building it precedes the increment it gates.
 ## Current position in the sequence
 
 **The whole `rework` is built, deployed, and live on the Raspberry Pi (schema
-v14 as of Aug 21, 2026 — migration `014_item_store_needby_snooze`; v13/v12 came
+v15 as of Aug 21, 2026 — migration `015_item_status_ordered`, an `items`
+rebuild; v14 the same day with `014_item_store_needby_snooze`; v13/v12 came
 Aug 21/20 with the transfer flags; v11 held from the initial bring-up until then).**
 `origin/main` == the deployed tree; `origin/rework` sits a doc commit or two ahead
 by convention. The app is feature-complete across its domains — the
@@ -267,8 +268,20 @@ increment 7 — the `ordered` status** (migration #015, a table REBUILD of
 the list without counting as stocked; "On the way" drawer with Arrived /
 Didn't come + a 7-day "still waiting?" nudge; timeline parser accepts it.
 Suite 627+148, GATE PASS by enumeration (sole diff schema_version 14→15). On
-`rework`; **NOT YET DEPLOYED** (deploy applies the rebuild live). **That
-completes the Pantry v2 amendment, 1–7.**
+**DEPLOYED** (`main` `910ba8a`; the rebuild applied live — **live schema
+v15**; tailnet-verified). `origin/main` == the deployed tree; nothing
+merged-but-undeployed remains. **That completes the Pantry v2 amendment, 1–7,
+built and live.** Then (Aug 22): a new **Ask-interactivity lane** to make
+Charlee's in-app assistant more interactive and further-reaching. Agreed order:
+**A1 tap-through chips → A2 adaptive follow-ups → A4 ask-from-anywhere entry
+points → B1 recategorize (write) → B4 add bill/goal (write)** (B2 create-rule /
+B3 set-budget stay app-only for now; settle/delete/money-movement stay off by
+design). **A1** (`ask_loop` emits an `actions` list → the reply renders
+tap-through chips to where a write landed, deduped by tab; no new write path)
+and **A2** (client-side `askFollowups` suggests next questions from what the
+reply just did) are **built, gated (A1 GATE PASS zero-diff), and browser-smoked**
+on `rework` (`c4dd1b1`, `4fbb336`; suite 628, render 156) — **pushed to
+origin/rework, NOT yet merged to main or deployed.** **A4** (ask-from-anywhere: Home spend card, Pantry header, settle dialog → Ask pre-filled) is also built + browser-smoked (`d3bec20`; render 157). B1 + B4 (the two write increments) remain. All three A-lane increments sit on rework, pushed, NOT merged/deployed.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

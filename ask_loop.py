@@ -34,6 +34,23 @@ class NotConfigured(RuntimeError):
     """No ANTHROPIC_API_KEY is set — the Ask endpoint should 503."""
 
 
+# A1 (Ask tap-through): when a write tool actually changes something, the reply
+# carries a chip that jumps to where the change lives, so the person can see it
+# or adjust it. This adds NO new write path — the destination screen is itself
+# the way to reverse the change (re-classify the deposit, re-set the item), so a
+# nav chip stays inside CORE-DESIGN invariant 2 (every write is a verb). Keyed
+# by tool → (SPA tab, chip label). Every pantry write lands on the Pantry tab;
+# a deposit tag lands in Activity.
+_ACTION_NAV = {"ledger_classify_inflow": ("activity", "Review in Activity")}
+for _wt in WRITE_TOOL_NAMES:
+    _ACTION_NAV.setdefault(_wt, ("inventory", "Open Pantry"))
+
+
+def _nav_for(name):
+    """The tap-through target for a write tool, or None if it has none."""
+    return _ACTION_NAV.get(name)
+
+
 def _text(content):
     """Join the text blocks of an assistant message into a plain string."""
     return "".join(getattr(b, "text", "") for b in content
@@ -66,6 +83,7 @@ def run_ask(client, getter, user_message, *, model, system,
         tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
     messages = list(history or []) + [{"role": "user", "content": user_message}]
     used = []
+    actions = []  # A1: tap-through chips for writes that actually landed
 
     for rnd in range(1, max_rounds + 1):
         resp = client.messages.create(
@@ -75,7 +93,7 @@ def run_ask(client, getter, user_message, *, model, system,
 
         if getattr(resp, "stop_reason", None) != "tool_use":
             return {"answer": _text(resp.content), "tools_used": used,
-                    "rounds": rnd, "stopped": "end"}
+                    "actions": actions, "rounds": rnd, "stopped": "end"}
 
         # Execute every tool_use block the model emitted this round.
         results = []
@@ -96,6 +114,14 @@ def run_ask(client, getter, user_message, *, model, system,
                 content, is_error = _UNTRUSTED_PREFIX + json.dumps(data), False
             except Exception as e:  # unknown tool, or a read/write that errored
                 content, is_error = f"tool error: {e}", True
+            # A1: a write that landed earns a tap-through chip to where it lives
+            # (deduped by tab — several pantry edits collapse to one "Open
+            # Pantry"). Reads and failed writes contribute none.
+            if (caller is not None and block.name in WRITE_TOOL_NAMES
+                    and not is_error):
+                nav = _nav_for(block.name)
+                if nav and not any(a["tab"] == nav[0] for a in actions):
+                    actions.append({"tab": nav[0], "label": nav[1]})
             results.append({"type": "tool_result", "tool_use_id": block.id,
                             "content": content, "is_error": is_error})
         messages.append({"role": "user", "content": results})
@@ -103,7 +129,8 @@ def run_ask(client, getter, user_message, *, model, system,
     # Cap hit — return whatever text the model last produced, honestly labeled.
     return {"answer": _text(messages[-2]["content"]) or
             "I wasn't able to finish answering that — try asking more simply.",
-            "tools_used": used, "rounds": max_rounds, "stopped": "max_rounds"}
+            "tools_used": used, "actions": actions,
+            "rounds": max_rounds, "stopped": "max_rounds"}
 
 
 # ── endpoint plumbing (POST /api/ask) ───────────────────────────────────────
