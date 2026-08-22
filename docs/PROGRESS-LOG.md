@@ -3340,3 +3340,41 @@ B4; B2 create-rule / B3 set-budget stay app-only.)
   ($940.49) and the month total ($2,927.54) unchanged. Committed on `rework`
   `59fdb69`; **not yet deployed** (rides with A1/A2/A4 on Alta's merge + deploy).
   A `ledger-mirage` re-run against the new write surface is worth doing pre-deploy.
+
+## Aug 22, 2026 — Ask B1 hardening: ledger-mirage remediation (F1/F2/F3)
+
+Ran the `ledger-mirage` red-team agent against the B1 recategorize write tier
+(against a throwaway synthetic dev copy, v15; finance.db untouched). Verdict:
+**structurally sound, no exploitable escalation.** All headline threats clean —
+field over-reach blocked at BOTH the verb (signature takes only `category`) and
+the route (reads only `data.get("category")`; a smuggled amount/description is
+ignored); SQL parameterized (a `DROP TABLE` string stored literally, row count
+unchanged); settlement → 400, bad id → 404; a read-scoped bearer → 403 and the
+write is attributed `ui:<name>`, never a token (the Ask route is session_required
+— a read token can neither trigger the paid loop nor reach the write); injection
+via a bank-feed description is bounded by structure to reversible, audited,
+single-row label edits (confirm-first is the only *behavioral* guard, but the
+structural bound — category-only schema + route, no bulk verb, no money path — is
+what makes it acceptable). Three low-severity defects found and fixed:
+- **F1** (type-confusion → HTTP 500): a non-string `category`/`description` hit
+  `.strip()` on a non-str in `validate_txn_payload` → uncaught AttributeError →
+  500 (no info leak — global handler returns generic `internal error`). Fixed at
+  root: type-guard the string fields → 400 `category must be text` /
+  `description must be text`. Covers the generic edit route too.
+- **F2** (silent clobber): a missing/blank category defaulted to `'Other'` and
+  overwrote the label (slipped past edit_transaction's "nothing to update"
+  guard). Fixed in the facade: reject with `a category is required`.
+- **F3** (contract/scope): the facade inherited edit_transaction's lack of a
+  direction check, so it would relabel an inflow — for a refund that shifts
+  refund-netting between categories (grand total + balance still unaffected, but
+  wider than the "spending rows only" contract). Fixed: refuse non-`out` rows
+  (`only spending rows can be recategorized`) — which also shrinks the injection
+  blast radius to exactly what the prompt promises.
+- Tests: verb-level (bad type / blank / inflow / missing) + route-level
+  (relabels-only, ignores smuggled fields, 400-not-500 on bad type, 400 on
+  blank, 404 on missing). Suite **640** (+8). **GATE PASS zero-diff** (money code
+  untouched). Committed on `rework` `8a53224`; **not yet deployed** (rides with
+  A1/A2/A4/B1). Residual accepted risk: confirm-first is a model-behavior guard,
+  not a hard gate — impact capped at a reversible single-row label move; and any
+  write-scoped bearer can call the route directly (general design for all write
+  routes, not B1-specific). B4 (add bill/goal) remains.
