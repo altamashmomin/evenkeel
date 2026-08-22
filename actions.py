@@ -189,12 +189,18 @@ def validate_txn_payload(db, data, partial=False):
             raise ValueError("amount must be positive")
         out["amount_cents"] = cents
     if "description" in data or not partial:
-        desc = (data.get("description") or "").strip()
+        raw = data.get("description")
+        if raw is not None and not isinstance(raw, str):
+            raise ValueError("description must be text")
+        desc = (raw or "").strip()
         if not desc:
             raise ValueError("description is required")
         out["description"] = desc[:200]
     if "category" in data or not partial:
-        out["category"] = (data.get("category") or "Other").strip()[:60] or "Other"
+        raw = data.get("category")
+        if raw is not None and not isinstance(raw, str):
+            raise ValueError("category must be text")
+        out["category"] = (raw or "Other").strip()[:60] or "Other"
     if "paid_by" in data or not partial:
         uid = data.get("paid_by")
         ids = {m["id"] for m in active_members(db)}
@@ -421,7 +427,27 @@ def recategorize_transaction(db, actor, txn_id, category):
     a transaction id and a category. A category-only edit is proven not to move
     the balance or any month total (test_recategorize_leaves_balance_and_month_
     total_unchanged); only the per-category distribution shifts. Reversible
-    (recategorize back). Returns the updated row."""
+    (recategorize back). Returns the updated row.
+
+    Two guards beyond edit_transaction, tightening the facade to its stated
+    contract (ledger-mirage F1–F3):
+    - a category is REQUIRED and must be text — a missing/blank one would
+      otherwise default to 'Other' and silently clobber the label;
+    - only SPENDING rows (direction='out') may be recategorized, so the
+      "month total never moves" promise holds exactly: relabeling a refund
+      inflow would shift refund-netting between two categories."""
+    if category is None:
+        raise ActionError("a category is required")
+    if not isinstance(category, str):
+        raise ActionError("category must be text")
+    if not category.strip():
+        raise ActionError("a category is required")
+    existing = db.execute(
+        "SELECT direction FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+    if existing is None:
+        raise NotFound("not found")
+    if existing["direction"] != "out":
+        raise ActionError("only spending rows can be recategorized")
     return edit_transaction(db, actor, txn_id, {"category": category})
 
 

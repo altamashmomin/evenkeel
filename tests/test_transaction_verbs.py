@@ -151,6 +151,38 @@ class TransactionVerbTests(unittest.TestCase):
         with self.assertRaisesRegex(actions.ActionError, "settlement rows cannot be edited"):
             actions.recategorize_transaction(self.db, "ui:avery", settled["id"], "Dining")
 
+    def test_recategorize_requires_a_real_text_category(self):
+        # mirage F1/F2: a non-string category is a clean 400, and a missing/blank
+        # one is rejected rather than silently defaulting to 'Other'.
+        txn_id = self.a_manual_row()
+        for bad in (123, ["x"], {"a": 1}):
+            with self.assertRaisesRegex(actions.ActionError, "category must be text"):
+                actions.recategorize_transaction(self.db, "ui:avery", txn_id, bad)
+        for blank in (None, "", "   "):
+            with self.assertRaisesRegex(actions.ActionError, "a category is required"):
+                actions.recategorize_transaction(self.db, "ui:avery", txn_id, blank)
+        # the row's category was never touched by any of the rejected calls
+        self.assertEqual("Groceries", self.db.execute(
+            "SELECT category FROM transactions WHERE id = ?", (txn_id,)).fetchone()["category"])
+
+    def test_recategorize_refuses_a_non_spending_row(self):
+        # mirage F3: only direction='out' rows may be recategorized, so the
+        # "month total never moves" contract holds (a refund inflow would shift
+        # refund-netting between categories).
+        cur = self.db.execute(
+            """INSERT INTO transactions (txn_date, amount_cents, description,
+                   category, paid_by, is_shared, source, direction, income_type)
+               VALUES (?, 4000, 'Refund', 'Groceries', 1, 1, 'manual', 'in', 'refund')""",
+            (date.today().isoformat(),))
+        inflow_id = cur.lastrowid
+        self.db.commit()
+        with self.assertRaisesRegex(actions.ActionError, "only spending rows can be recategorized"):
+            actions.recategorize_transaction(self.db, "ui:avery", inflow_id, "Dining")
+
+    def test_recategorize_missing_row_is_not_found(self):
+        with self.assertRaises(actions.NotFound):
+            actions.recategorize_transaction(self.db, "ui:avery", 999999, "Dining")
+
     def test_edit_without_share_carries_forward_existing_payer_share(self):
         txn_id = self.a_manual_row()
         # Give the row a lopsided share first.

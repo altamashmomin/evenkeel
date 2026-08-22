@@ -87,6 +87,54 @@ class TransactionRouteTests(unittest.TestCase):
             {"error": "settlement rows cannot be edited; delete and recreate"},
             response.get_json())
 
+    # -- the recategorize door (B1) + its mirage F1/F2/F3 hardening ----------
+    def test_recategorize_route_relabels_only(self):
+        client = self.client()
+        txn_id = self.a_manual_txn(client)
+        r = client.put(f"/api/transactions/{txn_id}/recategorize",
+                       json={"category": "Household"})
+        self.assertEqual(200, r.status_code)
+        body = r.get_json()
+        self.assertEqual("Household", body["category"])
+        self.assertEqual(25.0, body["amount"])          # amount untouched
+
+    def test_recategorize_route_ignores_smuggled_fields(self):
+        # the HTTP edge reads only `category` — extra fields can't over-reach.
+        client = self.client()
+        txn_id = self.a_manual_txn(client)
+        r = client.put(f"/api/transactions/{txn_id}/recategorize",
+                       json={"category": "Household", "amount": 1, "description": "X"})
+        self.assertEqual(200, r.status_code)
+        body = r.get_json()
+        self.assertEqual("Household", body["category"])
+        self.assertEqual(25.0, body["amount"])          # smuggled amount ignored
+        self.assertEqual("Route test row", body["description"])  # smuggled desc ignored
+
+    def test_recategorize_route_bad_type_is_400_not_500(self):
+        # mirage F1: a non-string category is a clean 400, never a 500.
+        client = self.client()
+        txn_id = self.a_manual_txn(client)
+        for bad in ([1, 2], 123, {"a": 1}):
+            r = client.put(f"/api/transactions/{txn_id}/recategorize",
+                           json={"category": bad})
+            self.assertEqual(400, r.status_code, f"bad category {bad!r}")
+            self.assertEqual({"error": "category must be text"}, r.get_json())
+
+    def test_recategorize_route_blank_or_missing_is_400(self):
+        # mirage F2: no silent clobber to 'Other'.
+        client = self.client()
+        txn_id = self.a_manual_txn(client)
+        for payload in ({}, {"category": None}, {"category": "   "}):
+            r = client.put(f"/api/transactions/{txn_id}/recategorize", json=payload)
+            self.assertEqual(400, r.status_code, f"payload {payload}")
+            self.assertEqual({"error": "a category is required"}, r.get_json())
+
+    def test_recategorize_route_missing_row_is_404(self):
+        client = self.client()
+        r = client.put("/api/transactions/999999/recategorize",
+                       json={"category": "Household"})
+        self.assertEqual(404, r.status_code)
+
     def test_create_writes_v1_shape_and_an_audit_row(self):
         client = self.client()
         txn_id = self.a_manual_txn(client)
