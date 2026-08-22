@@ -281,7 +281,9 @@ tap-through chips to where a write landed, deduped by tab; no new write path)
 and **A2** (client-side `askFollowups` suggests next questions from what the
 reply just did) are **built, gated (A1 GATE PASS zero-diff), and browser-smoked**
 on `rework` (`c4dd1b1`, `4fbb336`; suite 628, render 156) — **pushed to
-origin/rework, NOT yet merged to main or deployed.** **A4** (ask-from-anywhere: Home spend card, Pantry header, settle dialog → Ask pre-filled) is also built + browser-smoked (`d3bec20`; render 157). B1 + B4 (the two write increments) remain. All three A-lane increments sit on rework, pushed, NOT merged/deployed.
+origin/rework, NOT yet merged to main or deployed.** **A4** (ask-from-anywhere: Home spend card, Pantry header, settle dialog → Ask pre-filled) is also built + browser-smoked (`d3bec20`; render 157). B1 + B4 (the two write increments) remain. **All three A-lane increments are
+DEPLOYED** (Aug 22, `main` `ea13e5e`, live gate zero-diff, tailnet-verified).
+`origin/main` == the deployed tree; nothing merged-but-undeployed remains.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

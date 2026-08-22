@@ -3288,3 +3288,15 @@ the person into the Ask tab pre-filled with a relevant question.
   and Settle (dialog was open → closed on handoff →
   "Why do we owe this amount right now?"). Committed on `rework` `d3bec20`;
   **not yet deployed** (rides with A1+A2 to the Pi on Alta's merge + deploy).
+
+**DEPLOYED (Aug 22, 2026, 18:47) — the whole A-lane (A1 + A2 + A4) in one
+deploy.** Merged by the deploy session after independent re-verification of
+the parallel session's work (suite 628 + 157; gate `910ba8a`→`rework`
+zero-diff): `main` `ea13e5e` on `910ba8a` (tree byte-identical to `rework`
+`3e17157`); Alta pushed and ran `deploy.sh origin/main` — live gate PASS
+zero-diff, "nothing to apply", services restarted, backup
+`finance.db.bak-2026-08-22-184702`. Tailnet-verified post-restart: the lane's
+`data-ask` / `data-ask-eg` / `data-ask-nav` hooks served from both
+`render.js` and `app.js` under fresh stamps (a probe fired during the
+restart window saw the old files first — re-probed, then confirmed),
+`origin/main` == `ea13e5e`. B1 + B4 (the write increments) remain unbuilt.
