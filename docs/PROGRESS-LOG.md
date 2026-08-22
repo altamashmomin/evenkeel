@@ -3190,3 +3190,42 @@ real double-buys.
   / ordered / arrived markup served (4), the ordered chip style served,
   `origin/main` == `910ba8a`. **With this, the Pantry v2 amendment is fully
   built AND live (1–7).**
+
+## Aug 22, 2026 — Ask interactivity, increment A1: tap-through action chips
+
+New effort (Alta's ask: make Charlee's in-app Ask bot "more interactive and
+with more reach across the app"). Agreed lane order after a scoping pass: **A1
+tap-through/undo → A2 adaptive follow-up chips → A4 ask-from-anywhere entry
+points → B1 recategorize (write) → B4 add bill/goal (write)**. B2 (create income
+rule) and B3 (set budget) deliberately stay app-only for now — Alta's governance
+call on which write powers cross the wall; settle-up, delete, and money movement
+stay off-limits by design (AGENT-DESIGN invariant 3).
+
+**A1** — the Ask reply becomes actionable. Before, every reply was flat `esc()`'d
+text with a single non-tappable "✓ tagged" badge on a classify.
+- **Backend** (`ask_loop.py`): `run_ask` now accumulates an `actions` list and
+  returns it alongside `answer`/`tools_used`. When a WRITE tool lands (caller
+  given, name in `WRITE_TOOL_NAMES`, `not is_error`) it appends the tool's
+  tap-through target, **deduped by tab** — several pantry edits collapse to one
+  chip; a failed write or a plain read contributes none. Keyed by
+  `_ACTION_NAV`: `classify_inflow → (activity, "Review in Activity")`, every
+  pantry write → `(inventory, "Open Pantry")`. Both return paths (`end` and
+  `max_rounds`) carry `actions`. **No new write path** — the destination screen
+  is itself the way to reverse the change (re-classify the deposit, re-set the
+  item), so this stays inside CORE-DESIGN invariant 2. `app.py`'s `/api/ask`
+  already `jsonify(result)`s the dict, so the field flows through untouched.
+- **Frontend**: `askThreadHTML` (`render.js`) renders one `.ask-nav` button per
+  action (`✓ {label} →`, carrying `data-ask-nav="{tab}"`); `askSend` (`app.js`)
+  attaches `res.actions` to the assistant message; the Ask wiring binds
+  `[data-ask-nav]` → the existing `setTab`. The old `.ask-tagged` badge/CSS is
+  replaced by the tappable `.ask-nav` chip.
+- Tests: render.js gains chip-per-action / deduped / reads-chip-free checks
+  (**150**, +2); `test_ask_write` asserts the `actions` value on classify (one
+  Activity chip), restock (one deduped Pantry chip), a failed write (none), and
+  a new read-only turn (none) — suite **628** (+1).
+- **GATE PASS zero-diff** (synthetic dev.db, 42 values). Scope proof: the diff
+  touches only `ask_loop.py`, the Ask frontend, and their tests — no
+  `derivations.py`, no `migrations/`, no schema, no route logic — so money math
+  is byte-identical by construction. Committed on `rework` `c4dd1b1`; **not yet
+  deployed** (awaits Alta's merge-to-main + Pi deploy). A live browser smoke of
+  the chip is still worth doing before it ships.
