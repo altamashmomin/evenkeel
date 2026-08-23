@@ -3415,3 +3415,25 @@ interactivity lane (A1, A2, A4, B1, B4).
   merge + Pi deploy walk — no money math or schema touched, so the Pi gate should
   be PASS zero-diff). B2 (create income rule) / B3 (set budget) remain app-only
   by decision.
+
+## Aug 22, 2026 — DEPLOYED: Ask-interactivity lane B1 + B4 (whole lane now live)
+
+Alta merged `rework` → `main` (`--no-ff` `215d759`, first-parent = the A-lane
+merge `ea13e5e`) and ran `deploy/deploy.sh origin/main` on the Pi. The A-lane
+(A1/A2/A4) was already live inside `ea13e5e`; this deploy shipped the two write
+increments **B1 (recategorize from Ask, +mirage hardening) and B4 (add bill/goal
+from Ask)**, tree `ea13e5e`→`215d759`. Live dry-run gate **PASS zero-diff**
+(balance + every monthly total unchanged to the cent, no structural diff);
+**no migration applied — live schema stays v15**; service came up green
+(`/api/status` OK), and `ledger-mcp` restarted with the app (the lane changed
+`agent_write_tools.py`, the shared agent write surface). Rollback backup:
+`finance.db.bak-2026-08-22-210302`. `origin/main` == the deployed tree again;
+nothing merged-but-undeployed remains. **The Ask-interactivity lane
+A1/A2/A4/B1/B4 is complete and live.** (Deploy friction, harmless: the Pi
+command was run first twice and correctly no-op'd on the identical-ref guard
+until the merge landed; the merge itself was run from the repo after clearing a
+stale `deploy-wt` git worktree that held `main`.) Standing follow-up unchanged:
+Alta's off-repo tailnet-ACL check for the MCP write tier (`LEDGER_MCP_ENABLE_WRITES`),
+now relevant since the Ask write tools widened. The pre-existing date-coupled
+`test_trip_closure_groups_two_plus_hints_by_purchase` failure has a fix running
+in its own session.
