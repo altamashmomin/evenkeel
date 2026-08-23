@@ -288,9 +288,11 @@ link open a bottom sheet porting the Charlee guide ("Your Money, Together"):
 just-ask intro, what Ask can do, the ask-from-anywhere tip, what it never
 touches, and a tab map driven by the nav's own `MORE_TABS` so it can't drift.
 Frontend-only (`render.helpSheetHTML`, pure; +5 render checks → 162; suite
-642), browser-smoked on the phone layout, GATE PASS zero-diff. On `rework`
-`0fc86a7`, pushed — **awaits Alta's merge + Pi deploy** (no migration, schema
-stays v15).
+642), browser-smoked on the phone layout, GATE PASS zero-diff. **DEPLOYED**
+(Aug 22, `main` `948b974`, tree `215d759`→`948b974`, live gate PASS
+zero-diff, no migration — schema still v15; tailnet-verified the served
+JS/CSS/shell carry it). `origin/main` == the deployed tree; nothing
+merged-but-undeployed remains.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
