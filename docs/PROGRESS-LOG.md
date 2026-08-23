@@ -3504,3 +3504,17 @@ Frontend-only; no verb, no route, no schema, no money path.
   (expect live gate PASS zero-diff, no migration, schema stays v15).
 - Dev note: `.claude/launch.json` (untracked, dev-only) now starts the app on
   :8089 against the session's scratch `dev.db` for browser smokes.
+
+## Aug 22, 2026 — DEPLOYED: the in-app Help sheet
+
+Alta merged `rework` → `main` (`--no-ff` `948b974`, first-parent `215d759`;
+tree byte-identical to `rework` `a29c85e`) and ran `git fetch origin &&
+./deploy/deploy.sh origin/main` on the Pi: tree `215d759`→`948b974`, live
+dry-run gate **PASS zero-diff** (no structural diff either), **no migration —
+live schema stays v15**, service green, `ledger-mcp` restarted with it, local
+`main` healed to `948b974`. Rollback backup: `finance.db.bak-2026-08-22-224653`.
+Tailnet-verified the code is actually served (not just gated): the shell
+carries `#btn-help` + `#dlg-help` with fresh `?v=` stamps, served `render.js`
+has `helpSheetHTML`, `app.js` has `openHelpSheet` + the `scrollTop` reset,
+`style.css` has the help rules; `/api/me` still 401s unauthenticated.
+`origin/main` == the deployed tree; nothing merged-but-undeployed remains.
