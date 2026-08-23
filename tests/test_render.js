@@ -1508,6 +1508,25 @@ check("helpSheetHTML: handles an empty/missing tab list", () => {
   assert.ok(R.helpSheetHTML([]).includes("help-tabs"));
   assert.ok(R.helpSheetHTML(undefined).includes("help-tabs"));
 });
+check("helpSheetHTML: the calendar section offers the link button", () => {
+  const h = R.helpSheetHTML(HELP_TABS);
+  assert.ok(h.includes('id="help-cal"'), "the swap-in container is there");
+  assert.ok(h.includes('id="help-cal-btn"'), "the get-link button is there");
+  assert.ok(h.includes("on your calendar"), "the section explains itself");
+});
+check("calendarLinkHTML: webcal button + copyable https URL, escaped", () => {
+  const h = R.calendarLinkHTML({
+    webcal: "webcal://pi:8080/calendar/abc.ics",
+    https: "https://pi:8080/calendar/a<b.ics",
+  });
+  assert.ok(h.includes('href="webcal://pi:8080/calendar/abc.ics"'));
+  assert.ok(h.includes("a&lt;b.ics"), "https URL is escaped");
+  assert.ok(h.includes("help-cal-code"), "the copyable address block renders");
+});
+check("calendarLinkHTML: nothing without links", () => {
+  assert.equal(R.calendarLinkHTML(null), "");
+  assert.equal(R.calendarLinkHTML(undefined), "");
+});
 check("askThreadHTML empty state offers the help link", () => {
   const h = R.askThreadHTML([], false);
   assert.ok(h.includes("data-help"), "help link present on the empty state");

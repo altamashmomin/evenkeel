@@ -3,14 +3,16 @@
 Flask + SQLite, no build step. See README.md for setup.
 """
 import functools
+import hashlib
+import hmac
 import os
 import secrets
 import sqlite3
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, redirect, request, session
+from flask import Flask, Response, g, jsonify, redirect, request, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -21,7 +23,7 @@ import ontology
 from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
 from derivations import (anomaly_flags, bill_variance, budget_status,
-                         cash_flow_forecast, category_trend,
+                         calendar_events, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
                          settle_breakdown,
                          income_summary, last_shopping_trip,
@@ -1660,6 +1662,122 @@ def settle_breakdown_view():
             "owed": money(ln["owed_cents"]),
         } for ln in bd["lines"]],
     })
+
+
+# ---------------------------------------------------------------- calendar feed
+
+def _calendar_token(member_id):
+    """The per-member calendar-feed token: HMAC(SECRET_KEY, member id) —
+    DERIVED, never stored (hard rule 4 applied to a credential: no schema, no
+    token table, nothing to migrate or leak from the DB). A calendar app
+    can't log in, so the token rides in the feed URL instead of a session;
+    rotating SECRET_KEY revokes every link at once. 32 hex chars = 128 bits,
+    plenty against an attacker who is already inside the tailnet. NOTE: with
+    SECRET_KEY unset (dev fallback) the token changes every restart — the
+    startup warning already covers that case."""
+    secret = app.secret_key if isinstance(app.secret_key, bytes) else app.secret_key.encode()
+    return hmac.new(secret, f"calendar:{member_id}".encode(),
+                    hashlib.sha256).hexdigest()[:32]
+
+
+def _ics_escape(text):
+    r"""RFC 5545 TEXT escaping: backslash first, then ; , and newlines."""
+    return (str(text).replace("\\", "\\\\").replace(";", "\\;")
+            .replace(",", "\\,").replace("\r\n", "\n").replace("\n", "\\n"))
+
+
+def _ics_fold(line):
+    """RFC 5545 line folding: content lines cap at 75 octets; continuations
+    start with a space. Splits on UTF-8 character boundaries (never mid-emoji)
+    at 73 octets, safely under the cap with the continuation space."""
+    encoded = line.encode("utf-8")
+    chunks = []
+    while len(encoded) > 73:
+        cut = 73
+        while cut > 0 and (encoded[cut] & 0xC0) == 0x80:  # inside a multibyte char
+            cut -= 1
+        chunks.append(encoded[:cut])
+        encoded = encoded[cut:]
+    chunks.append(encoded)
+    return "\r\n ".join(c.decode("utf-8") for c in chunks)
+
+
+def _ics_summary(e):
+    """One event's human line, phrased like the app (money via money_display,
+    a ✓ once a bill is paid, the store in parentheses like the shopping list)."""
+    if e["kind"] == "bill":
+        base = f"💸 {e['name']} due — {money_display(e['amount_cents'])}"
+        return base + (" ✓ paid" if e["paid"] else "")
+    if e["kind"] == "goal":
+        return f"🎯 {e['name']} — goal target {money_display(e['target_cents'])}"
+    base = f"🛒 {e['name']}"
+    if e.get("store"):
+        base += f" ({e['store']})"
+    return base + (" — on the way" if e.get("status") == "ordered" else " — need by")
+
+
+def _render_ics(events, as_of):
+    """calendar_events rows → an iCalendar document (presentation at the edge,
+    like money()/dollars() — the derivation stays pure data). All-day events
+    (DATE values, DTEND exclusive next day), stable UIDs so calendar apps
+    update in place across refreshes, DTSTAMP pinned to as_of midnight so the
+    same day's feed is byte-identical (deterministic, testable). TRANSP:
+    TRANSPARENT — a bill due date must never make anyone 'busy'."""
+    stamp = as_of.replace("-", "") + "T000000Z"
+    lines = [
+        "BEGIN:VCALENDAR", "VERSION:2.0",
+        "PRODID:-//Ledger//Household Calendar//EN",
+        "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+        "X-WR-CALNAME:Ledger",
+        "X-WR-CALDESC:Bills\\, goal targets\\, and shopping deadlines",
+        "REFRESH-INTERVAL;VALUE=DURATION:PT6H", "X-PUBLISHED-TTL:PT6H",
+    ]
+    for e in events:
+        day = date.fromisoformat(e["date"])
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{e['uid']}@ledger",
+            f"DTSTAMP:{stamp}",
+            f"DTSTART;VALUE=DATE:{day.strftime('%Y%m%d')}",
+            f"DTEND;VALUE=DATE:{(day + timedelta(days=1)).strftime('%Y%m%d')}",
+            "SUMMARY:" + _ics_escape(_ics_summary(e)),
+            "TRANSP:TRANSPARENT",
+            "END:VEVENT",
+        ]
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(_ics_fold(ln) for ln in lines) + "\r\n"
+
+
+@app.get("/calendar/<token>.ics")
+def calendar_feed(token):
+    """The subscription feed. Token-in-URL because calendar apps can't hold a
+    session or a header; the token is compared in constant time against every
+    active member's derived token, and a miss is a plain 404 (no oracle).
+    Read-only — a thin caller of calendar_events + _render_ics, no verb needed
+    (hard rule 2 governs writes). no-store: the token is in the URL, so no
+    shared cache may keep the response."""
+    db = get_db()
+    if not any(hmac.compare_digest(_calendar_token(m["id"]), token)
+               for m in active_members(db)):
+        return jsonify({"error": "not found"}), 404
+    today = date.today().isoformat()
+    body = _render_ics(calendar_events(db, as_of=today), today)
+    return Response(body, mimetype="text/calendar", headers={
+        "Cache-Control": "no-store",
+        "Content-Disposition": 'inline; filename="ledger.ics"',
+    })
+
+
+@app.get("/api/calendar/link")
+@session_required
+def calendar_link():
+    """The signed-in member's own subscribe URLs (webcal:// for the one-tap
+    iOS/macOS subscribe, https:// to paste anywhere else). Session-only like
+    token management: a bearer token must not mint feed URLs."""
+    token = _calendar_token(session["user_id"])
+    path = f"/calendar/{token}.ics"
+    return jsonify({"webcal": f"webcal://{request.host}{path}",
+                    "https": f"{request.scheme}://{request.host}{path}"})
 
 
 # ---------------------------------------------------------------- bills
