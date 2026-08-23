@@ -1477,4 +1477,42 @@ check("goalCardHTML escapes the goal name (heading + aria-label attribute)", () 
     "the bare quote cannot close the aria-label attribute");
 });
 
+// ---- helpSheetHTML: the in-app guide, tab map driven by the nav list ----
+const HELP_TABS = [["dashboard", "Home", "🏡"], ["inventory", "Pantry", "🧺"],
+                   ["ask", "Ask", "💬"], ["agents", "Agents", "🤖"]];
+check("helpSheetHTML: a tappable row per tab, with the blurb and the glyph", () => {
+  const h = R.helpSheetHTML(HELP_TABS);
+  for (const [key, label, glyph] of HELP_TABS) {
+    assert.ok(h.includes(`class="help-tab" data-tab="${key}"`), `row for ${key}`);
+    assert.ok(h.includes(label) && h.includes(glyph), `label+glyph for ${key}`);
+  }
+  assert.ok(h.includes("shopping list and the staples"), "Pantry blurb present");
+  assert.ok(h.includes("Just for looking"), "Agents blurb present");
+});
+check("helpSheetHTML: the plain-language promises are all there", () => {
+  const h = R.helpSheetHTML(HELP_TABS);
+  assert.ok(h.includes("never moves money"));
+  assert.ok(h.includes("never settles up"));
+  assert.ok(h.includes("undone"));
+  assert.ok(h.includes("Label a deposit") && h.includes("Keep the pantry list") &&
+            h.includes("Start a bill or a savings goal"));
+  assert.ok(h.includes('data-tab="ask"'), "an Open Ask button navigates to Ask");
+});
+check("helpSheetHTML: a tab with no blurb still renders (no undefined leaks)", () => {
+  const h = R.helpSheetHTML([["mystery", "My<stery", "✨"]]);
+  assert.ok(h.includes("My&lt;stery"), "label escaped");
+  assert.ok(!h.includes("undefined"));
+  assert.ok(h.includes('class="what"></span>'), "empty blurb, not undefined");
+});
+check("helpSheetHTML: handles an empty/missing tab list", () => {
+  assert.ok(R.helpSheetHTML([]).includes("help-tabs"));
+  assert.ok(R.helpSheetHTML(undefined).includes("help-tabs"));
+});
+check("askThreadHTML empty state offers the help link", () => {
+  const h = R.askThreadHTML([], false);
+  assert.ok(h.includes("data-help"), "help link present on the empty state");
+  const busy = R.askThreadHTML([{ role: "user", content: "hi" }], false);
+  assert.ok(!busy.includes("data-help"), "not on a live thread");
+});
+
 console.log(`render tests passed (${passed} checks)`);

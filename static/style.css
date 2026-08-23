@@ -553,6 +553,39 @@ dialog.sheet[open] { animation: sheet-up 0.22s ease; }
   font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--muted);
 }
 .more-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+/* ---------- Help sheet (the in-app "how this works" guide) ---------- */
+#dlg-help { max-height: 88vh; overflow-y: auto; }
+.help-body { font-size: 15px; line-height: 1.5; color: var(--text); }
+.help-body p { margin: 0 0 10px; color: var(--muted); }
+.help-body p b, .help-body li b { color: var(--text); }
+.help-h { margin: 20px 0 6px; font-size: 17px; font-weight: 700; color: var(--text); }
+.help-body .help-h:first-child { margin-top: 4px; }
+.help-chat { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.help-chat .ask-msg { font-size: 14px; }
+.help-body .help-open-ask { display: block; width: 100%; margin: 4px 0 6px; }
+.help-can, .help-safe ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.help-can li { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); color: var(--muted); }
+.help-can li:last-child { border-bottom: 0; }
+.help-can .ic { font-size: 18px; flex: none; }
+.help-tip { margin-top: 12px; padding: 10px 12px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line); }
+.help-safe { margin-top: 18px; padding: 14px; border-radius: 16px;
+  background: var(--surface); border: 1px solid var(--line); }
+.help-safe .help-h { margin-top: 0; }
+.help-safe li { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; color: var(--muted); }
+.help-safe .check { color: var(--brass); font-weight: 800; flex: none; }
+.help-tabs { display: flex; flex-direction: column; }
+.help-tab { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left;
+  padding: 10px 4px; background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  color: var(--text); cursor: pointer; font: inherit; }
+.help-tab:last-child { border-bottom: 0; }
+.help-tab .g { font-size: 18px; flex: none; }
+.help-tab .name { display: block; font-weight: 700; }
+.help-tab .what { display: block; font-size: 13.5px; color: var(--muted); }
+.help-stuck { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); text-align: center; }
+.ask-help-link { background: none; border: 0; color: var(--brass); font: inherit; font-size: 14px;
+  text-decoration: underline; cursor: pointer; margin-top: 14px; width: auto; padding: 4px 8px; }
 .more-tile {
   display: grid; place-items: center; gap: 6px; padding: 14px 4px;
   border-radius: 16px; background: var(--surface-2); border: 1px solid var(--line);
