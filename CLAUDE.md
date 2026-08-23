@@ -291,7 +291,11 @@ Frontend-only (`render.helpSheetHTML`, pure; +5 render checks → 162; suite
 642), browser-smoked on the phone layout, GATE PASS zero-diff. **DEPLOYED**
 (Aug 22, `main` `948b974`, tree `215d759`→`948b974`, live gate PASS
 zero-diff, no migration — schema still v15; tailnet-verified the served
-JS/CSS/shell carry it). `origin/main` == the deployed tree; nothing
+JS/CSS/shell carry it). Then (Aug 23): **header fix** — the phone-layout
+`.topbar-right` cluster wraps so "Sign out" is no longer clipped off the
+right edge (CSS-only, under the existing <720px breakpoint; desktop
+unchanged). **DEPLOYED** (Aug 23, `main` `eca583a`, live gate PASS zero-diff,
+schema still v15). `origin/main` == the deployed tree; nothing
 merged-but-undeployed remains.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),

@@ -3537,3 +3537,11 @@ is what tipped it over.
 - Frontend-only, no money path → no gate. Render checks **162** green.
 - Commit on `rework`; awaits Alta's merge + Pi deploy (no migration, schema
   stays v15).
+
+## Aug 23, 2026 — DEPLOYED: the header Sign-out clip fix
+
+Alta merged `rework` → `main` (`--no-ff` `eca583a`, first-parent `948b974`;
+tree byte-identical to `rework` `ef9a86a`) and ran `deploy.sh origin/main`
+on the Pi: tree `948b974`→`eca583a`, live gate **PASS zero-diff**, **no
+migration — live schema stays v15**. `origin/main` == the deployed tree;
+nothing merged-but-undeployed remains.
