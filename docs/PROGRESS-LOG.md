@@ -3378,3 +3378,40 @@ what makes it acceptable). Three low-severity defects found and fixed:
   not a hard gate — impact capped at a reversible single-row label move; and any
   write-scoped bearer can call the route directly (general design for all write
   routes, not B1-specific). B4 (add bill/goal) remains.
+
+## Aug 22, 2026 — Ask interactivity, increment B4: add a bill / goal from Ask (write)
+
+**B4** — the last of the two approved write powers: Charlee's Ask bot can create
+a recurring bill definition or a savings goal. This completes the Ask-
+interactivity lane (A1, A2, A4, B1, B4).
+- **No new write path**: two tools ride the EXISTING routes/verbs —
+  `ledger_add_bill` → `POST /api/bills` → `create_bill`, `ledger_add_goal` →
+  `POST /api/goals` → `create_goal` (13th + 14th Ask write tools). Schemas come
+  from new `PARAM_SPECS` entries (create_bill: name/amount/due_day/category;
+  create_goal: name/target/target_date), so the schema-source convention holds.
+  Amounts are dollars (matching the routes' `to_cents`), expressed as the
+  PARAM_SPECS `number` type.
+- **Definition-only, by design**: both create a definition/target — they move NO
+  money, create no transaction, and never touch the who-owes-whom balance;
+  marking a bill paid or logging a goal contribution still happens in the app.
+  Confirm-first prompt discipline (read back name + amount + due-day/target, add
+  only on an explicit yes, never invent a figure). A1 chips: add_bill → "Open
+  Bills", add_goal → "Open Goals".
+- **Governance**: `create_bill`/`create_goal` were already in the CORE-DESIGN
+  registry — widened their Callers to "UI, Ask"; the ontology callers manifest
+  now lists both under `ask` (test updated); schema-source map + tool-count
+  assertions (31→33, two call sites) updated.
+- Tests: both tools create the row + audit as the person + carry the right A1
+  chip (bill 8550c from $85.50, goal 200000c from $2,000). **GATE PASS zero-diff**
+  (no derivation/migration/schema change). Committed on `rework` `287fcdf`.
+- **Pre-existing failure flagged (NOT B4)**: `test_item_verbs.py::
+  test_trip_closure_groups_two_plus_hints_by_purchase` fails on today's date
+  (2026-08-22) — it injects purchases at the real `date.today()` against a
+  fixed-date fixture, so trip_closure's recency window drops them. Proven to fail
+  on a clean tree (git stash); unrelated to the Ask work, no money path. Spawned
+  a task to make it clock-stable.
+- **The Ask-interactivity lane (A1/A2/A4/B1+hardening/B4) is built, gated, and
+  security-cleared on `rework`; NOT yet merged to main or deployed** (Alta's
+  merge + Pi deploy walk — no money math or schema touched, so the Pi gate should
+  be PASS zero-diff). B2 (create income rule) / B3 (set budget) remain app-only
+  by decision.
