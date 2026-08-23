@@ -295,8 +295,22 @@ JS/CSS/shell carry it). Then (Aug 23): **header fix** — the phone-layout
 `.topbar-right` cluster wraps so "Sign out" is no longer clipped off the
 right edge (CSS-only, under the existing <720px breakpoint; desktop
 unchanged). **DEPLOYED** (Aug 23, `main` `eca583a`, live gate PASS zero-diff,
-schema still v15). `origin/main` == the deployed tree; nothing
-merged-but-undeployed remains.
+schema still v15). Then (Aug 23): **the calendar .ics feed** — born of the
+"should this be an iOS app?" question (answer: not yet; the feed solves the
+calendar want with zero app). `derivations.calendar_events` (clock-free;
+bills expanded per-month with due-day clamping + paid ✓ from bill_payments
+existence, goal target dates, shopping need_by via shopping_list/on_the_way;
+reads NO transactions) + `GET /calendar/<token>.ics` where the token is
+**HMAC(SECRET_KEY, member id) — derived, never stored, so NO migration** +
+session-only `GET /api/calendar/link` + a "See it on your calendar" section
+in the Help sheet (webcal:// one-tap + copyable https). RFC 5545 renderer
+with escape/fold tests. Suite 660 (+18), render 165 (+3), GATE PASS
+zero-diff (read-only; schema stays v15), browser-smoked (live feed curl
+verified, wrong token 404s). Same day, same session: **Trace Web detail row
+flexes proportional to verbiage** — the bottom four cells' grid columns are
+weighted by text length per render (minmax floor), so a verb-heavy trace no
+longer cramps into a rigid 1fr. On `rework` (`130d8e3` + `934464b`), pushed;
+**awaits Alta's merge + Pi deploy** (no migration expected live).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
