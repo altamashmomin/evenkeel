@@ -3466,3 +3466,41 @@ asserted `1 == len(groups)` but got `0`, failing on a clean checkout of `rework`
   **628** green. No production code changed → **no balance gate**;
   `derivations.trip_closure` stays clock-free. On `rework` `a6343c7`
   (cherry-picked linear, no merge bubble; pushed to `origin/rework`).
+
+## Aug 22, 2026 — The in-app Help sheet ("how this works")
+
+The Charlee-facing guide brought *into* the app, not just a standalone page.
+Frontend-only; no verb, no route, no schema, no money path.
+- **What** — a `?` icon button in the header (visible on the phone layout too —
+  only the text `topnav` hides under 720px) and a "How does this work?" link on
+  the Ask empty state both open `#dlg-help`, a `dialog.sheet` reusing the More /
+  recategorize bottom-sheet pattern. `render.helpSheetHTML(tabs)` is a pure
+  function porting the published "Your Money, Together" artifact: the just-ask
+  intro with sample bubbles (the app's own `ask-msg` styling), what Ask can DO
+  (label a deposit, recategorize, pantry, add a bill/goal — B1/B4), the 💬
+  ask-from-anywhere tip (A4), the "what it will never touch" reassurance, a tab
+  map, and the "if you're stuck" footer. The tab map is driven by the SAME
+  `MORE_TABS` list the nav is built from (`[[key,label,glyph]]`) with a per-key
+  blurb, so it cannot drift from the real tab set (Agents included — the
+  published page omitted it); every row and the "Open Ask" button carry
+  `data-tab` and navigate-then-close.
+- **Browser smoke (phone viewport, dev.db)** — header `?` opens; Bills row
+  navigates + closes; the Ask empty-state link opens; "Open Ask" lands on Ask.
+  Two findings along the way: (1) the tool's screenshots taken immediately
+  after an action can be **stale frames** — a "phantom navigation" to Bills was
+  disproven by instrumentation (DOM said sheet open, `state.tab === 'ask'`,
+  zero clicks); settle-wait before screenshots from here on. (2) A real one: a
+  `<dialog>` **keeps its scrollTop across close/open** and `showModal`'s
+  autofocus nudges it, so a reopened sheet could put a different tab row under
+  the same tap (that is how one tap first landed on Agents). Fix:
+  `dlgHelp.scrollTop = 0` after `showModal()`; re-verified with a click/setTab
+  tracer — three trusted clicks, exactly the expected calls.
+- **Tests** — `test_render.js` +5 checks (a row per tab with blurb+glyph; the
+  promises present; a blurb-less tab renders without `undefined`, label
+  escaped; empty/missing list; the empty-state help link present only on an
+  empty thread) → **162** render checks; Python suite **642** green.
+- **GATE PASS zero-diff** (`origin/main` vs `rework`, frozen seed fixture, 42
+  values). On `rework` `0fc86a7`, pushed; **awaits Alta's merge + Pi deploy**
+  (expect live gate PASS zero-diff, no migration, schema stays v15).
+- Dev note: `.claude/launch.json` (untracked, dev-only) now starts the app on
+  :8089 against the session's scratch `dev.db` for browser smokes.
