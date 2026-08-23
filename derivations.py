@@ -1605,3 +1605,79 @@ def budget_status(db, period):
     unbudgeted = sum(t for c, t in spend.items() if c not in budgeted_cats)
     return {"period": period, "budgets": out,
             "unbudgeted_spend_cents": unbudgeted}
+
+
+def _clamped_due_date(period, day):
+    """The real calendar date for a bill's due_day inside `period` (YYYY-MM),
+    clamped to the month's last day — due_day 31 lands on Feb 28/29, Apr 30,
+    etc. Pure date math, no clock."""
+    year, month = (int(part) for part in period.split("-"))
+    first_of_next = date(year + (month == 12), month % 12 + 1, 1)
+    last = (first_of_next - timedelta(days=1)).day
+    return date(year, month, min(day, last))
+
+
+def calendar_events(db, as_of=None, months_ahead=3):
+    """The household's dated obligations as calendar events — the data behind
+    the .ics subscription feed (bills on their due dates, goal target dates,
+    shopping deadlines). Nothing here is stored; the feed is re-derived on
+    every fetch, so it can never drift from the app (hard rule 4).
+
+    Three kinds, each traced to the derivation the SPA already trusts:
+    - bill: every ACTIVE bill expanded to one occurrence per month for the
+      `months_ahead` months starting at as_of's month (current month included
+      even when the due day has passed — a paid bill shows its ✓). `paid` is
+      the existence of the (bill, period) row in bill_payments; amounts are
+      the bill's DEFINED cents (no transactions read).
+    - goal: each goal with a target_date on/after as_of.
+    - item: every shopping_list / on_the_way row carrying a need_by, kept
+      while need_by is no more than 14 days past as_of (recent misses still
+      matter; ancient ones are list rot, not appointments).
+
+    Clock-free: callers pass as_of (ISO date); as_of=None returns [] purely so
+    the derivation tripwire can call it bare. Tripwire-uncontaminatable by
+    construction — reads bills/bill_payments/goals/items, never transactions
+    (bill amounts are defined_cents, deliberately, for exactly this reason).
+    Integer cents throughout; rendering to ICS text is the route's job."""
+    if as_of is None:
+        return []
+    anchor = date.fromisoformat(as_of)
+    start = anchor.year * 12 + anchor.month - 1
+    periods = [f"{i // 12:04d}-{i % 12 + 1:02d}"
+               for i in range(start, start + months_ahead)]
+
+    events = []
+    marks = ",".join("?" * len(periods))
+    paid = {(r["bill_id"], r["period"]) for r in db.execute(
+        f"SELECT bill_id, period FROM bill_payments WHERE period IN ({marks})",
+        periods)}
+    for b in db.execute("SELECT id, name, amount_cents, due_day FROM bills "
+                        "WHERE active = 1 ORDER BY due_day, name"):
+        for period in periods:
+            events.append({
+                "kind": "bill", "uid": f"ledger-bill-{b['id']}-{period}",
+                "date": _clamped_due_date(period, b["due_day"]).isoformat(),
+                "name": b["name"], "amount_cents": b["amount_cents"],
+                "paid": (b["id"], period) in paid,
+            })
+
+    for g in db.execute("SELECT id, name, target_cents, target_date FROM goals "
+                        "WHERE target_date IS NOT NULL AND target_date >= ? "
+                        "ORDER BY target_date, name", (as_of,)):
+        events.append({
+            "kind": "goal", "uid": f"ledger-goal-{g['id']}",
+            "date": g["target_date"], "name": g["name"],
+            "target_cents": g["target_cents"],
+        })
+
+    floor = (anchor - timedelta(days=14)).isoformat()
+    for item in shopping_list(db) + on_the_way(db):
+        if item["need_by"] and item["need_by"] >= floor:
+            events.append({
+                "kind": "item", "uid": f"ledger-item-{item['id']}",
+                "date": item["need_by"], "name": item["name"],
+                "status": item["status"], "store": item["store"],
+            })
+
+    events.sort(key=lambda e: (e["date"], e["kind"], e["name"]))
+    return events

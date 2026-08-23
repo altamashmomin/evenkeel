@@ -1473,12 +1473,28 @@
           </ul>
         </div>
 
+        <h3 class="help-h">See it on your calendar.</h3>
+        <p>Bills, savings-goal dates, and shopping deadlines can show up right in your phone's calendar app — and they keep themselves up to date. Tap once, subscribe, done.</p>
+        <div class="help-cal" id="help-cal"><button class="btn" id="help-cal-btn" type="button">📅 Get my calendar link</button></div>
+
         <h3 class="help-h">The tabs, at a glance.</h3>
         <p>If you'd rather poke around than ask, tap one:</p>
         <div class="help-tabs">${tabRows}</div>
 
         <p class="help-stuck">🌿 <b>If you're ever stuck</b> — open Ask and say it in your own words. You can't get it wrong, and you can't break anything.<br><em>And if all else fails — just text Alta. 💚</em></p>
       </div>`;
+  }
+
+  // The calendar-subscribe links, swapped into the Help sheet's #help-cal box
+  // once app.js has fetched /api/calendar/link. Pure function of the links
+  // object ({webcal, https}); null/undefined renders nothing. webcal:// is
+  // the one-tap subscribe on iPhone/Mac; the https URL is shown for pasting
+  // into anything else (Google Calendar's "from URL", a desktop client).
+  function calendarLinkHTML(links) {
+    if (!links) return "";
+    return `<a class="btn primary" href="${esc(links.webcal)}">📅 Add to my calendar</a>
+      <p class="help-cal-url">On iPhone that's one tap. Anywhere else, subscribe to this address:</p>
+      <code class="help-cal-code">${esc(links.https)}</code>`;
   }
 
   // The "More" bottom sheet: every tab as a tile, so all tabs are reachable
@@ -1727,7 +1743,7 @@
            userById, userColor, beamHTML, txnRow, billRowHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
-           moreSheetHTML, helpSheetHTML, recatSheetHTML, settleBreakdownHTML,
+           moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
            listEstimateHTML, priceTrendBadge,
            tripDueHTML, tripClosureHTML,
            staleStaplesHTML,

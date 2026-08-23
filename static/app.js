@@ -13,7 +13,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
-        moreSheetHTML, helpSheetHTML, recatSheetHTML, settleBreakdownHTML,
+        moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
         beamHTML, txnRow, billRowHTML, contribLogHTML, goalCardHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
@@ -330,6 +330,16 @@ function openHelpSheet() {
   $("#help-body").innerHTML = helpSheetHTML(MORE_TABS);
   $$("#help-body [data-tab]").forEach((b) =>
     b.addEventListener("click", () => { dlgHelp.close(); setTab(b.dataset.tab); }));
+  // The calendar section fetches the member's own subscribe link on demand
+  // (the token is per-member, so it can't be baked into the pure sheet HTML).
+  $("#help-cal-btn")?.addEventListener("click", async () => {
+    try {
+      $("#help-cal").innerHTML = calendarLinkHTML(await api("/api/calendar/link"));
+    } catch {
+      $("#help-cal").innerHTML =
+        '<p class="help-cal-url">Couldn\'t fetch the link just now — try again in a moment.</p>';
+    }
+  });
   dlgHelp.showModal();
   // A <dialog> keeps its scroll position across close/open, and showModal's
   // autofocus can nudge it; always open at the top so the same tap lands on

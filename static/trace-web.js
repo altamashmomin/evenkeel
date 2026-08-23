@@ -337,6 +337,15 @@ function renderReadout(active, shown) {
 
   const detail = $('detail');
   detail.textContent = '';
+  // The four cells share the row proportionally to how much text each carries:
+  // a traced hub like `transactions` lists every writing verb upstream while
+  // "Doors reached" holds three words, and the verb registry only grows — equal
+  // 1fr columns cramp the long cell and waste the short ones. minmax keeps a
+  // near-empty cell readable; the fr weights do the proportioning.
+  const weights = rows.map(r => Math.max(24, (r.items || '').length));
+  const total = weights.reduce((a, b) => a + b, 0);
+  detail.style.gridTemplateColumns = weights
+    .map(w => 'minmax(170px, ' + (4 * w / total).toFixed(3) + 'fr)').join(' ');
   rows.forEach(r => {
     const cell = document.createElement('div');
     cell.className = cellCls;

@@ -3537,3 +3537,69 @@ is what tipped it over.
 - Frontend-only, no money path → no gate. Render checks **162** green.
 - Commit on `rework`; awaits Alta's merge + Pi deploy (no migration, schema
   stays v15).
+
+## Aug 23, 2026 — DEPLOYED: the header Sign-out clip fix
+
+Alta merged `rework` → `main` (`--no-ff` `eca583a`, first-parent `948b974`;
+tree byte-identical to `rework` `ef9a86a`) and ran `deploy.sh origin/main`
+on the Pi: tree `948b974`→`eca583a`, live gate **PASS zero-diff**, **no
+migration — live schema stays v15**. `origin/main` == the deployed tree;
+nothing merged-but-undeployed remains.
+
+## Aug 23, 2026 — the calendar .ics feed (see it on your calendar)
+
+Genesis: Alta asked whether Ledger should become an iOS app (calendar
+integration + pay-the-bank-in-a-modal were the wants). Assessment: the
+calendar half needs no app at all — a standard iCalendar subscription feed
+covers both phones (iOS/Google Calendar auto-refresh it); the native-app
+question is parked until the polish bundle (bank sheet, Face ID, two-way
+sync) earns its $99/yr. This increment is that feed.
+
+- **`derivations.calendar_events(db, as_of, months_ahead=3)`** — the dated
+  obligations as pure data: active bills expanded to one occurrence per
+  month (due_day clamped to real month ends — the 31st lands on Feb 28;
+  `paid` = the (bill, period) row existing in `bill_payments`, amounts are
+  the DEFINED cents — deliberately no transactions read, so the tripwire
+  can't be moved by construction), goals' future `target_date`s, and
+  shopping deadlines composed from the same `shopping_list` / `on_the_way`
+  every other surface calls (hard rule 4), kept to 14 days past `need_by`.
+  Clock-free (`as_of=None → []` for the bare tripwire call). Nothing stored.
+- **The token is DERIVED, not stored** — `HMAC(SECRET_KEY, member id)`,
+  32 hex chars: no migration, no token table, nothing in the DB to leak;
+  rotating SECRET_KEY revokes every link. Calendar apps can't hold a
+  session, hence token-in-URL — compared constant-time against every active
+  member, misses are a plain 404, tailnet-only exposure unchanged.
+- **Routes** — `GET /calendar/<token>.ics` (no session; `text/calendar`,
+  `Cache-Control: no-store`) rendering RFC 5545 via `_render_ics` (all-day
+  DATE events, exclusive DTEND, stable UIDs so apps update in place,
+  DTSTAMP pinned to as_of midnight for determinism, escaping + 75-octet
+  folding that never splits an emoji) and session-only
+  `GET /api/calendar/link` handing the member their own `webcal://` +
+  `https://` URLs (bearer tokens must not mint feed URLs).
+- **UI** — a "See it on your calendar" section in the Help sheet;
+  `calendarLinkHTML` (pure, render.js) swaps in the one-tap webcal button +
+  copyable address after app.js fetches the link.
+- **Tests** — `test_calendar_events.py` (9: expansion, clamping, paid flag,
+  active/list-membership filters, the 14-day floor, cross-kind sort,
+  bare-call empty) + `test_calendar_route.py` (9: token auth both ways,
+  per-member tokens, session-only link, escaping/folding/determinism) +3
+  render checks → suite **660**, render **165**, all green.
+- **GATE PASS zero-diff** (ba8f083 vs rework `130d8e3`, frozen seed fixture,
+  42 values — read-only increment, no schema change, no verb, no money path).
+- **Browser-smoked** on the scratch dev.db: Help sheet section renders, the
+  tap swaps in webcal + https URLs, `curl` of the real token URL serves the
+  seeded bills as escaped VEVENTs, a wrong token 404s. One smoke-caught fix:
+  the webcal button needed its own bottom margin (folded into the commit).
+
+Same session, Alta mid-turn: **Trace Web — the detail row flexes with the
+verbiage** (`934464b`). The bottom four cells were rigid `1fr` each; tracing
+a hub like `transactions` puts every writing verb in "Direct upstream" while
+"Doors reached" holds three words — and the registry only grows. The cells'
+`grid-template-columns` are now set per render, weighted by each cell's text
+length with a `minmax(170px, …)` floor. Browser-verified on the transactions
+trace: 197/447/12/51 chars → 1.10/2.49/0.13/0.28 fr. Frontend-only.
+
+Both on `rework`, pushed; **await Alta's merge + Pi deploy** (expect live
+gate PASS zero-diff, no migration, schema stays v15). After deploy: each
+phone subscribes once via Help → "Get my calendar link" (Tailscale must be
+on for the phone to fetch the feed).

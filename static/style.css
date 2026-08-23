@@ -592,6 +592,11 @@ dialog.sheet[open] { animation: sheet-up 0.22s ease; }
 .help-tab .name { display: block; font-weight: 700; }
 .help-tab .what { display: block; font-size: 13.5px; color: var(--muted); }
 .help-stuck { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); text-align: center; }
+.help-cal { margin-top: 10px; }
+.help-cal .btn { margin: 2px 0 10px; }
+.help-cal-url { margin: 10px 0 4px; font-size: 13.5px; color: var(--muted); }
+.help-cal-code { display: block; padding: 8px 10px; border-radius: 10px; font-size: 12.5px;
+  background: var(--surface-2); word-break: break-all; user-select: all; }
 .ask-help-link { background: none; border: 0; color: var(--brass); font: inherit; font-size: 14px;
   text-decoration: underline; cursor: pointer; margin-top: 14px; width: auto; padding: 4px 8px; }
 .more-tile {
