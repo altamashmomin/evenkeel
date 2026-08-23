@@ -189,12 +189,18 @@ def validate_txn_payload(db, data, partial=False):
             raise ValueError("amount must be positive")
         out["amount_cents"] = cents
     if "description" in data or not partial:
-        desc = (data.get("description") or "").strip()
+        raw = data.get("description")
+        if raw is not None and not isinstance(raw, str):
+            raise ValueError("description must be text")
+        desc = (raw or "").strip()
         if not desc:
             raise ValueError("description is required")
         out["description"] = desc[:200]
     if "category" in data or not partial:
-        out["category"] = (data.get("category") or "Other").strip()[:60] or "Other"
+        raw = data.get("category")
+        if raw is not None and not isinstance(raw, str):
+            raise ValueError("category must be text")
+        out["category"] = (raw or "Other").strip()[:60] or "Other"
     if "paid_by" in data or not partial:
         uid = data.get("paid_by")
         ids = {m["id"] for m in active_members(db)}
@@ -406,6 +412,43 @@ def edit_transaction(db, actor, txn_id, data):
             {"before": dict(existing), "changed": cols,
              "payer_share_pct": pct, "severed_settles_links": severed})
     return row
+
+
+def recategorize_transaction(db, actor, txn_id, category):
+    """Relabel ONE transaction's category — and nothing else.
+
+    A constrained facade over edit_transaction (the single transaction-edit
+    write path): it delegates a category-only payload, so it inherits that
+    verb's validation, split-preserving behaviour, settlement freeze, and audit
+    row (recorded as 'edit_transaction', changed={category}). It exists so the
+    agent write tier can offer recategorize as its own narrow tool whose schema
+    (PARAM_SPECS, additionalProperties:false) makes it structurally impossible
+    to reach amount, splits, or description through it — the model can pass only
+    a transaction id and a category. A category-only edit is proven not to move
+    the balance or any month total (test_recategorize_leaves_balance_and_month_
+    total_unchanged); only the per-category distribution shifts. Reversible
+    (recategorize back). Returns the updated row.
+
+    Two guards beyond edit_transaction, tightening the facade to its stated
+    contract (ledger-mirage F1–F3):
+    - a category is REQUIRED and must be text — a missing/blank one would
+      otherwise default to 'Other' and silently clobber the label;
+    - only SPENDING rows (direction='out') may be recategorized, so the
+      "month total never moves" promise holds exactly: relabeling a refund
+      inflow would shift refund-netting between two categories."""
+    if category is None:
+        raise ActionError("a category is required")
+    if not isinstance(category, str):
+        raise ActionError("category must be text")
+    if not category.strip():
+        raise ActionError("a category is required")
+    existing = db.execute(
+        "SELECT direction FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+    if existing is None:
+        raise NotFound("not found")
+    if existing["direction"] != "out":
+        raise ActionError("only spending rows can be recategorized")
+    return edit_transaction(db, actor, txn_id, {"category": category})
 
 
 def delete_transaction(db, actor, txn_id):
@@ -1977,6 +2020,29 @@ PARAM_SPECS = {
         Param("income_type", "string",
               "What kind of income it is, per the person's own words.",
               enum=REAL_INCOME_TYPE_ORDER),
+    ],
+    "recategorize_transaction": [
+        Param("transaction_id", "integer",
+              "The SPENDING row's id, from ledger_search_transactions — confirm "
+              "with the person which transaction before changing it."),
+        Param("category", "string",
+              "The destination category, e.g. 'Groceries'. Any label works — "
+              "categories are just tags, so a new name creates that category."),
+    ],
+    "create_bill": [
+        Param("name", "string", "What the bill is, e.g. 'Electric' or 'Rent'."),
+        Param("amount", "number", "The bill amount in dollars, e.g. 85.50."),
+        Param("due_day", "integer",
+              "The day of the month it's due, a whole number 1–31."),
+        Param("category", "string",
+              "Optional category label; defaults to 'Bills'.", required=False),
+    ],
+    "create_goal": [
+        Param("name", "string", "What they're saving for, e.g. 'Vacation'."),
+        Param("target", "number", "The savings target in dollars, e.g. 2000."),
+        Param("target_date", "string",
+              "Optional target date as YYYY-MM-DD (work it out from what they "
+              "said), or omit for no deadline.", required=False),
     ],
     "add_item": [
         Param("name", "string", "The item, e.g. 'Coffee'."),

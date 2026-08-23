@@ -3288,3 +3288,130 @@ the person into the Ask tab pre-filled with a relevant question.
   and Settle (dialog was open → closed on handoff →
   "Why do we owe this amount right now?"). Committed on `rework` `d3bec20`;
   **not yet deployed** (rides with A1+A2 to the Pi on Alta's merge + deploy).
+
+**DEPLOYED (Aug 22, 2026, 18:47) — the whole A-lane (A1 + A2 + A4) in one
+deploy.** Merged by the deploy session after independent re-verification of
+the parallel session's work (suite 628 + 157; gate `910ba8a`→`rework`
+zero-diff): `main` `ea13e5e` on `910ba8a` (tree byte-identical to `rework`
+`3e17157`); Alta pushed and ran `deploy.sh origin/main` — live gate PASS
+zero-diff, "nothing to apply", services restarted, backup
+`finance.db.bak-2026-08-22-184702`. Tailnet-verified post-restart: the lane's
+`data-ask` / `data-ask-eg` / `data-ask-nav` hooks served from both
+`render.js` and `app.js` under fresh stamps (a probe fired during the
+restart window saw the old files first — re-probed, then confirmed),
+`origin/main` == `ea13e5e`. B1 + B4 (the write increments) remain unbuilt.
+
+## Aug 22, 2026 — Ask interactivity, increment B1: recategorize from Ask (write)
+
+**B1** — the first of the two approved write powers: Charlee's Ask bot can move
+ONE spending transaction to a different category. (Alta's Lane-B scope was B1 +
+B4; B2 create-rule / B3 set-budget stay app-only.)
+- **The verb** (`actions.recategorize_transaction`): a category-only facade over
+  `edit_transaction` (the single transaction-edit write path) — it delegates a
+  `{category}` payload, inheriting that verb's validation, split preservation,
+  settlement freeze, and audit row (recorded as `edit_transaction`,
+  changed={category}). Its `PARAM_SPECS` schema (`additionalProperties:false`)
+  admits only `transaction_id` + `category`, so the model structurally cannot
+  reach amount/splits/description. A category-only edit is already proven not to
+  move the balance or any month total (`test_recategorize_leaves_balance_and_
+  month_total_unchanged`).
+- **The door**: a dedicated route `PUT /api/transactions/<id>/recategorize`
+  (reads ONLY category → the constraint holds at the HTTP edge too), so the verb
+  is genuinely invoked and reachable — not a schema-only orphan. Surfaced as the
+  11th Ask write tool `ledger_recategorize_transaction` with **confirm-first**
+  prompt discipline (find the exact row via `ledger_search_transactions`, state
+  the from→to category, act only on an explicit yes — never guess) and an A1
+  "Review in Activity" tap-through chip. Chosen over the structural
+  `pending_actions` two-phase (rules-only, over-engineered for a reversible,
+  category-only, single-row, audited relabel).
+- **Governance gates it tripped (as designed) and satisfied**: the CORE-DESIGN
+  verb registry (added the `recategorize_transaction` row) and the ontology — it
+  is the **second cascader** (→ `edit_transaction`) and a *pure delegator* (empty
+  direct footprint), so its audit trail comes through the cascade; the
+  audit-coverage and cascader tests were updated to recognize that shape, and the
+  callers manifest now lists it under ui + ask (no longer door-less/cli).
+- Tests: verb-level (category-only facade preserves amount/splits; refuses a
+  settlement), tool-level (relabels + logs as the person; A1 activity chip;
+  schema is category-only), roster counts 30→31 (two call sites). Suite **632**
+  (+4). **GATE PASS zero-diff** — no derivation/migration/schema change.
+- **Browser-smoked** (Flask on synthetic dev.db): the live route relabeled txn 1
+  Rent→Household, **ignored smuggled `amount:1` and `description:"HACKED"`**
+  (category-only enforced at the edge), and left the who-owes-whom balance
+  ($940.49) and the month total ($2,927.54) unchanged. Committed on `rework`
+  `59fdb69`; **not yet deployed** (rides with A1/A2/A4 on Alta's merge + deploy).
+  A `ledger-mirage` re-run against the new write surface is worth doing pre-deploy.
+
+## Aug 22, 2026 — Ask B1 hardening: ledger-mirage remediation (F1/F2/F3)
+
+Ran the `ledger-mirage` red-team agent against the B1 recategorize write tier
+(against a throwaway synthetic dev copy, v15; finance.db untouched). Verdict:
+**structurally sound, no exploitable escalation.** All headline threats clean —
+field over-reach blocked at BOTH the verb (signature takes only `category`) and
+the route (reads only `data.get("category")`; a smuggled amount/description is
+ignored); SQL parameterized (a `DROP TABLE` string stored literally, row count
+unchanged); settlement → 400, bad id → 404; a read-scoped bearer → 403 and the
+write is attributed `ui:<name>`, never a token (the Ask route is session_required
+— a read token can neither trigger the paid loop nor reach the write); injection
+via a bank-feed description is bounded by structure to reversible, audited,
+single-row label edits (confirm-first is the only *behavioral* guard, but the
+structural bound — category-only schema + route, no bulk verb, no money path — is
+what makes it acceptable). Three low-severity defects found and fixed:
+- **F1** (type-confusion → HTTP 500): a non-string `category`/`description` hit
+  `.strip()` on a non-str in `validate_txn_payload` → uncaught AttributeError →
+  500 (no info leak — global handler returns generic `internal error`). Fixed at
+  root: type-guard the string fields → 400 `category must be text` /
+  `description must be text`. Covers the generic edit route too.
+- **F2** (silent clobber): a missing/blank category defaulted to `'Other'` and
+  overwrote the label (slipped past edit_transaction's "nothing to update"
+  guard). Fixed in the facade: reject with `a category is required`.
+- **F3** (contract/scope): the facade inherited edit_transaction's lack of a
+  direction check, so it would relabel an inflow — for a refund that shifts
+  refund-netting between categories (grand total + balance still unaffected, but
+  wider than the "spending rows only" contract). Fixed: refuse non-`out` rows
+  (`only spending rows can be recategorized`) — which also shrinks the injection
+  blast radius to exactly what the prompt promises.
+- Tests: verb-level (bad type / blank / inflow / missing) + route-level
+  (relabels-only, ignores smuggled fields, 400-not-500 on bad type, 400 on
+  blank, 404 on missing). Suite **640** (+8). **GATE PASS zero-diff** (money code
+  untouched). Committed on `rework` `8a53224`; **not yet deployed** (rides with
+  A1/A2/A4/B1). Residual accepted risk: confirm-first is a model-behavior guard,
+  not a hard gate — impact capped at a reversible single-row label move; and any
+  write-scoped bearer can call the route directly (general design for all write
+  routes, not B1-specific). B4 (add bill/goal) remains.
+
+## Aug 22, 2026 — Ask interactivity, increment B4: add a bill / goal from Ask (write)
+
+**B4** — the last of the two approved write powers: Charlee's Ask bot can create
+a recurring bill definition or a savings goal. This completes the Ask-
+interactivity lane (A1, A2, A4, B1, B4).
+- **No new write path**: two tools ride the EXISTING routes/verbs —
+  `ledger_add_bill` → `POST /api/bills` → `create_bill`, `ledger_add_goal` →
+  `POST /api/goals` → `create_goal` (13th + 14th Ask write tools). Schemas come
+  from new `PARAM_SPECS` entries (create_bill: name/amount/due_day/category;
+  create_goal: name/target/target_date), so the schema-source convention holds.
+  Amounts are dollars (matching the routes' `to_cents`), expressed as the
+  PARAM_SPECS `number` type.
+- **Definition-only, by design**: both create a definition/target — they move NO
+  money, create no transaction, and never touch the who-owes-whom balance;
+  marking a bill paid or logging a goal contribution still happens in the app.
+  Confirm-first prompt discipline (read back name + amount + due-day/target, add
+  only on an explicit yes, never invent a figure). A1 chips: add_bill → "Open
+  Bills", add_goal → "Open Goals".
+- **Governance**: `create_bill`/`create_goal` were already in the CORE-DESIGN
+  registry — widened their Callers to "UI, Ask"; the ontology callers manifest
+  now lists both under `ask` (test updated); schema-source map + tool-count
+  assertions (31→33, two call sites) updated.
+- Tests: both tools create the row + audit as the person + carry the right A1
+  chip (bill 8550c from $85.50, goal 200000c from $2,000). **GATE PASS zero-diff**
+  (no derivation/migration/schema change). Committed on `rework` `287fcdf`.
+- **Pre-existing failure flagged (NOT B4)**: `test_item_verbs.py::
+  test_trip_closure_groups_two_plus_hints_by_purchase` fails on today's date
+  (2026-08-22) — it injects purchases at the real `date.today()` against a
+  fixed-date fixture, so trip_closure's recency window drops them. Proven to fail
+  on a clean tree (git stash); unrelated to the Ask work, no money path. Spawned
+  a task to make it clock-stable.
+- **The Ask-interactivity lane (A1/A2/A4/B1+hardening/B4) is built, gated, and
+  security-cleared on `rework`; NOT yet merged to main or deployed** (Alta's
+  merge + Pi deploy walk — no money math or schema touched, so the Pi gate should
+  be PASS zero-diff). B2 (create income rule) / B3 (set budget) remain app-only
+  by decision.

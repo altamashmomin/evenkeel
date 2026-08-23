@@ -133,6 +133,114 @@ class AskWriteTests(unittest.TestCase):
             conn.close()
         self.assertEqual("ui:avery", audit["actor"])
 
+    # -- B1: recategorize a spending row through the tool --------------------
+    def a_spending_row(self):
+        conn = self.db()
+        try:
+            row = conn.execute(
+                "SELECT id, category, amount_cents FROM transactions "
+                "WHERE direction = 'out' AND source != 'settlement' "
+                "ORDER BY id LIMIT 1").fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(row, "seed should have spending rows")
+        return row
+
+    def category_of(self, txn_id):
+        conn = self.db()
+        try:
+            return conn.execute(
+                "SELECT category, amount_cents FROM transactions WHERE id = ?",
+                (txn_id,)).fetchone()
+        finally:
+            conn.close()
+
+    def test_recategorize_tool_relabels_only_and_logs_as_the_person(self):
+        row = self.a_spending_row()
+        target = "Household" if row["category"] != "Household" else "Dining"
+        mock = MockAnthropic([
+            resp([tool_block("ledger_recategorize_transaction",
+                             {"transaction_id": row["id"], "category": target})], "tool_use"),
+            resp([text_block(f"Moved it to {target} ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg=f"that charge was {target}, not {row['category']}",
+                       caller=self.caller)
+        self.assertEqual(["ledger_recategorize_transaction"], out["tools_used"])
+        # A1: a recategorize is reviewable in Activity.
+        self.assertEqual([{"tab": "activity", "label": "Review in Activity"}],
+                         out["actions"])
+        after = self.category_of(row["id"])
+        self.assertEqual(target, after["category"])          # label moved
+        self.assertEqual(row["amount_cents"], after["amount_cents"])  # amount did NOT
+        # audited as the person, via the edit_transaction write path
+        conn = self.db()
+        try:
+            audit = conn.execute(
+                "SELECT actor, detail_json FROM audit_log "
+                "WHERE action = 'edit_transaction' AND target = ?",
+                (f"transaction:{row['id']}",)).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual("ui:avery", audit["actor"])
+        self.assertEqual({"category": target}, json.loads(audit["detail_json"])["changed"])
+
+    def test_recategorize_tool_schema_is_category_only(self):
+        # The structural guarantee: the tool can't reach amount/splits/etc — its
+        # schema (from PARAM_SPECS) admits only transaction_id + category.
+        import agent_write_tools
+        spec = {t["name"]: t for t in agent_write_tools.WRITE_TOOLS}[
+            "ledger_recategorize_transaction"]
+        props = spec["input_schema"]["properties"]
+        self.assertEqual({"transaction_id", "category"}, set(props))
+        self.assertFalse(spec["input_schema"]["additionalProperties"])
+
+    # -- B4: add a bill / a goal through the tools ---------------------------
+    def test_add_bill_tool_creates_the_definition_as_the_person(self):
+        mock = MockAnthropic([
+            resp([tool_block("ledger_add_bill",
+                             {"name": "Electric", "amount": 85.5, "due_day": 12})], "tool_use"),
+            resp([text_block("Added the Electric bill ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="add our $85.50 electric bill due the 12th",
+                       caller=self.caller)
+        self.assertEqual(["ledger_add_bill"], out["tools_used"])
+        # A1: adding a bill is reviewable in the Bills tab.
+        self.assertEqual([{"tab": "bills", "label": "Open Bills"}], out["actions"])
+        conn = self.db()
+        try:
+            # the row just created (highest id) — the seed also has an 'Electric'
+            bill = conn.execute(
+                "SELECT * FROM bills WHERE name = 'Electric' ORDER BY id DESC LIMIT 1").fetchone()
+            audit = conn.execute(
+                "SELECT actor FROM audit_log WHERE action = 'create_bill' AND target = ?",
+                (f"bill:{bill['id']}",)).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(8550, bill["amount_cents"])   # dollars → cents
+        self.assertEqual(12, bill["due_day"])
+        self.assertEqual("ui:avery", audit["actor"])
+
+    def test_add_goal_tool_creates_the_target_as_the_person(self):
+        mock = MockAnthropic([
+            resp([tool_block("ledger_add_goal", {"name": "Vacation", "target": 2000})], "tool_use"),
+            resp([text_block("Started the Vacation fund ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="start a $2,000 vacation fund", caller=self.caller)
+        self.assertEqual(["ledger_add_goal"], out["tools_used"])
+        # A1: adding a goal is reviewable in the Goals tab.
+        self.assertEqual([{"tab": "goals", "label": "Open Goals"}], out["actions"])
+        conn = self.db()
+        try:
+            goal = conn.execute(
+                "SELECT * FROM goals WHERE name = 'Vacation' ORDER BY id DESC LIMIT 1").fetchone()
+            audit = conn.execute(
+                "SELECT actor FROM audit_log WHERE action = 'create_goal' AND target = ?",
+                (f"goal:{goal['id']}",)).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(200000, goal["target_cents"])
+        self.assertEqual("ui:avery", audit["actor"])
+
     # -- pantry writes: the effect through the same routes -------------------
     def a_staple(self, name="Coffee"):
         c = self.app_module.app.test_client()
@@ -245,9 +353,10 @@ class AskWriteTests(unittest.TestCase):
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(30, len(tools))  # 20 read + 10 write
+        self.assertEqual(33, len(tools))  # 20 read + 13 write
         names = [t["name"] for t in tools]
         self.assertIn("ledger_classify_inflow", names)
+        self.assertIn("ledger_recategorize_transaction", names)
         self.assertIn("ledger_add_item", names)
         self.assertIn("ledger_set_item_status", names)
         self.assertIn("ledger_set_item_interval", names)

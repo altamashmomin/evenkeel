@@ -214,11 +214,12 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 |---|---|---|---|
 | `record_transaction` | sync, UI | — | Sync's insert path becomes a call to this; dedupe stays inside it |
 | `edit_transaction` / `delete_transaction` | UI only | — | Deliberately absent from MCP (AGENT-DESIGN invariant 3) |
+| `recategorize_transaction` | UI, Ask | delegates to `edit_transaction` (settlement freeze inherited) | Category-only facade over `edit_transaction` — the single narrow transaction-edit the in-app Ask tier may call (B1). Its schema (`PARAM_SPECS`, `additionalProperties:false`) admits only `transaction_id` + `category`, so it structurally cannot reach amount/splits/description; a category-only edit is proven not to move the balance or any month total. Confirm-first in the Ask prompt; reversible; audited as `edit_transaction` |
 | `set_splits` | UI | shared rows only; shares sum to 10000 | Replaces direct split edits |
 | `settle_up` | UI only | **requires exactly 2 active members during the bounded transition**; outstanding balance as of date | Server derives amount, ower, and zero-share split; client values are stale-state assertions; writes `settles` links to covered rows |
 | `mark_bill_paid` | UI | — | Creates the transaction and its `bill_payments` row in one edit |
 | `unmark_bill_paid` | UI | — | Removes the payment, its transaction, splits, and any links to it |
-| `create_bill` | UI | — | Creates the recurring-bill definition row; audit carries the created shape |
+| `create_bill` | UI, Ask | — | Creates the recurring-bill definition row; audit carries the created shape |
 | `update_bill` | UI | — | Edits name/amount/due day/category; audit records the before-image and changed fields |
 | `delete_bill` | UI | — | Soft delete (`active=0`) during the bounded transition, matching `delete_goal`'s posture; history (past payments) is untouched |
 | `classify_inflow` | UI, MCP direct | row must be `direction='in'` | Lands with the income build |
@@ -229,7 +230,7 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `propose_action` | MCP two-phase | `action_type` ∈ {`create_rule`, `apply_rules`}; the underlying verb's validation must pass at propose time | AGENT-DESIGN step 4. Parks a frozen payload + computed preview in `pending_actions`; writes no audit row — nothing is executed yet. Returns a single-use confirmation token with a ~10-minute expiry |
 | `confirm_action` | MCP two-phase | token exists, `status='pending'`, not past `expires_at` | AGENT-DESIGN step 4. Marks the pending row `confirmed`, then dispatches the frozen payload to the underlying verb (whose own audit row is the executed-write record). Single-use; a re-confirm is refused by the status check |
 | `link_transactions` / `unlink_transactions` | UI, later MCP | typed; both rows must exist; type-specific checks (e.g. `transfer_pair` needs opposite directions) | The tag-a-link workflow that makes refund/transfer/ reimbursement matching non-destructive |
-| `create_goal` | UI | — | Creates the goal row; audit carries the created shape |
+| `create_goal` | UI, Ask | — | Creates the goal row; audit carries the created shape |
 | `delete_goal` | UI | — | Hard delete during the bounded transition; audit captures the goal summary, contribution count, and saved total before the cascade |
 | `contribute_to_goal` | UI | amount positive | Signed event row; the verb name carries intent |
 | `withdraw_from_goal` | UI | amount positive | Stores the negative contribution row; intent lives in the verb name, not a sign the reader must infer (correction-pass disposition). `archive_goal`/`restore_goal` deferred to their own migration increment |
