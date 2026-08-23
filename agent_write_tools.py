@@ -15,7 +15,11 @@ restock_items (the after-shopping batch: mark a bought set stocked in one
 action), archive_item (remove), set_item_match, set_item_store /
 set_item_need_by / set_item_snooze (the #014 metadata: where it's bought, a
 deadline, pause-until), and set_item_interval (a user-set restock cadence,
-"remind me every N days") — the pantry is groceries/supplies, never money, so it
+"remind me every N days"); and add_bill / add_goal (B4 — create a recurring bill
+DEFINITION or a savings-goal TARGET, confirm-first: both move no money, touch no
+transaction, and never change the who-owes-whom balance; each bottoms out in the
+existing POST /api/bills / POST /api/goals route → create_bill / create_goal
+verb). The pantry is groceries/supplies, never money, so it
 needs no two-phase choreography and gets broad conversational control
 (INVENTORY-DESIGN: direct writes like classify; even 'remove' is a reversible
 soft-delete). Rules (create_income_rule / apply_rules, two-phase) stay a later
@@ -192,6 +196,37 @@ WRITE_TOOLS = [
         "execute": lambda caller, a: caller(
             "PUT", f"/api/inventory/{a['item_id']}",
             {"restock_interval_days": a.get("days")}),
+    },
+    {
+        "name": "ledger_add_bill",
+        "description":
+            "Add a recurring bill definition ('add our $85 electric bill, due "
+            "the 12th'). A bill is a monthly definition — it is NOT a payment "
+            "and moves no money; marking one paid happens in the app. CONFIRM "
+            "FIRST: read back the name, amount, and due day and add it only "
+            "once they say yes — don't invent an amount or a day they didn't "
+            "give. Amount is in dollars; due_day is 1–31; category is optional "
+            "(defaults to 'Bills'). Logged; remove one in the app. This creates "
+            "a definition — it never touches the who-owes-whom balance.",
+        "input_schema": actions.param_schema("create_bill"),
+        "execute": lambda caller, a: caller("POST", "/api/bills", {
+            k: a[k] for k in ("name", "amount", "due_day", "category")
+            if a.get(k) is not None}),
+    },
+    {
+        "name": "ledger_add_goal",
+        "description":
+            "Add a savings goal ('start a $2,000 vacation fund'). A goal is a "
+            "target to save toward — creating it moves no money; logging "
+            "contributions happens in the app. CONFIRM FIRST: read back the "
+            "name and target (and date, if any) and add it only once they say "
+            "yes — don't invent a target they didn't give. Target is in "
+            "dollars; target_date is optional (YYYY-MM-DD). Logged; remove one "
+            "in the app. This creates a target — it never touches the balance.",
+        "input_schema": actions.param_schema("create_goal"),
+        "execute": lambda caller, a: caller("POST", "/api/goals", {
+            k: a[k] for k in ("name", "target", "target_date")
+            if a.get(k) is not None}),
     },
 ]
 

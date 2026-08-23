@@ -201,6 +201,7 @@ class ManifestEdgeTests(unittest.TestCase):
         self.assertEqual(["classify_inflow", "confirm_action", "propose_action",
                           "set_rule_enabled"], c["mcp"])
         self.assertEqual(["add_item", "archive_item", "classify_inflow",
+                          "create_bill", "create_goal",
                           "recategorize_transaction", "restock_items",
                           "set_item_interval", "set_item_match",
                           "set_item_need_by", "set_item_snooze",

@@ -17,6 +17,8 @@ import agent_write_tools   # noqa: E402
 VERB_TOOL = {
     "classify_inflow": "ledger_classify_inflow",
     "recategorize_transaction": "ledger_recategorize_transaction",
+    "create_bill": "ledger_add_bill",
+    "create_goal": "ledger_add_goal",
     "add_item": "ledger_add_item",
     "set_item_status": "ledger_set_item_status",
     "restock_items": "ledger_restock_items",

@@ -2029,6 +2029,21 @@ PARAM_SPECS = {
               "The destination category, e.g. 'Groceries'. Any label works — "
               "categories are just tags, so a new name creates that category."),
     ],
+    "create_bill": [
+        Param("name", "string", "What the bill is, e.g. 'Electric' or 'Rent'."),
+        Param("amount", "number", "The bill amount in dollars, e.g. 85.50."),
+        Param("due_day", "integer",
+              "The day of the month it's due, a whole number 1–31."),
+        Param("category", "string",
+              "Optional category label; defaults to 'Bills'.", required=False),
+    ],
+    "create_goal": [
+        Param("name", "string", "What they're saving for, e.g. 'Vacation'."),
+        Param("target", "number", "The savings target in dollars, e.g. 2000."),
+        Param("target_date", "string",
+              "Optional target date as YYYY-MM-DD (work it out from what they "
+              "said), or omit for no deadline.", required=False),
+    ],
     "add_item": [
         Param("name", "string", "The item, e.g. 'Coffee'."),
         Param("kind", "string",
