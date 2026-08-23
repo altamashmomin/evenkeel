@@ -219,6 +219,14 @@ form > .btn.primary { width: 100%; margin-top: 18px; }
   letter-spacing: -0.02em; margin: 0;
 }
 .topbar-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+/* Phone layout: the right cluster (avatars + 2 icon buttons + Password +
+   Sign out) is ~300px of unshrinkable items; in one row with the greeting it
+   overflowed the viewport and clipped "Sign out". Let it wrap so the two text
+   buttons drop to a second, right-aligned line under the icons. */
+@media (max-width: 719.98px) {
+  .topbar-right { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+  .greeting { flex: 0 1 auto; }
+}
 .avatars { display: flex; }
 .avatars .av {
   width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;

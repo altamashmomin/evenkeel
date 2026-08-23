@@ -3518,3 +3518,22 @@ carries `#btn-help` + `#dlg-help` with fresh `?v=` stamps, served `render.js`
 has `helpSheetHTML`, `app.js` has `openHelpSheet` + the `scrollTop` reset,
 `style.css` has the help rules; `/api/me` still 401s unauthenticated.
 `origin/main` == the deployed tree; nothing merged-but-undeployed remains.
+
+## Aug 23, 2026 — header fix: "Sign out" clipped on phones
+
+Alta spotted the header's "Sign out" button running off the right edge in
+the mobile layout. Diagnosis (browser, 375px viewport, scratch dev.db): the
+`.topbar` is one non-wrapping flex row and `.topbar-right` holds ~300px of
+unshrinkable items (avatars + ☾ + ? + Password + Sign out); the greeting got
+squeezed to 78px and "Sign out" spanned x 358→407 — ~32px past the 375px
+viewport, giving the page a horizontal scroll. The Aug 21 "Password" button
+is what tipped it over.
+
+- **Fix** — 8 lines in `static/style.css`, scoped to the existing
+  `max-width: 719.98px` breakpoint: `.topbar-right` wraps and right-aligns
+  (`row-gap: 6px`), so Password / Sign out drop to a second line under the
+  icons. Re-verified: Sign out at x 285→359, `scrollWidth` == viewport,
+  header 107→120px on phones; desktop (≥720px) byte-identical (`nowrap`).
+- Frontend-only, no money path → no gate. Render checks **162** green.
+- Commit on `rework`; awaits Alta's merge + Pi deploy (no migration, schema
+  stays v15).
