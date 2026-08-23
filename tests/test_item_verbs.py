@@ -343,7 +343,11 @@ class ItemVerbTests(unittest.TestCase):
 
     def test_restock_suggestion_ignores_purchase_before_it_ran_low(self):
         item = self.add(name="Coffee", status="out")
-        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        # anchor to the item's own clock (updated_at), not the wall clock — the
+        # stamp is UTC while _purchase dates are naive, so date.today() can land
+        # a calendar day off in a negative-offset tz and break "predates".
+        yesterday = (date.fromisoformat(item["updated_at"][:10])
+                     - timedelta(days=1)).isoformat()
         self._purchase("BLUE BOTTLE COFFEE", yesterday)   # predates going-out
         self.assertEqual([], derivations.restock_suggestions(self.db))
 
@@ -781,7 +785,10 @@ class ItemVerbTests(unittest.TestCase):
         b = self.add(name="Milk", status="low")
         self.add(name="Eggs", status="low")            # no matching purchase
         lone = self.add(name="Rice", status="out")
-        today = date.today().isoformat()
+        # anchor the trip to the items' own clock (updated_at) so "since it ran
+        # low" matches — the stamp is UTC while _outflow dates are naive, so a
+        # wall-clock date.today() can fall a day short in a negative-offset tz.
+        today = a["updated_at"][:10]
         # one supermarket visit whose description names two staples
         self._outflow("FRESH MART COFFEE MILK", today, 4200)
         self._outflow("RICE BARN", today, 800)          # a lone hint
@@ -796,9 +803,11 @@ class ItemVerbTests(unittest.TestCase):
                       [s["item_id"] for s in derivations.restock_suggestions(self.db)])
 
     def test_trip_closure_ignores_inflows(self):
-        self.add(name="Coffee", status="out")
+        coffee = self.add(name="Coffee", status="out")
         self.add(name="Milk", status="low")
-        self._purchase("REFUND COFFEE MILK", date.today().isoformat(),
+        # dated on the items' own clock so the row is in-window — proving it's
+        # excluded as an inflow, not merely because a wall-clock date fell short.
+        self._purchase("REFUND COFFEE MILK", coffee["updated_at"][:10],
                        direction="in", income_type="refund")
         self.assertEqual([], derivations.trip_closure(self.db))
 
