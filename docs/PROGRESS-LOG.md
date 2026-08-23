@@ -3415,3 +3415,92 @@ interactivity lane (A1, A2, A4, B1, B4).
   merge + Pi deploy walk — no money math or schema touched, so the Pi gate should
   be PASS zero-diff). B2 (create income rule) / B3 (set budget) remain app-only
   by decision.
+
+## Aug 22, 2026 — DEPLOYED: Ask-interactivity lane B1 + B4 (whole lane now live)
+
+Alta merged `rework` → `main` (`--no-ff` `215d759`, first-parent = the A-lane
+merge `ea13e5e`) and ran `deploy/deploy.sh origin/main` on the Pi. The A-lane
+(A1/A2/A4) was already live inside `ea13e5e`; this deploy shipped the two write
+increments **B1 (recategorize from Ask, +mirage hardening) and B4 (add bill/goal
+from Ask)**, tree `ea13e5e`→`215d759`. Live dry-run gate **PASS zero-diff**
+(balance + every monthly total unchanged to the cent, no structural diff);
+**no migration applied — live schema stays v15**; service came up green
+(`/api/status` OK), and `ledger-mcp` restarted with the app (the lane changed
+`agent_write_tools.py`, the shared agent write surface). Rollback backup:
+`finance.db.bak-2026-08-22-210302`. `origin/main` == the deployed tree again;
+nothing merged-but-undeployed remains. **The Ask-interactivity lane
+A1/A2/A4/B1/B4 is complete and live.** (Deploy friction, harmless: the Pi
+command was run first twice and correctly no-op'd on the identical-ref guard
+until the merge landed; the merge itself was run from the repo after clearing a
+stale `deploy-wt` git worktree that held `main`.) Standing follow-up unchanged:
+Alta's off-repo tailnet-ACL check for the MCP write tier (`LEDGER_MCP_ENABLE_WRITES`),
+now relevant since the Ask write tools widened. The pre-existing date-coupled
+`test_trip_closure_groups_two_plus_hints_by_purchase` failure has a fix running
+in its own session.
+
+## Aug 22, 2026 — Test hygiene: real-clock coupling in the trip/restock item tests
+
+Closes the dangling note above — not an increment, a pre-existing test bug that
+surfaced on today's date. `tests/test_item_verbs.py::test_trip_closure_groups_two_plus_hints_by_purchase`
+asserted `1 == len(groups)` but got `0`, failing on a clean checkout of `rework`
+— no Ask-lane connection.
+- **Root cause** — the test dated its fixture purchases at wall-clock
+  `date.today()`, while `add_item` stamps `updated_at` in **UTC**. In a
+  negative-offset tz past UTC midnight (local Aug 22 evening PDT → UTC Aug 23),
+  the item's "since it ran low" cutoff (`updated_at[:10]` = `2026-08-23`) sat a
+  calendar day *ahead* of the purchase (`2026-08-22`), so `restock_suggestions`
+  matched nothing and `trip_closure` formed 0 groups. The exact
+  fixed-fixture-vs-real-clock coupling CLAUDE.md warns about ("the derivation is
+  clock-free; 'now' enters at the view layer") — here it leaked in through the
+  *test*, not the code.
+- **Fix** (test-only) — anchor each injected purchase to the item's own
+  `updated_at[:10]`, the clock-stable pattern the sibling restock tests already
+  use (`test_restock_suggestion_matches_by_name_after_it_ran_low`). Three call
+  sites touched: the failing trip_closure test, `test_trip_closure_ignores_inflows`
+  (same sibling coupling — re-anchored so it proves the row is excluded *as an
+  inflow*, not merely out-of-window), and
+  `test_restock_suggestion_ignores_purchase_before_it_ran_low` (same anti-pattern;
+  passed by luck before, now anchored to `updated_at − 1d`).
+- **Verified** — `test_item_verbs.py` 79/79 green under **both** `TZ=UTC` and
+  `TZ=America/Los_Angeles` (the coupling is now tz-independent); full suite
+  **628** green. No production code changed → **no balance gate**;
+  `derivations.trip_closure` stays clock-free. On `rework` `a6343c7`
+  (cherry-picked linear, no merge bubble; pushed to `origin/rework`).
+
+## Aug 22, 2026 — The in-app Help sheet ("how this works")
+
+The Charlee-facing guide brought *into* the app, not just a standalone page.
+Frontend-only; no verb, no route, no schema, no money path.
+- **What** — a `?` icon button in the header (visible on the phone layout too —
+  only the text `topnav` hides under 720px) and a "How does this work?" link on
+  the Ask empty state both open `#dlg-help`, a `dialog.sheet` reusing the More /
+  recategorize bottom-sheet pattern. `render.helpSheetHTML(tabs)` is a pure
+  function porting the published "Your Money, Together" artifact: the just-ask
+  intro with sample bubbles (the app's own `ask-msg` styling), what Ask can DO
+  (label a deposit, recategorize, pantry, add a bill/goal — B1/B4), the 💬
+  ask-from-anywhere tip (A4), the "what it will never touch" reassurance, a tab
+  map, and the "if you're stuck" footer. The tab map is driven by the SAME
+  `MORE_TABS` list the nav is built from (`[[key,label,glyph]]`) with a per-key
+  blurb, so it cannot drift from the real tab set (Agents included — the
+  published page omitted it); every row and the "Open Ask" button carry
+  `data-tab` and navigate-then-close.
+- **Browser smoke (phone viewport, dev.db)** — header `?` opens; Bills row
+  navigates + closes; the Ask empty-state link opens; "Open Ask" lands on Ask.
+  Two findings along the way: (1) the tool's screenshots taken immediately
+  after an action can be **stale frames** — a "phantom navigation" to Bills was
+  disproven by instrumentation (DOM said sheet open, `state.tab === 'ask'`,
+  zero clicks); settle-wait before screenshots from here on. (2) A real one: a
+  `<dialog>` **keeps its scrollTop across close/open** and `showModal`'s
+  autofocus nudges it, so a reopened sheet could put a different tab row under
+  the same tap (that is how one tap first landed on Agents). Fix:
+  `dlgHelp.scrollTop = 0` after `showModal()`; re-verified with a click/setTab
+  tracer — three trusted clicks, exactly the expected calls.
+- **Tests** — `test_render.js` +5 checks (a row per tab with blurb+glyph; the
+  promises present; a blurb-less tab renders without `undefined`, label
+  escaped; empty/missing list; the empty-state help link present only on an
+  empty thread) → **162** render checks; Python suite **642** green.
+- **GATE PASS zero-diff** (`origin/main` vs `rework`, frozen seed fixture, 42
+  values). On `rework` `0fc86a7`, pushed; **awaits Alta's merge + Pi deploy**
+  (expect live gate PASS zero-diff, no migration, schema stays v15).
+- Dev note: `.claude/launch.json` (untracked, dev-only) now starts the app on
+  :8089 against the session's scratch `dev.db` for browser smokes.

@@ -281,9 +281,16 @@ tap-through chips to where a write landed, deduped by tab; no new write path)
 and **A2** (client-side `askFollowups` suggests next questions from what the
 reply just did) are **built, gated (A1 GATE PASS zero-diff), and browser-smoked**
 on `rework` (`c4dd1b1`, `4fbb336`; suite 628, render 156) — **pushed to
-origin/rework, NOT yet merged to main or deployed.** **A4** (ask-from-anywhere: Home spend card, Pantry header, settle dialog → Ask pre-filled) is also built + browser-smoked (`d3bec20`; render 157). **B1** (recategorize from Ask — a category-only facade verb over edit_transaction + dedicated route + confirm-first tool; `59fdb69` + hardening `8a53224`, suite 640, GATE PASS zero-diff, browser-smoked, ledger-mirage-cleared: no exploitable escalation, three low-sev defects F1/F2/F3 fixed) is built. **B4** (add bill/goal from Ask — two definition-only tools on the existing create_bill/create_goal routes, confirm-first; `287fcdf`, GATE PASS zero-diff) is built. **The Ask-interactivity lane A1/A2/A4/B1/B4 is complete on rework.** **All three A-lane increments are
-DEPLOYED** (Aug 22, `main` `ea13e5e`, live gate zero-diff, tailnet-verified).
+origin/rework, NOT yet merged to main or deployed.** **A4** (ask-from-anywhere: Home spend card, Pantry header, settle dialog → Ask pre-filled) is also built + browser-smoked (`d3bec20`; render 157). **B1** (recategorize from Ask — a category-only facade verb over edit_transaction + dedicated route + confirm-first tool; `59fdb69` + hardening `8a53224`, suite 640, GATE PASS zero-diff, browser-smoked, ledger-mirage-cleared: no exploitable escalation, three low-sev defects F1/F2/F3 fixed) is built. **B4** (add bill/goal from Ask — two definition-only tools on the existing create_bill/create_goal routes, confirm-first; `287fcdf`, GATE PASS zero-diff) is built. **The Ask-interactivity lane A1/A2/A4/B1/B4 is complete AND DEPLOYED** (Aug 22, `main` `215d759`, tree `ea13e5e`→`215d759`: the two write increments B1+B4 shipped atop the already-live A-lane; live gate PASS zero-diff, no migration — schema still v15, ledger-mcp restarted, tailnet-verified). **All three A-lane increments were also DEPLOYED** (Aug 22, `main` `ea13e5e`, live gate zero-diff, tailnet-verified).
 `origin/main` == the deployed tree; nothing merged-but-undeployed remains.
+Then (Aug 22): **the in-app Help sheet** — a header `?` + an Ask empty-state
+link open a bottom sheet porting the Charlee guide ("Your Money, Together"):
+just-ask intro, what Ask can do, the ask-from-anywhere tip, what it never
+touches, and a tab map driven by the nav's own `MORE_TABS` so it can't drift.
+Frontend-only (`render.helpSheetHTML`, pure; +5 render checks → 162; suite
+642), browser-smoked on the phone layout, GATE PASS zero-diff. On `rework`
+`0fc86a7`, pushed — **awaits Alta's merge + Pi deploy** (no migration, schema
+stays v15).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

@@ -653,6 +653,7 @@
             `<button type="button" class="ask-eg" data-ask-eg="${esc(q)}">${esc(q)}</button>`
           ).join("")}
         </div>
+        <button type="button" class="ask-help-link" data-help>How does this work?</button>
       </div>`;
     }
     const bubbles = messages.map((m) => {
@@ -1414,6 +1415,72 @@
       </div>`;
   }
 
+  // The Help sheet: the Charlee-facing "Your Money, Together" guide, in-app.
+  // Plain language, nothing technical: start with Ask, what it can do for
+  // you, what it will never touch, and a one-line map of the tabs. The tab
+  // map is driven by the SAME `tabs` list the nav is built from
+  // ([[key, label, glyph], ...]) so it cannot drift from the real app — a
+  // tab without a blurb here still appears, just without the sentence. Every
+  // tab row and the "open Ask" button carry data-tab so app.js can navigate;
+  // nothing here reads or writes data.
+  const HELP_TAB_BLURB = {
+    dashboard: "The big picture — who owes who, what you've spent this month, and what's coming up.",
+    activity:  "Every transaction. Tap one to fix its label or details.",
+    bills:     "What's due, and when. Mark things paid here.",
+    goals:     "What you're saving toward, and how it's growing.",
+    analytics: "Trends over time — for when you're curious. Nothing you need to touch.",
+    inventory: "The shared shopping list and the staples you keep on hand.",
+    ask:       "The assistant. Your shortcut whenever you're unsure — start here.",
+    agents:    "The helpers running in the background, and a map of how the app fits together. Just for looking.",
+  };
+  function helpSheetHTML(tabs) {
+    const tabRows = (tabs || []).map(([key, label, glyph]) =>
+      `<button class="help-tab" data-tab="${esc(key)}" type="button">` +
+      `<span class="g">${glyph || ""}</span>` +
+      `<span class="grow"><span class="name">${esc(label)}</span>` +
+      `<span class="what">${esc(HELP_TAB_BLURB[key] || "")}</span></span></button>`).join("");
+    return `
+      <p class="sheet-title">How this works</p>
+      <div class="help-body">
+        <h3 class="help-h">The easiest way in: just ask.</h3>
+        <p>There's a tab called <b>Ask</b>. Type a question the way you'd say it out loud, and it answers in plain words — reading the very same numbers the app shows you. No wrong questions.</p>
+        <div class="help-chat" role="img" aria-label="Example conversation in the Ask tab">
+          <div class="ask-msg ask-you">How are we doing this month?</div>
+          <div class="ask-msg ask-bot">You've spent a bit less than last month, and both bills are covered. 🌿</div>
+          <div class="ask-msg ask-you">Who owes who right now?</div>
+          <div class="ask-msg ask-bot">Right now it's a little from shared expenses. Want the breakdown?</div>
+        </div>
+        <button class="btn primary help-open-ask" data-tab="ask" type="button">💬 Open Ask</button>
+
+        <h3 class="help-h">A few things it'll do for you.</h3>
+        <p>Just say the word. It always tells you what it did, it asks first before changing anything, and <b>every change can be undone.</b></p>
+        <ul class="help-can">
+          <li><span class="ic">🏷️</span><span><b>Label a deposit</b><br>“That $500 was my paycheck” — and it tags it so your income stays right.</span></li>
+          <li><span class="ic">🔀</span><span><b>Move a charge to the right spot</b><br>“That Target run was Household, not Groceries” — it re-files it. Totals and who-owes-who don't budge.</span></li>
+          <li><span class="ic">🧺</span><span><b>Keep the pantry list</b><br>“We're out of coffee” or “add paper towels” — it updates the shared shopping list.</span></li>
+          <li><span class="ic">🌱</span><span><b>Start a bill or a savings goal</b><br>“Add a $60 gym bill on the 3rd” or “save toward a $1,200 trip” — it sets it up.</span></li>
+        </ul>
+        <p class="help-tip">💬 <b>See a little “Ask” button on a screen?</b> Tap it — it opens Ask already knowing what you were looking at, so you don't have to explain.</p>
+
+        <div class="help-safe">
+          <h3 class="help-h">What it will never touch.</h3>
+          <p>The assistant helps with words and lists — never with your actual money. You're always the one in control.</p>
+          <ul>
+            <li><span class="check">✓</span><span>It <b>never moves money</b>, pays anyone, or sends anything anywhere.</span></li>
+            <li><span class="check">✓</span><span>It <b>never settles up</b> on its own — recording a payback is always a tap <em>you</em> make.</span></li>
+            <li><span class="check">✓</span><span>It <b>asks before</b> it changes anything, and shows you where it landed so you can check.</span></li>
+            <li><span class="check">✓</span><span>Anything it does can be <b>undone</b>. You genuinely cannot break this by trying things.</span></li>
+          </ul>
+        </div>
+
+        <h3 class="help-h">The tabs, at a glance.</h3>
+        <p>If you'd rather poke around than ask, tap one:</p>
+        <div class="help-tabs">${tabRows}</div>
+
+        <p class="help-stuck">🌿 <b>If you're ever stuck</b> — open Ask and say it in your own words. You can't get it wrong, and you can't break anything.<br><em>And if all else fails — just text Alta. 💚</em></p>
+      </div>`;
+  }
+
   // The "More" bottom sheet: every tab as a tile, so all tabs are reachable
   // from any page (the mobile bar only pins Home/Activity/Ask + Add). `items`
   // is [[key, label, glyph], ...]; the active tab is highlighted.
@@ -1660,7 +1727,7 @@
            userById, userColor, beamHTML, txnRow, billRowHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
-           moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
+           moreSheetHTML, helpSheetHTML, recatSheetHTML, settleBreakdownHTML,
            listEstimateHTML, priceTrendBadge,
            tripDueHTML, tripClosureHTML,
            staleStaplesHTML,

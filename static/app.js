@@ -13,7 +13,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
-        moreSheetHTML, recatSheetHTML, settleBreakdownHTML,
+        moreSheetHTML, helpSheetHTML, recatSheetHTML, settleBreakdownHTML,
         beamHTML, txnRow, billRowHTML, contribLogHTML, goalCardHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
@@ -321,6 +321,23 @@ function openMoreSheet() {
 }
 // Tap the backdrop (outside the sheet body) to dismiss.
 dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.close(); });
+
+// The Help sheet: the in-app "how this works" guide. Opened from the header
+// "?" and from the Ask empty state. Reads nothing; every tab row (and the
+// "Open Ask" button) navigates and closes the sheet.
+const dlgHelp = $("#dlg-help");
+function openHelpSheet() {
+  $("#help-body").innerHTML = helpSheetHTML(MORE_TABS);
+  $$("#help-body [data-tab]").forEach((b) =>
+    b.addEventListener("click", () => { dlgHelp.close(); setTab(b.dataset.tab); }));
+  dlgHelp.showModal();
+  // A <dialog> keeps its scroll position across close/open, and showModal's
+  // autofocus can nudge it; always open at the top so the same tap lands on
+  // the same row every time.
+  dlgHelp.scrollTop = 0;
+}
+$("#btn-help")?.addEventListener("click", openHelpSheet);
+dlgHelp?.addEventListener("click", (e) => { if (e.target === dlgHelp) dlgHelp.close(); });
 
 // Recategorize sheet: the transactions behind one Home "Spent" row, as a
 // checklist you move into another category. The read is /api/activity's new
@@ -863,6 +880,7 @@ function wireMain() {
   // open Ask pre-filled with the keyed question.
   $$("[data-ask]").forEach((el) =>
     el.addEventListener("click", () => askFrom(el.dataset.ask)));
+  $$("[data-help]").forEach((el) => el.addEventListener("click", openHelpSheet));
   // Budgets (Analytics Tier C): edit/remove by row index; add via the small form.
   $$("[data-budget-edit]").forEach((el) =>
     el.addEventListener("click", () => editBudget(+el.dataset.budgetEdit)));
