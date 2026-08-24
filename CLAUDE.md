@@ -310,7 +310,26 @@ verified, wrong token 404s). Same day, same session: **Trace Web detail row
 flexes proportional to verbiage** — the bottom four cells' grid columns are
 weighted by text length per render (minmax floor), so a verb-heavy trace no
 longer cramps into a rigid 1fr. On `rework` (`130d8e3` + `934464b`), pushed;
-**awaits Alta's merge + Pi deploy** (no migration expected live).
+**awaits Alta's merge + Pi deploy** (no migration expected live). Then (Aug 23):
+**Ask B2 — "always do this" rules from chat** (resuming the parked Ask-lane
+order B2→B3→B4→bill-paid→set_transfer, and the first of Alta's "automate
+anything Charlee could do, within safety bounds" direction). Two chat tools —
+`ledger_propose_rule` + `ledger_confirm_action` — ride the existing step-7
+two-phase (propose parks a frozen preview + single-use token, nothing written;
+confirm executes the frozen payload, chip → Activity). Narrow facade
+(match_desc + set_type only; `set_type='transfer'` = a real transfer rule,
+is_transfer end to end); PARAM_SPECS gains create_income_rule + confirm_action,
+`Param` gains boolean. Suite 666, GATE PASS zero-diff, route-smoked live.
+**Then the ledger-mirage red-team**: wall holds (no SQL/facade-escape/token-
+forgery/apply_rules-reach; transfer sweep is unclassified-only so it can't hide
+existing income). One MEDIUM fixed here — **F1: the human gate is now
+structural** (`run_ask` refuses a same-turn confirm of a token it minted this
+turn, so confirm must be a separate /api/ask request — holds even if the prompt
+is defeated; regression test proven-fails-first), suite 667. Two LOW findings
+routed to Alta as follow-up chips (F2: confirm not bound to proposer — pre-
+existing, affects MCP; F3: no min match specificity for transfer rules). On
+`rework` (`44c1707` + `90a352e`), pushed; **awaits Alta's merge + Pi deploy**
+(no migration, schema stays v15).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

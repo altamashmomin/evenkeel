@@ -200,8 +200,11 @@ class ManifestEdgeTests(unittest.TestCase):
         # the doors, walked through the route table
         self.assertEqual(["classify_inflow", "confirm_action", "propose_action",
                           "set_rule_enabled"], c["mcp"])
+        # B2: the ask door now reaches the two-phase pair, same as the MCP
+        # door — the rule tools call /api/actions/propose + /confirm.
         self.assertEqual(["add_item", "archive_item", "classify_inflow",
-                          "create_bill", "create_goal",
+                          "confirm_action", "create_bill", "create_goal",
+                          "propose_action",
                           "recategorize_transaction", "restock_items",
                           "set_item_interval", "set_item_match",
                           "set_item_need_by", "set_item_snooze",

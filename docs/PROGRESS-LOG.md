@@ -3603,3 +3603,68 @@ Both on `rework`, pushed; **await Alta's merge + Pi deploy** (expect live
 gate PASS zero-diff, no migration, schema stays v15). After deploy: each
 phone subscribes once via Help → "Get my calendar link" (Tailscale must be
 on for the phone to fetch the feed).
+
+## Aug 23, 2026 — Ask B2: "always do this" rules from chat (two-phase)
+
+Second increment of the Ask-interactivity write lane's parked list (after
+A1/A2/A4/B1/B4 shipped Aug 22), and the first fruit of Alta's "the bot should
+automate anything Charlee could do, within safety bounds" direction. Charlee
+can now set up an income-classification RULE by asking ("always tag deposits
+like that as my paycheck", "those card payments are transfers every month").
+
+- **Two chat tools** (`agent_write_tools.py`): `ledger_propose_rule` (POST
+  /api/actions/propose, action_type=create_rule) and `ledger_confirm_action`
+  (POST /api/actions/confirm) — the FIRST Ask surface whose confirm-first is
+  meant to be server-enforced, riding the existing step-7 pending_actions
+  machinery: propose parks a frozen payload + dry-run preview and returns a
+  single-use token (nothing written, no chip); confirm executes exactly the
+  frozen payload (chip → Activity). Narrow facade — `create_income_rule`'s
+  PARAM_SPECS entry exposes only match_desc + set_type + also_apply_to_existing
+  (amount bounds / account / priority / set_paid_by stay app+MCP, unreachable
+  via additionalProperties:false + the execute lambda's 4 hard-coded fields);
+  `set_type='transfer'` creates a real transfer rule (is_transfer end to end).
+  `Param` gained boolean support.
+- **Prompt + wiring**: system_prompt teaches the two-step choreography and
+  drops "make a rule" from the cannot-do list; the ontology's ask door now
+  reaches propose_action/confirm_action (Trace Web picks it up data-driven).
+- **GATE PASS zero-diff** (ba8f083 vs rework, 42 values — no schema change, no
+  new verb, no money path). Suite 666 (+6): propose inert, confirm creates +
+  sweeps as ui:<member>, token single-use, transfer flag lands end to end,
+  validator refusals recoverable.
+- **Route-smoked live** on the scratch dev.db: propose → 9-match preview, 0
+  rules written; confirm → rule created + 9 ADP PAYROLL rows swept to paycheck;
+  re-confirm → 400 "already confirmed". (The full Ask chat loop is covered by
+  the mocked unit tests — no ANTHROPIC_API_KEY on this Mac to drive the model.)
+
+**Then the ledger-mirage red-team pass** (the plan's "mirage-checked before the
+next"). It confirmed the wall holds broadly — no SQL injection, no facade
+escape to the power fields, no token forgery/reuse/drift (frozen-payload
+integrity verified), no path to `apply_rules` from Ask, and transfer rules
+can't retroactively hide already-classified income (the sweep is
+unclassified-only). It found three gaps:
+
+- **F1 (MEDIUM) — FIXED this increment.** The server two-phase guaranteed
+  frozen-payload + single-use + expiry but NOT that a human approved *between*
+  propose and confirm: a model, or a prompt injection defeating the
+  untrusted-data labeling, could propose AND confirm inside one `run_ask` turn.
+  Now `run_ask` records every token minted this turn and refuses to confirm any
+  of them — the confirm must arrive in a SEPARATE /api/ask request (a distinct
+  human message). Structural: holds even if the prompt is defeated. Regression
+  test proven to fail without the guard, then pass with it (per the "watched to
+  fail once" discipline). Suite 667. GATE PASS zero-diff.
+- **F2 (LOW) — routed to Alta** (spawn_task chip). `confirm_action` binds to no
+  proposer — any authenticated session can confirm any pending token
+  (pre-existing in the shared step-7 machinery, affects MCP too). Bounded: the
+  token is 144-bit unguessable and only returned in the proposer's own
+  conversation. Fix = record the proposing user_id and check it, or document
+  the trust-model decision.
+- **F3 (LOW) — routed to Alta** (spawn_task chip). No minimum specificity on
+  `match_desc` in the shared `_validate_income_rule`; a 1-char transfer rule is
+  accepted and would silently flag FUTURE paychecks as transfer (the preview
+  counts only current unclassified rows). Bounded by the human confirm + the
+  unclassified-only sweep. Fix = a minimum match length (esp. for transfer
+  rules) and/or a "broad match" preview warning.
+
+On `rework` (`44c1707` B2 + `90a352e` F1 fix), pushed; **awaits Alta's merge +
+Pi deploy** (no migration expected live, schema stays v15). B2 complete and
+mirage-hardened; next in the agreed order is B3 (set budget from Ask).

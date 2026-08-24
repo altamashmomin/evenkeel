@@ -46,6 +46,10 @@ _ACTION_NAV = {
     "ledger_recategorize_transaction": ("activity", "Review in Activity"),
     "ledger_add_bill": ("bills", "Open Bills"),
     "ledger_add_goal": ("goals", "Open Goals"),
+    # B2: proposing parks a preview — nothing changed yet, so no chip; the
+    # chip belongs to the confirm, whose backlog sweep lands in Activity.
+    "ledger_propose_rule": None,
+    "ledger_confirm_action": ("activity", "Review in Activity"),
 }
 for _wt in WRITE_TOOL_NAMES:
     _ACTION_NAV.setdefault(_wt, ("inventory", "Open Pantry"))
@@ -89,6 +93,15 @@ def run_ask(client, getter, user_message, *, model, system,
     messages = list(history or []) + [{"role": "user", "content": user_message}]
     used = []
     actions = []  # A1: tap-through chips for writes that actually landed
+    # B2 human-in-the-loop gate (MIRAGE F1). The server two-phase guarantees a
+    # confirm executes exactly the frozen, single-use payload — but NOT that a
+    # human approved it between propose and confirm; a model (or a prompt
+    # injection that defeats the untrusted-data labeling + system prompt) could
+    # otherwise propose AND confirm inside this one turn. So a token minted this
+    # turn cannot be confirmed this turn: the confirm must arrive in a SEPARATE
+    # /api/ask request (a fresh run_ask, empty set), which is a distinct human
+    # message. Structural — it holds even if the prompt is defeated.
+    minted_this_turn = set()
 
     for rnd in range(1, max_rounds + 1):
         resp = client.messages.create(
@@ -107,8 +120,23 @@ def run_ask(client, getter, user_message, *, model, system,
                 continue
             used.append(block.name)
             try:
+                # B2 F1: block a same-turn confirm of a token proposed this turn
+                # BEFORE it can execute — the human gate, enforced in code.
+                if (caller is not None and block.name == "ledger_confirm_action"
+                        and (block.input or {}).get("confirmation_token")
+                        in minted_this_turn):
+                    raise RuntimeError(
+                        "can't confirm in the same turn it was proposed — show "
+                        "the person the preview and wait for them to say yes in "
+                        "their next message, then confirm")
                 if caller is not None and block.name in WRITE_TOOL_NAMES:
                     data = call_write_tool(caller, block.name, block.input)
+                    # Record a freshly minted proposal token so it can't be
+                    # confirmed until a later turn (above).
+                    if (block.name == "ledger_propose_rule"
+                            and isinstance(data, dict)
+                            and data.get("confirmation_token")):
+                        minted_this_turn.add(data["confirmation_token"])
                 else:
                     data = call_read_tool(getter, block.name, block.input)
                 # Label the payload untrusted (CODE-REVIEW-2026-08-07 #7): a
@@ -177,8 +205,8 @@ def system_prompt(period):
         "totals, only use it when they explicitly say it was a refund or return "
         "— never because a description looks like one. After tagging, say "
         "plainly what you did (it's reversible). You still cannot move money, "
-        "record a settle-up between them, make a rule, or edit an amount or "
-        "delete a row — for those, tell them to do it in the app.\n"
+        "record a settle-up between them, or edit an amount or delete a row — "
+        "for those, tell them to do it in the app.\n"
         "- You CAN move ONE spending transaction to a different category with "
         "ledger_recategorize_transaction — the everyday relabel ('that Target "
         "charge was Household, not Groceries'). Do this CAREFULLY and confirm "
@@ -199,6 +227,22 @@ def system_prompt(period):
         "who-owes-whom balance — marking a bill paid or logging a goal "
         "contribution still happens in the app. Amounts are in dollars. Logged; "
         "removing one happens in the app. Say plainly what you added.\n"
+        "- You CAN set up an 'always do this' RULE ('deposits like that are "
+        "always my paycheck', 'those card payments are transfers, every "
+        "month') — in TWO separate steps, and the app enforces both. Step 1: "
+        "ledger_propose_rule with the matching phrase and the type — nothing "
+        "changes; you get back a preview (how many already-landed deposits it "
+        "would catch, a sample, any overlapping rules) and a one-time token. "
+        "Tell them the rule in one sentence and what the preview found, then "
+        "ask. Step 2, ONLY after they say yes in their own next reply: "
+        "ledger_confirm_action with that token — never both steps in the same "
+        "turn, and never a rule they didn't ask for in their own words. If "
+        "the preview would catch things it shouldn't, say so and suggest a "
+        "tighter phrase. A rule made this way also tags the old matching "
+        "deposits (unless they'd rather it didn't) and applies to future ones "
+        "automatically; it can be switched off in the app, and everything it "
+        "does is logged and reversible. Fancier rules — amount limits, a "
+        "specific account — happen in the app.\n"
         "- You also keep the household PANTRY — a simple shopping/staples list "
         "(groceries and supplies, never money) — and here you have broad control "
         "to make their life easy (ledger_pantry_pulse gives the weekly "
