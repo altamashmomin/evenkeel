@@ -3768,3 +3768,36 @@ fires regardless of the current-queue count.
 Rebased onto `rework` atop `29563d3`/`71b22f3` and merged; **awaits Pi deploy**
 (no migration, schema stays v15). Post-rebase re-gate PASS zero-diff, suite
 green — the `>= 3` floor and the breadth warning compose cleanly.
+
+## Aug 23, 2026 — Calendar links pinned to an HTTPS front door (Apple subscribe fix)
+
+**Symptom (Alta):** "Add to my calendar" doesn't connect to Apple Calendar.
+The feed itself is live and healthy on the Pi (`/api/calendar/link` 401s,
+wrong-token feed 404s, valid feed curl-verified) — the failure is at the
+subscribe step. **Root cause:** `/api/calendar/link` mirrors `request.host`,
+so the link reads `webcal://raspberrypi:8080/…` (or the tailnet IP) — and
+Apple's fetcher rewrites `webcal://` to `https://` before connecting. A
+plain-HTTP `:8080` origin can never complete that TLS handshake (and a
+single-label MagicDNS name is flaky in iOS's system resolver besides).
+
+- **Fix (code, `ac28d71`):** `calendar_link` honors a new `.env` knob
+  `PUBLIC_BASE_URL` (e.g. `https://<pi>.<tailnet>.ts.net`) — when set, both
+  the `webcal` and `https` links are pinned to that front door regardless of
+  how the browser reached the app; unset keeps the request-mirroring dev
+  behavior. Deliberately an env knob, NOT `X-Forwarded-*` trust (spoofable,
+  and the front door is static). No schema, no verb, no money path.
+- **Fix (infra, Alta-run):** `deploy/calendar-https.md` — Tailscale Serve
+  terminates real-cert HTTPS on 443 tailnet-only (`sudo tailscale serve --bg
+  8080`), explicitly NOT Funnel (the feed is household finance data behind a
+  token-in-URL; it must never be public). Then `PUBLIC_BASE_URL` in the Pi
+  `.env` + `systemctl restart pifinance`.
+- **Fails-first (proven):** the new `test_public_base_url_overrides_the_request_host`
+  failed (`webcal://localhost/…`) before the app.py change, passes after.
+- **Suite 678 backend OK** (from repo root — a from-`tests/` run 500s the
+  index/trace shell tests because Flask's static-folder fallback follows cwd;
+  that cost a diagnosis detour and is a harness footgun, not app breakage).
+  **GATE PASS zero-diff** (`5351a10` vs `rework`, 42 values, synthetic
+  dev.db — re-gate on the Pi at deploy as usual).
+- **Awaits:** Alta's merge + Pi deploy (no migration, schema stays v15), then
+  the one-time Serve/`.env` install from `deploy/calendar-https.md`, then the
+  phone-side re-subscribe from the Help sheet's fresh link.

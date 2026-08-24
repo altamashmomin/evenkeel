@@ -341,7 +341,13 @@ amount and a non-string category now return clean 400s (`_MAX_MONEY_CENTS` cap;
 suite 672. On `rework` (`a645d30` + `5e8347f`), pushed; **awaits Alta's merge +
 Pi deploy** (no migration, schema stays v15). The two B2 red-team follow-ups
 (F2 confirm-proposer binding, F3 transfer-match specificity) are in progress as
-separate sessions Alta started.
+separate sessions Alta started. Then (Aug 23): **calendar-subscribe fix** —
+Apple rewrites `webcal://` to `https://`, so the link mirroring the plain-HTTP
+`:8080` host could never connect; `/api/calendar/link` now pins links to a new
+`.env` knob `PUBLIC_BASE_URL` (the Tailscale-Serve HTTPS front door; install
+doc `deploy/calendar-https.md`, Serve not Funnel). On `rework` (`ac28d71`),
+suite 678 OK, GATE PASS zero-diff; **awaits Alta's merge + Pi deploy + the
+one-time Serve/.env install.**
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
