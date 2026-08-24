@@ -612,6 +612,52 @@ class AskRuleTests(AskWriteBase):
             conn.close()
         self.assertEqual([1] * len(ids), flags)
 
+    def test_same_turn_confirm_is_refused_by_the_loop(self):
+        # MIRAGE F1: propose AND confirm inside ONE run_ask (as a prompt
+        # injection or a compliant-but-wrong model would) must NOT create the
+        # rule — the human gate is structural, not just prompt-enforced. The
+        # model reads the token from the propose result, then tries to confirm
+        # it in the next round of the SAME turn.
+        phrase, ids = self.an_inflow_phrase()
+        rules_before = self.rule_count()
+
+        class ConfirmSameTurn:
+            """A model that grabs the token from round 1's tool_result and
+            confirms it in round 2 — all within one run_ask."""
+            def __init__(self):
+                self.calls = []
+                self.messages = NS(create=self._create)
+                self._round = 0
+
+            def _create(self, **kw):
+                self.calls.append({**kw, "messages": list(kw["messages"])})
+                self._round += 1
+                if self._round == 1:
+                    return resp([tool_block("ledger_propose_rule",
+                                {"set_type": "paycheck", "match_desc": phrase})],
+                                "tool_use")
+                if self._round == 2:
+                    # dig the token out of the previous tool_result
+                    tr = kw["messages"][-1]["content"][0]["content"]
+                    token = json.loads(tr.split("\n", 1)[1])["confirmation_token"]
+                    return resp([tool_block("ledger_confirm_action",
+                                {"confirmation_token": token}, id="tu_2")],
+                                "tool_use")
+                return resp([text_block("ok")], "end_turn")
+
+        mock = ConfirmSameTurn()
+        out = ask_loop.run_ask(mock, self.getter, "always tag those and do it",
+                               model="claude-haiku-4-5", system="be helpful",
+                               caller=self.caller)
+        # The confirm was refused as a tool error; NOTHING was created or swept.
+        tr = mock.calls[2]["messages"][-1]["content"][0]
+        self.assertTrue(tr["is_error"])
+        self.assertIn("same turn", tr["content"])
+        self.assertEqual(rules_before, self.rule_count())
+        self.assertEqual([], out["actions"])
+        for txn_id in ids:
+            self.assertEqual("unclassified", self.income_type(txn_id))
+
     def test_bad_proposal_is_refused_by_the_validator(self):
         # No matcher at all (the schema requires match_desc, but the verb is
         # the real wall — e.g. a hallucinated empty string).

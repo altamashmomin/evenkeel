@@ -93,6 +93,15 @@ def run_ask(client, getter, user_message, *, model, system,
     messages = list(history or []) + [{"role": "user", "content": user_message}]
     used = []
     actions = []  # A1: tap-through chips for writes that actually landed
+    # B2 human-in-the-loop gate (MIRAGE F1). The server two-phase guarantees a
+    # confirm executes exactly the frozen, single-use payload — but NOT that a
+    # human approved it between propose and confirm; a model (or a prompt
+    # injection that defeats the untrusted-data labeling + system prompt) could
+    # otherwise propose AND confirm inside this one turn. So a token minted this
+    # turn cannot be confirmed this turn: the confirm must arrive in a SEPARATE
+    # /api/ask request (a fresh run_ask, empty set), which is a distinct human
+    # message. Structural — it holds even if the prompt is defeated.
+    minted_this_turn = set()
 
     for rnd in range(1, max_rounds + 1):
         resp = client.messages.create(
@@ -111,8 +120,23 @@ def run_ask(client, getter, user_message, *, model, system,
                 continue
             used.append(block.name)
             try:
+                # B2 F1: block a same-turn confirm of a token proposed this turn
+                # BEFORE it can execute — the human gate, enforced in code.
+                if (caller is not None and block.name == "ledger_confirm_action"
+                        and (block.input or {}).get("confirmation_token")
+                        in minted_this_turn):
+                    raise RuntimeError(
+                        "can't confirm in the same turn it was proposed — show "
+                        "the person the preview and wait for them to say yes in "
+                        "their next message, then confirm")
                 if caller is not None and block.name in WRITE_TOOL_NAMES:
                     data = call_write_tool(caller, block.name, block.input)
+                    # Record a freshly minted proposal token so it can't be
+                    # confirmed until a later turn (above).
+                    if (block.name == "ledger_propose_rule"
+                            and isinstance(data, dict)
+                            and data.get("confirmation_token")):
+                        minted_this_turn.add(data["confirmation_token"])
                 else:
                     data = call_read_tool(getter, block.name, block.input)
                 # Label the payload untrusted (CODE-REVIEW-2026-08-07 #7): a
