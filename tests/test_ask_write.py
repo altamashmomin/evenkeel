@@ -248,6 +248,76 @@ class AskWriteTests(AskWriteBase):
         self.assertEqual(200000, goal["target_cents"])
         self.assertEqual("ui:avery", audit["actor"])
 
+    # -- B3: set a category budget through the tool --------------------------
+    def budget_for(self, category):
+        conn = self.db()
+        try:
+            return conn.execute(
+                "SELECT * FROM budgets WHERE category = ?", (category,)).fetchone()
+        finally:
+            conn.close()
+
+    def test_set_budget_tool_upserts_the_limit_and_logs_as_the_person(self):
+        mock = MockAnthropic([
+            resp([tool_block("ledger_set_budget",
+                             {"category": "Groceries", "amount": 400})], "tool_use"),
+            resp([text_block("Set your Groceries budget to $400/mo ✓")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="budget $400 a month for groceries",
+                       caller=self.caller)
+        self.assertEqual(["ledger_set_budget"], out["tools_used"])
+        # A1: a budget is reviewable in the Analytics tab.
+        self.assertEqual([{"tab": "analytics", "label": "Open Analytics"}],
+                         out["actions"])
+        row = self.budget_for("Groceries")
+        self.assertEqual(40000, row["amount_cents"])
+        self.assertEqual(1, row["active"])
+        conn = self.db()
+        try:
+            audit = conn.execute(
+                "SELECT actor FROM audit_log WHERE action = 'set_budget' "
+                "AND target = ?", (f"budget:{row['id']}",)).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual("ui:avery", audit["actor"])
+
+    def test_set_budget_changes_an_existing_category_in_place(self):
+        first = MockAnthropic([
+            resp([tool_block("ledger_set_budget",
+                             {"category": "Dining", "amount": 200})], "tool_use"),
+            resp([text_block("Set ✓")], "end_turn")])
+        self.ask(first, caller=self.caller)
+        row1 = self.budget_for("Dining")
+        second = MockAnthropic([
+            resp([tool_block("ledger_set_budget",
+                             {"category": "Dining", "amount": 250})], "tool_use"),
+            resp([text_block("Bumped ✓")], "end_turn")])
+        self.ask(second, caller=self.caller)
+        row2 = self.budget_for("Dining")
+        # Same row (upsert on category), new amount — not a second budget.
+        self.assertEqual(row1["id"], row2["id"])
+        self.assertEqual(25000, row2["amount_cents"])
+        conn = self.db()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM budgets WHERE category = 'Dining'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(1, count)
+
+    def test_set_budget_bad_amount_is_caught(self):
+        mock = MockAnthropic([
+            resp([tool_block("ledger_set_budget",
+                             {"category": "Gas", "amount": -5})], "tool_use"),
+            resp([text_block("A budget has to be a positive amount — how much?")],
+                 "end_turn")])
+        out = self.ask(mock, msg="budget minus five for gas", caller=self.caller)
+        tr = mock.calls[1]["messages"][-1]["content"][0]
+        self.assertTrue(tr["is_error"])
+        self.assertIsNone(self.budget_for("Gas"))
+        self.assertEqual([], out["actions"])
+
     # -- pantry writes: the effect through the same routes -------------------
     def a_staple(self, name="Coffee"):
         c = self.app_module.app.test_client()
@@ -360,12 +430,13 @@ class AskWriteTests(AskWriteBase):
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(35, len(tools))  # 20 read + 15 write
+        self.assertEqual(36, len(tools))  # 20 read + 16 write
         names = [t["name"] for t in tools]
         self.assertIn("ledger_classify_inflow", names)
         self.assertIn("ledger_recategorize_transaction", names)
         self.assertIn("ledger_propose_rule", names)
         self.assertIn("ledger_confirm_action", names)
+        self.assertIn("ledger_set_budget", names)
         self.assertIn("ledger_add_item", names)
         self.assertIn("ledger_set_item_status", names)
         self.assertIn("ledger_set_item_interval", names)

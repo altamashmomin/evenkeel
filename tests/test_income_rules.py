@@ -88,6 +88,23 @@ class IncomeRuleTests(unittest.TestCase):
                 self.db, "ui:avery",
                 self.rule_payload(match_desc=None, min_cents=500, max_cents=100))
 
+    def test_match_desc_must_be_at_least_three_chars(self):
+        # MIRAGE F3: a 1-2 char match is too broad — a transfer rule
+        # (set_transfer=1) with match_desc='a' would flip is_transfer=1 on
+        # every future inflow it touches, hiding money from BOTH income and
+        # spending. The guard is universal (all rule types), enforced in the
+        # shared validator so the app UI, MCP write tier, and Ask lane all get it.
+        with self.assertRaisesRegex(actions.ActionError, "at least 3 characters"):
+            actions.create_income_rule(
+                self.db, "ui:avery", {"match_desc": "a", "set_transfer": 1})
+        with self.assertRaisesRegex(actions.ActionError, "at least 3 characters"):
+            actions.create_income_rule(
+                self.db, "ui:avery", self.rule_payload(match_desc="ab"))
+        # The boundary holds: 3 chars ("ADP") is still accepted.
+        rule = actions.create_income_rule(
+            self.db, "ui:avery", self.rule_payload(match_desc="ADP"))
+        self.assertEqual("ADP", rule["match_desc"])
+
     def test_set_paid_by_must_be_active_member(self):
         with self.assertRaisesRegex(actions.ActionError, "set_paid_by must be"):
             actions.create_income_rule(

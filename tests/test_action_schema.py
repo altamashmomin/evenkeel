@@ -25,6 +25,7 @@ VERB_TOOL = {
     # category-only recategorize.
     "create_income_rule": "ledger_propose_rule",
     "confirm_action": "ledger_confirm_action",
+    "set_budget": "ledger_set_budget",
     "add_item": "ledger_add_item",
     "set_item_status": "ledger_set_item_status",
     "restock_items": "ledger_restock_items",

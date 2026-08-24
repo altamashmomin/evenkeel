@@ -95,6 +95,12 @@ def current_period():
     return date.today().strftime("%Y-%m")
 
 
+# SQLite stores INTEGER as signed 64-bit; a cents value past this overflows at
+# bind time. Verbs that accept a free-form amount cap against it so an absurd
+# input is a clean validation error, not a 500 (MIRAGE B3 LOW-1).
+_MAX_MONEY_CENTS = 2 ** 63 - 1
+
+
 def to_cents(value):
     """Parse a dollar amount (number or string) into integer cents, exactly."""
     try:
@@ -981,6 +987,11 @@ def _validate_income_rule(db, data):
         raise ActionError(
             "set_type must be one of: " + ", ".join(sorted(RULE_TYPES)))
     match_desc = (data.get("match_desc") or "").strip()[:200] or None
+    # A 1-2 char match is too broad to be a safe rule (MIRAGE F3): applied
+    # universally so a transfer rule (set_transfer=1) can't hide future
+    # inflows from both income and spending behind a near-empty substring.
+    if match_desc is not None and len(match_desc) < 3:
+        raise ActionError("match_desc must be at least 3 characters")
     match_account = (data.get("match_account") or "").strip()[:100] or None
     min_cents = data.get("min_cents")
     max_cents = data.get("max_cents")
@@ -1632,15 +1643,31 @@ def set_budget(db, actor, data):
     Returns the budget row.
     """
     with action_transaction(db):
-        category = (data.get("category") or "").strip()[:60]
+        raw_category = data.get("category")
+        # A non-string category (e.g. a JSON number) would blow up .strip()
+        # with an AttributeError → a generic 500 (MIRAGE B3 LOW-2). Reject it
+        # as a clean validation error instead. None is allowed through — it
+        # becomes the "category is required" message below.
+        if raw_category is not None and not isinstance(raw_category, str):
+            raise ActionError("category must be text")
+        category = (raw_category or "").strip()[:60]
         if not category:
             raise ActionError("category is required")
         try:
             cents = to_cents(data.get("amount"))
-        except (ValueError, TypeError):
+        except OverflowError:
+            # Infinity → OverflowError inside to_cents' int() conversion.
+            raise ActionError("amount is too large")
+        except (InvalidOperation, ValueError, TypeError):
             raise ActionError("invalid amount")
         if cents <= 0:
             raise ActionError("amount must be positive")
+        # A huge finite amount (e.g. 1e17) parses fine but overflows SQLite's
+        # signed-64-bit integer column at bind time → a generic 500 (MIRAGE
+        # B3 LOW-1). Cap it as a clean validation error; the ceiling is the
+        # storage limit, not a business judgment.
+        if cents > _MAX_MONEY_CENTS:
+            raise ActionError("amount is too large")
         before = db.execute(
             "SELECT * FROM budgets WHERE category = ?", (category,)).fetchone()
         now = _now()
@@ -2125,6 +2152,17 @@ PARAM_SPECS = {
               "The single-use token returned by ledger_propose_rule. Only "
               "ever pass a token you received this conversation — never "
               "invent or reuse one."),
+    ],
+    # B3: set a category's monthly spending limit from Ask. Like add_bill/
+    # add_goal it's a DEFINITION — it moves no money and never touches the
+    # balance — so it's a direct confirm-first tool, no two-phase needed.
+    # An upsert: naming an existing category changes its limit.
+    "set_budget": [
+        Param("category", "string",
+              "The spending category to budget, e.g. 'Groceries'. If a budget "
+              "for it already exists, this changes the limit."),
+        Param("amount", "number",
+              "The monthly limit in dollars, e.g. 400. Must be positive."),
     ],
 }
 
