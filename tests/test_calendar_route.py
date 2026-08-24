@@ -83,6 +83,22 @@ class CalendarRouteTests(unittest.TestCase):
         self.assertIn(f"/calendar/{token}.ics", body["webcal"])
         self.assertIn(f"/calendar/{token}.ics", body["https"])
 
+    def test_public_base_url_overrides_the_request_host(self):
+        # Apple Calendar rewrites webcal:// to https:// — a plain-HTTP :8080
+        # link can never subscribe. PUBLIC_BASE_URL points the links at the
+        # HTTPS front door (Tailscale Serve) regardless of how the browser
+        # reached the app.
+        os.environ["PUBLIC_BASE_URL"] = "https://raspberrypi.tail1234.ts.net/"
+        self.addCleanup(os.environ.pop, "PUBLIC_BASE_URL", None)
+        body = self.client().get("/api/calendar/link").get_json()
+        token = self.app_module._calendar_token(1)
+        self.assertEqual(
+            f"webcal://raspberrypi.tail1234.ts.net/calendar/{token}.ics",
+            body["webcal"])
+        self.assertEqual(
+            f"https://raspberrypi.tail1234.ts.net/calendar/{token}.ics",
+            body["https"])
+
     def test_tokens_differ_per_member_and_depend_on_the_secret(self):
         self.assertNotEqual(self.app_module._calendar_token(1),
                             self.app_module._calendar_token(2))

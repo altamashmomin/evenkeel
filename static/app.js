@@ -1264,8 +1264,22 @@ function openRuleDialog(suggestion) {
     "Trim to a stable part of the description — the source's name, not a date " +
     "or amount that changes each time.";
   formRule.match.value = suggestion.match_desc || "";
+  updateRuleBroad();
   dlgRule.showModal();
 }
+
+// Advisory breadth caution (F3): show/hide the warning as the phrase changes,
+// so the human sees BEFORE saving that a short phrase will also catch future
+// deposits. Non-blocking — Render.ruleBreadthWarning mirrors the server's
+// authoritative check on the Ask/MCP propose path.
+function updateRuleBroad() {
+  const el = $("#rule-broad");
+  const msg = window.Render.ruleBreadthWarning(
+    formRule.match.value, state.ruleSetTransfer);
+  el.textContent = msg;
+  el.classList.toggle("hidden", !msg);
+}
+formRule.match.addEventListener("input", updateRuleBroad);
 
 formRule.addEventListener("submit", async (ev) => {
   if (ev.submitter && ev.submitter.value === "cancel") return;

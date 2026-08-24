@@ -1248,6 +1248,49 @@ def _apply_single_rule(db, actor, rule):
 PROPOSABLE_ACTIONS = frozenset({"create_rule", "apply_rules"})
 PENDING_ACTION_TTL_SECONDS = 600   # ~10 minutes; a stale approval dies
 
+# A rule is "broad" when the ONLY thing narrowing it is a short description
+# substring — no amount bounds, no account. Such a rule can read "0 matches
+# now" yet silently classify FUTURE inflows the human never pictured. These
+# floors drive an ADVISORY warning in the preview; they are NOT a hard block
+# (that is the >= 3 min-length guard in _validate_income_rule). A transfer
+# rule uses the stricter floor: its matches leave BOTH income and spending, so
+# a future paycheck swept in by a broad transfer rule vanishes from every total
+# — worth warning on longer-but-still-broad matches. Mirror in
+# static/render.js (ruleBreadthWarning) for the in-app suggested-rule dialog.
+BROAD_MATCH_MIN_LEN = 5           # income rule: a lone desc shorter than this
+BROAD_TRANSFER_MATCH_MIN_LEN = 8  # transfer rule: hides money both ways
+
+
+def rule_breadth_warning(fields):
+    """Advisory: return a human-readable caution when `fields` describes a
+    BROAD rule (a short description substring with nothing else narrowing it),
+    else None. Advisory only — never rejects; fires even when nothing matches
+    today, because the current-queue count says nothing about future inflows.
+    Shared by the preview and any caller that wants the same nudge."""
+    match_desc = (fields.get("match_desc") or "").strip()
+    has_bounds = (fields.get("min_cents") is not None
+                  or fields.get("max_cents") is not None)
+    has_account = bool(fields.get("match_account"))
+    is_transfer = bool(fields.get("set_transfer"))
+    # An account or amount bounds genuinely constrain the rule; and a rule with
+    # no description at all matches on those instead — none of these is the
+    # short-substring hazard this warns about.
+    if has_bounds or has_account or not match_desc:
+        return None
+    floor = BROAD_TRANSFER_MATCH_MIN_LEN if is_transfer else BROAD_MATCH_MIN_LEN
+    if len(match_desc) >= floor:
+        return None
+    if is_transfer:
+        return (
+            f"Broad transfer rule: '{match_desc}' is short and nothing else "
+            "narrows it, so it may also mark FUTURE deposits — including a "
+            "paycheck next cycle — as transfers, hiding them from both income "
+            "and spending. Consider a longer, more specific phrase.")
+    return (
+        f"Broad rule: '{match_desc}' is short and nothing else narrows it, so "
+        "it will also classify FUTURE inflows whose description happens to "
+        "contain that text. Consider a longer, more specific phrase.")
+
 
 def _preview_create_rule(db, fields):
     """The dry-run a rule proposal shows the human: how many unclassified
@@ -1273,6 +1316,7 @@ def _preview_create_rule(db, fields):
         {"id": row["id"], "date": row["txn_date"],
          "description": row["description"], "amount_cents": row["amount_cents"]}
         for row in matched[:5]]
+    warning = rule_breadth_warning(fields)
     return {
         "kind": "create_rule",
         "would_match_now": len(matched),
@@ -1282,6 +1326,10 @@ def _preview_create_rule(db, fields):
         "future_effect": (
             "future inflows matching this rule are classified as "
             f"'{fields['set_type']}'"),
+        # Advisory breadth nudge (F3): flags a short-substring rule that will
+        # sweep in future inflows even when would_match_now is 0. Non-blocking.
+        "broad": warning is not None,
+        "warning": warning,
     }
 
 

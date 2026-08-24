@@ -151,6 +151,12 @@ input[type="checkbox"] {
    column and collided with the amount field on a phone. Let them shrink. */
 .row2 > label, .row2 input { min-width: 0; }
 .form-error { color: var(--danger); font-size: 13px; min-height: 1em; margin: 10px 0 0; }
+/* Advisory breadth caution in the rule dialog (F3): softer than an error —
+   it never blocks the save, it just warns that a short phrase over-reaches. */
+.form-caution { color: var(--danger); font-size: 12.5px; line-height: 1.4;
+  margin: 8px 0 0; padding: 8px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.form-caution.hidden { display: none; }
 .split-hint { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
 #split-readout { color: var(--brass); font-family: var(--mono); }
 

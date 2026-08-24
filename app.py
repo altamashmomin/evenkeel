@@ -1773,9 +1773,20 @@ def calendar_feed(token):
 def calendar_link():
     """The signed-in member's own subscribe URLs (webcal:// for the one-tap
     iOS/macOS subscribe, https:// to paste anywhere else). Session-only like
-    token management: a bearer token must not mint feed URLs."""
+    token management: a bearer token must not mint feed URLs.
+
+    PUBLIC_BASE_URL (.env, e.g. https://<pi>.<tailnet>.ts.net) pins the links
+    to the HTTPS front door: Apple's fetcher rewrites webcal:// to https://,
+    so a link mirroring a plain-HTTP request host can never subscribe. An
+    env knob, not X-Forwarded-* trust — those headers are spoofable and the
+    front door is static. Unset (dev), links mirror the request as before."""
     token = _calendar_token(session["user_id"])
     path = f"/calendar/{token}.ics"
+    base = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if base:
+        host = base.split("://", 1)[-1]
+        return jsonify({"webcal": f"webcal://{host}{path}",
+                        "https": f"{base}{path}"})
     return jsonify({"webcal": f"webcal://{request.host}{path}",
                     "https": f"{request.scheme}://{request.host}{path}"})
 
