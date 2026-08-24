@@ -981,6 +981,11 @@ def _validate_income_rule(db, data):
         raise ActionError(
             "set_type must be one of: " + ", ".join(sorted(RULE_TYPES)))
     match_desc = (data.get("match_desc") or "").strip()[:200] or None
+    # A 1-2 char match is too broad to be a safe rule (MIRAGE F3): applied
+    # universally so a transfer rule (set_transfer=1) can't hide future
+    # inflows from both income and spending behind a near-empty substring.
+    if match_desc is not None and len(match_desc) < 3:
+        raise ActionError("match_desc must be at least 3 characters")
     match_account = (data.get("match_account") or "").strip()[:100] or None
     min_cents = data.get("min_cents")
     max_cents = data.get("max_cents")
