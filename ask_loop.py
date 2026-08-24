@@ -46,6 +46,10 @@ _ACTION_NAV = {
     "ledger_recategorize_transaction": ("activity", "Review in Activity"),
     "ledger_add_bill": ("bills", "Open Bills"),
     "ledger_add_goal": ("goals", "Open Goals"),
+    # B2: proposing parks a preview — nothing changed yet, so no chip; the
+    # chip belongs to the confirm, whose backlog sweep lands in Activity.
+    "ledger_propose_rule": None,
+    "ledger_confirm_action": ("activity", "Review in Activity"),
 }
 for _wt in WRITE_TOOL_NAMES:
     _ACTION_NAV.setdefault(_wt, ("inventory", "Open Pantry"))
@@ -177,8 +181,8 @@ def system_prompt(period):
         "totals, only use it when they explicitly say it was a refund or return "
         "— never because a description looks like one. After tagging, say "
         "plainly what you did (it's reversible). You still cannot move money, "
-        "record a settle-up between them, make a rule, or edit an amount or "
-        "delete a row — for those, tell them to do it in the app.\n"
+        "record a settle-up between them, or edit an amount or delete a row — "
+        "for those, tell them to do it in the app.\n"
         "- You CAN move ONE spending transaction to a different category with "
         "ledger_recategorize_transaction — the everyday relabel ('that Target "
         "charge was Household, not Groceries'). Do this CAREFULLY and confirm "
@@ -199,6 +203,22 @@ def system_prompt(period):
         "who-owes-whom balance — marking a bill paid or logging a goal "
         "contribution still happens in the app. Amounts are in dollars. Logged; "
         "removing one happens in the app. Say plainly what you added.\n"
+        "- You CAN set up an 'always do this' RULE ('deposits like that are "
+        "always my paycheck', 'those card payments are transfers, every "
+        "month') — in TWO separate steps, and the app enforces both. Step 1: "
+        "ledger_propose_rule with the matching phrase and the type — nothing "
+        "changes; you get back a preview (how many already-landed deposits it "
+        "would catch, a sample, any overlapping rules) and a one-time token. "
+        "Tell them the rule in one sentence and what the preview found, then "
+        "ask. Step 2, ONLY after they say yes in their own next reply: "
+        "ledger_confirm_action with that token — never both steps in the same "
+        "turn, and never a rule they didn't ask for in their own words. If "
+        "the preview would catch things it shouldn't, say so and suggest a "
+        "tighter phrase. A rule made this way also tags the old matching "
+        "deposits (unless they'd rather it didn't) and applies to future ones "
+        "automatically; it can be switched off in the app, and everything it "
+        "does is logged and reversible. Fancier rules — amount limits, a "
+        "specific account — happen in the app.\n"
         "- You also keep the household PANTRY — a simple shopping/staples list "
         "(groceries and supplies, never money) — and here you have broad control "
         "to make their life easy (ledger_pantry_pulse gives the weekly "

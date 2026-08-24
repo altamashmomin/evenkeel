@@ -46,7 +46,12 @@ class MockAnthropic:
         return self._responses.pop(0)
 
 
-class AskWriteTests(unittest.TestCase):
+class AskWriteBase(unittest.TestCase):
+    """The shared fixture: a seeded+income db, the app module loaded against
+    it, and an in-process getter/caller for user 1. Subclasses hold the tests
+    (kept in separate classes so a class's tests don't re-run under another's
+    name)."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="ledger-askwrite-")
         self.db_path = Path(self.tmp.name) / "route.db"
@@ -98,6 +103,8 @@ class AskWriteTests(unittest.TestCase):
         return ask_loop.run_ask(mock, self.getter, msg,
                                 model="claude-haiku-4-5", system="be helpful", **kw)
 
+
+class AskWriteTests(AskWriteBase):
     # -- the effect: a tool call actually tags the row -----------------------
     def test_classify_tool_flips_the_row_and_logs_as_the_person(self):
         txn_id = self.an_unclassified_inflow()
@@ -353,10 +360,12 @@ class AskWriteTests(unittest.TestCase):
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(33, len(tools))  # 20 read + 13 write
+        self.assertEqual(35, len(tools))  # 20 read + 15 write
         names = [t["name"] for t in tools]
         self.assertIn("ledger_classify_inflow", names)
         self.assertIn("ledger_recategorize_transaction", names)
+        self.assertIn("ledger_propose_rule", names)
+        self.assertIn("ledger_confirm_action", names)
         self.assertIn("ledger_add_item", names)
         self.assertIn("ledger_set_item_status", names)
         self.assertIn("ledger_set_item_interval", names)
@@ -477,6 +486,153 @@ class AskWriteTests(unittest.TestCase):
         out = self.ask(mock, msg="mark it out", caller=self.caller)  # must not raise
         tr = mock.calls[1]["messages"][-1]["content"][0]
         self.assertTrue(tr["is_error"])  # 404 from the verb → recoverable
+
+
+class AskRuleTests(AskWriteBase):
+    """B2: the rule pair — propose parks a preview (nothing written, no chip),
+    confirm in a LATER ask-turn creates the rule + sweeps the previewed rows,
+    all attributed to the person. The two-phase safety is SERVER-enforced
+    (frozen payload, single-use token), so these tests exercise the real
+    pending_actions machinery through the loop, not a prompt convention."""
+
+    def an_inflow_phrase(self):
+        """A seeded unclassified inflow's description + its matching rows."""
+        conn = self.db()
+        try:
+            row = conn.execute(
+                "SELECT description FROM transactions WHERE direction = 'in' "
+                "AND income_type = 'unclassified' ORDER BY id LIMIT 1").fetchone()
+            self.assertIsNotNone(row)
+            phrase = row["description"]
+            ids = [r["id"] for r in conn.execute(
+                "SELECT id FROM transactions WHERE direction = 'in' AND "
+                "income_type = 'unclassified' AND instr(lower(description), "
+                "lower(?)) > 0", (phrase,))]
+        finally:
+            conn.close()
+        return phrase, ids
+
+    def propose(self, set_type, match_desc, **extra):
+        """Run one ask-turn that proposes a rule; returns (out, preview dict)."""
+        mock = MockAnthropic([
+            resp([tool_block("ledger_propose_rule",
+                             {"set_type": set_type, "match_desc": match_desc,
+                              **extra})], "tool_use"),
+            resp([text_block("Here's what that rule would do — OK?")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="always tag those", caller=self.caller)
+        tr = mock.calls[1]["messages"][-1]["content"][0]
+        self.assertFalse(tr["is_error"], tr["content"])
+        return out, json.loads(tr["content"].split("\n", 1)[1])
+
+    def confirm(self, token):
+        """Run a SECOND ask-turn that confirms with `token`; returns (out, tr)."""
+        mock = MockAnthropic([
+            resp([tool_block("ledger_confirm_action",
+                             {"confirmation_token": token})], "tool_use"),
+            resp([text_block("Done — the rule is on.")], "end_turn"),
+        ])
+        out = self.ask(mock, msg="yes, do it", caller=self.caller)
+        return out, mock.calls[1]["messages"][-1]["content"][0]
+
+    def rule_count(self):
+        conn = self.db()
+        try:
+            return conn.execute("SELECT COUNT(*) FROM income_rules").fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_propose_writes_nothing_and_carries_no_chip(self):
+        phrase, ids = self.an_inflow_phrase()
+        rules_before = self.rule_count()
+        out, proposal = self.propose("paycheck", phrase)
+        # The preview is honest: token + the would-match count.
+        self.assertIn("confirmation_token", proposal)
+        self.assertEqual(len(ids), proposal["preview"]["would_match_now"])
+        # Nothing was created, the rows are untouched, and there is NO chip —
+        # a parked preview is not a landed write.
+        self.assertEqual(rules_before, self.rule_count())
+        self.assertEqual([], out["actions"])
+        self.assertEqual("paycheck", proposal["preview"]["set_type"])
+        for txn_id in ids:
+            self.assertEqual("unclassified", self.income_type(txn_id))
+
+    def test_confirm_in_a_later_turn_creates_the_rule_and_sweeps(self):
+        phrase, ids = self.an_inflow_phrase()
+        _, proposal = self.propose("paycheck", phrase)
+        out, tr = self.confirm(proposal["confirmation_token"])
+        self.assertFalse(tr["is_error"], tr["content"])
+        # The chip lands on the confirm, pointing at Activity.
+        self.assertEqual([{"tab": "activity", "label": "Review in Activity"}],
+                         out["actions"])
+        # The rule exists, the previewed rows got tagged, all as the person.
+        conn = self.db()
+        try:
+            rule = conn.execute(
+                "SELECT * FROM income_rules ORDER BY id DESC LIMIT 1").fetchone()
+            self.assertEqual(phrase, rule["match_desc"])
+            self.assertEqual("paycheck", rule["set_type"])
+            self.assertEqual(0, rule["set_transfer"])
+            audit = conn.execute(
+                "SELECT actor FROM audit_log WHERE action = 'create_income_rule' "
+                "AND target = ?", (f"rule:{rule['id']}",)).fetchone()
+            self.assertEqual("ui:avery", audit["actor"])
+        finally:
+            conn.close()
+        for txn_id in ids:
+            self.assertEqual("paycheck", self.income_type(txn_id))
+
+    def test_confirm_token_is_single_use(self):
+        phrase, _ = self.an_inflow_phrase()
+        _, proposal = self.propose("gift", phrase)
+        self.confirm(proposal["confirmation_token"])
+        rules_after_first = self.rule_count()
+        out, tr = self.confirm(proposal["confirmation_token"])
+        self.assertTrue(tr["is_error"])          # refused, recoverable
+        self.assertEqual(rules_after_first, self.rule_count())  # no double-create
+        self.assertEqual([], out["actions"])     # a refused confirm earns no chip
+
+    def test_transfer_rule_sets_the_flag_end_to_end(self):
+        phrase, ids = self.an_inflow_phrase()
+        _, proposal = self.propose("transfer", phrase)
+        _, tr = self.confirm(proposal["confirmation_token"])
+        self.assertFalse(tr["is_error"], tr["content"])
+        conn = self.db()
+        try:
+            rule = conn.execute(
+                "SELECT * FROM income_rules ORDER BY id DESC LIMIT 1").fetchone()
+            # set_type='transfer' from Ask means a REAL transfer rule —
+            # is_transfer is the source of truth (T3), not just the label.
+            self.assertEqual(1, rule["set_transfer"])
+            self.assertEqual("transfer", rule["set_type"])
+            flags = [conn.execute(
+                "SELECT is_transfer FROM transactions WHERE id = ?",
+                (t,)).fetchone()[0] for t in ids]
+        finally:
+            conn.close()
+        self.assertEqual([1] * len(ids), flags)
+
+    def test_bad_proposal_is_refused_by_the_validator(self):
+        # No matcher at all (the schema requires match_desc, but the verb is
+        # the real wall — e.g. a hallucinated empty string).
+        mock = MockAnthropic([
+            resp([tool_block("ledger_propose_rule",
+                             {"set_type": "paycheck", "match_desc": "  "})],
+                 "tool_use"),
+            resp([text_block("I need a phrase to match on — what should it be?")],
+                 "end_turn"),
+        ])
+        out = self.ask(mock, msg="make a rule", caller=self.caller)
+        tr = mock.calls[1]["messages"][-1]["content"][0]
+        self.assertTrue(tr["is_error"])
+        self.assertEqual([], out["actions"])
+
+    def test_invented_token_is_refused(self):
+        rules_before = self.rule_count()
+        out, tr = self.confirm("not-a-real-token")
+        self.assertTrue(tr["is_error"])
+        self.assertEqual([], out["actions"])
+        self.assertEqual(rules_before, self.rule_count())
 
 
 if __name__ == "__main__":

@@ -2005,7 +2005,7 @@ class Param:
     required, an optional ordered enum (a verb vocabulary constant, never a copy),
     and the prose the agent reads."""
     name: str
-    type: str                 # "string" | "integer" | "array" — JSON Schema types
+    type: str                 # "string" | "integer" | "number" | "boolean" | "array"
     description: str
     required: bool = True
     enum: tuple = None        # ordered choices; references a verb constant
@@ -2099,6 +2099,32 @@ PARAM_SPECS = {
         Param("until", "string",
               "Snooze nudges until this YYYY-MM-DD, or an empty string to "
               "wake it now."),
+    ],
+    # The Ask facade for rules is deliberately NARROW (B2, like B1's
+    # category-only recategorize): description-match + type only. Amount
+    # bounds, account matches, priorities, and set_paid_by stay app/MCP
+    # territory — a chat-created rule should be simple enough to read back
+    # in one sentence.
+    "create_income_rule": [
+        Param("set_type", "string",
+              "What matched deposits get tagged as, per the person's own "
+              "words. 'transfer' makes it a transfer rule — matches are "
+              "kept out of income AND out of spending (a credit-card "
+              "payment, money moved between accounts).",
+              enum=REAL_INCOME_TYPE_ORDER),
+        Param("match_desc", "string",
+              "The description phrase to match, case-insensitive substring "
+              "— e.g. 'ADP PAYROLL' or 'Payment Thank You'. Use the stable "
+              "part; trailing numbers vary per deposit."),
+        Param("also_apply_to_existing", "boolean",
+              "Whether confirming also tags the already-landed deposits the "
+              "preview counted. Defaults to true.", required=False),
+    ],
+    "confirm_action": [
+        Param("confirmation_token", "string",
+              "The single-use token returned by ledger_propose_rule. Only "
+              "ever pass a token you received this conversation — never "
+              "invent or reuse one."),
     ],
 }
 

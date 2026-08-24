@@ -19,6 +19,12 @@ VERB_TOOL = {
     "recategorize_transaction": "ledger_recategorize_transaction",
     "create_bill": "ledger_add_bill",
     "create_goal": "ledger_add_goal",
+    # B2: the rule pair. create_income_rule's spec is the NARROW Ask facade
+    # (match_desc + set_type + also_apply); the verb accepts more via the
+    # app/MCP — the facade schema simply can't reach it, like B1's
+    # category-only recategorize.
+    "create_income_rule": "ledger_propose_rule",
+    "confirm_action": "ledger_confirm_action",
     "add_item": "ledger_add_item",
     "set_item_status": "ledger_set_item_status",
     "restock_items": "ledger_restock_items",

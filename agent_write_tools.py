@@ -19,14 +19,21 @@ deadline, pause-until), and set_item_interval (a user-set restock cadence,
 DEFINITION or a savings-goal TARGET, confirm-first: both move no money, touch no
 transaction, and never change the who-owes-whom balance; each bottoms out in the
 existing POST /api/bills / POST /api/goals route → create_bill / create_goal
-verb). The pantry is groceries/supplies, never money, so it
-needs no two-phase choreography and gets broad conversational control
-(INVENTORY-DESIGN: direct writes like classify; even 'remove' is a reversible
-soft-delete). Rules (create_income_rule / apply_rules, two-phase) stay a later
-increment; settle-up, a general transaction edit (amount/split) or delete, and
-money movement deliberately have NO tool here — the money line held on purpose
-(AGENT-DESIGN invariant 3), recategorize being the one narrow, label-only
-exception. The pantry READ ('what do we need?', and finding an item's id) is the
+verb); and the rule pair (B2) — propose_rule / confirm_action, the ONE surface
+here that is two-phase BY THE SERVER, not just by the prompt: proposing parks a
+frozen payload + dry-run preview in pending_actions and returns a single-use
+token (nothing written), and confirming executes exactly the frozen payload —
+so the model structurally cannot create a rule the person never saw, drift the
+params between preview and execution, or double-execute (create_income_rule's
+own docstring mandates agents reach it two-phase, never raw). The Ask facade is
+narrow (match_desc + set_type only; set_type='transfer' creates a transfer
+rule); amount-bounds/account/priority rules stay app/MCP territory. The pantry
+is groceries/supplies, never money, so it needs no two-phase choreography and
+gets broad conversational control (INVENTORY-DESIGN: direct writes like
+classify; even 'remove' is a reversible soft-delete). Settle-up, a general
+transaction edit (amount/split) or delete, and money movement deliberately have
+NO tool here — the money line held on purpose (AGENT-DESIGN invariant 3),
+recategorize being the one narrow, label-only exception. The pantry READ ('what do we need?', and finding an item's id) is the
 shared ledger_inventory read tool, not here.
 """
 from typing import Callable
@@ -196,6 +203,50 @@ WRITE_TOOLS = [
         "execute": lambda caller, a: caller(
             "PUT", f"/api/inventory/{a['item_id']}",
             {"restock_interval_days": a.get("days")}),
+    },
+    {
+        "name": "ledger_propose_rule",
+        "description":
+            "STEP 1 of 2 for an 'always do this' rule — e.g. 'always tag "
+            "deposits like that as my paycheck' or 'those card payments are "
+            "transfers, every month'. This step CHANGES NOTHING: it checks the "
+            "rule and returns a preview — how many already-landed deposits it "
+            "would match (would_match_now), a few sample rows, any existing "
+            "rules that overlap — plus a single-use confirmation_token. "
+            "REQUIRED next: tell the person the rule in one sentence and what "
+            "the preview found, and ask. Only if they say yes in their OWN "
+            "next reply do you call ledger_confirm_action with the token — "
+            "never propose and confirm in the same turn, and never propose a "
+            "rule they didn't ask for in their own words. If the preview looks "
+            "wrong (it would catch things it shouldn't), say so and tighten "
+            "the phrase instead. set_type='transfer' makes it a transfer rule "
+            "(matches are kept out of income AND spending — right for "
+            "credit-card payments and money moved between accounts). Fancier "
+            "rules (amount limits, a specific account) happen in the app.",
+        "input_schema": actions.param_schema("create_income_rule"),
+        "execute": lambda caller, a: caller("POST", "/api/actions/propose", {
+            "action_type": "create_rule",
+            "set_type": a.get("set_type"),
+            "match_desc": a.get("match_desc"),
+            "set_transfer": a.get("set_type") == "transfer",
+            "also_apply_to_existing": bool(a.get("also_apply_to_existing", True)),
+        }),
+    },
+    {
+        "name": "ledger_confirm_action",
+        "description":
+            "STEP 2 of 2: create the rule the person just approved. Pass the "
+            "confirmation_token from ledger_propose_rule's reply — only after "
+            "they said yes to the preview in their own reply, and only in a "
+            "LATER turn than the propose. It executes exactly what was "
+            "previewed (the server holds the frozen details; nothing you pass "
+            "here can change them). Single-use and it expires — if it's "
+            "refused, propose again rather than retrying. Afterwards, say "
+            "plainly what the rule now does and how many old deposits were "
+            "tagged; a rule can be switched off in the app.",
+        "input_schema": actions.param_schema("confirm_action"),
+        "execute": lambda caller, a: caller("POST", "/api/actions/confirm", {
+            "confirmation_token": a.get("confirmation_token")}),
     },
     {
         "name": "ledger_add_bill",
