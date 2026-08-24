@@ -1,0 +1,6 @@
+{
+  "note": "Migration #016 (pending_actions.proposed_by_user -- MIRAGE F2, bind the two-phase confirm to the proposing identity). Adds ONE nullable column to the existing pending_actions table: no new table and no new rows, so the only row-count change is the schema_version record the migration itself inserts. The column defaults to NULL on every existing row, and no money path reads or writes pending_actions (the balance, spending, and income derivations never touch it), so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list. The behavior change is confirm-side only: confirm_action now rejects a token whose proposed_by_user differs from the confirming identity; that path executes no money verb, so no gate-observed number moves.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 15, "new": 16}
+  ]
+}

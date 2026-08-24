@@ -3668,3 +3668,28 @@ unclassified-only). It found three gaps:
 On `rework` (`44c1707` B2 + `90a352e` F1 fix), pushed; **awaits Alta's merge +
 Pi deploy** (no migration expected live, schema stays v15). B2 complete and
 mirage-hardened; next in the agreed order is B3 (set budget from Ask).
+
+Then (Aug 23): **MIRAGE F2 — bind two-phase `confirm_action` to the proposing
+identity** (migration #016, schema v15→v16), closing the F2 item routed to Alta
+above. The finding: `confirm_action` looked a `pending_actions` row up by token
+alone and never checked who was confirming, so in a multi-member household one
+person could confirm a proposal another parked — a pre-existing property of the
+shared two-phase tier (step 7), affecting both the in-app Ask surface and the
+MCP write tier, not the Ask B2 rule increment it was found under. `created_by`
+(#007) could not be the binding key: it REFERENCES `api_tokens(id)` (NULL for
+sessions, and a member id can't live there under the runtime's enforced FK).
+Migration #016 adds `pending_actions.proposed_by_user` (nullable, FK→members),
+recorded at propose time from the authenticated identity (`g.auth["user_id"]`,
+populated for a session AND a per-person bearer token); `confirm_action` rejects
+a token whose `proposed_by_user` differs from the confirming identity — refused
+as `NotFound`, indistinguishable from a bogus token (no existence oracle), with
+a NULL/legacy proposer or an unsupplied `confirming_user` (direct verb caller)
+left unbound. The key is read server-side only, never from the request body, and
+`param_schema` is `PARAM_SPECS`-driven so the new kwarg is not exposed to MCP
+callers. Regression tests proven to fail first (neutralizing the check made the
+route-level cross-member confirm return 200/executed). Suite 670, render 165,
+GATE PASS by enumeration (sole diff `schema_version 15→16`;
+balance/by-category/income/monthly totals byte-identical on a 125-txn synthetic
+dev.db). On `claude/mirage-f2-confirm-bind`; **built, gated, awaiting Alta's
+re-gate on the Pi + deploy** (the deploy applies #016 → live schema v15→v16).
+Not yet merged.

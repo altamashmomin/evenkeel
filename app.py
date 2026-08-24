@@ -804,11 +804,13 @@ def propose_action_view():
     data = request.get_json(silent=True) or {}
     action_type = data.get("action_type")
     payload = {k: v for k, v in data.items() if k != "action_type"}
-    created_by = (g.get("auth") or {}).get("token_id")
+    auth = g.get("auth") or {}
+    created_by = auth.get("token_id")
     try:
         result = actions.propose_action(
             db, actor=ui_actor(db), created_by=created_by,
-            action_type=action_type, payload=payload)
+            action_type=action_type, payload=payload,
+            proposed_by_user=auth.get("user_id"))
     except ValueError as e:
         return bad_request(str(e))
     return jsonify(result), 201
@@ -825,7 +827,9 @@ def confirm_action_view():
     if not token:
         return bad_request("confirmation_token is required")
     try:
-        result = actions.confirm_action(db, ui_actor(db), token)
+        result = actions.confirm_action(
+            db, ui_actor(db), token,
+            confirming_user=(g.get("auth") or {}).get("user_id"))
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
     except ValueError as e:
