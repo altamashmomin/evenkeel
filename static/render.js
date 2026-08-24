@@ -67,6 +67,28 @@
     return `You've tagged two as ${label}. Auto-tag future income that matches?`;
   }
 
+  // Advisory (F3): a caution when the phrase the human is about to save is
+  // BROAD — short, with nothing else narrowing it — so it will also catch
+  // FUTURE deposits, not just the one in front of them. Returns a string to
+  // show under the input, or "" when the phrase is specific enough. Mirrors
+  // actions.rule_breadth_warning (the server's authoritative check on the
+  // propose path); the in-app dialog only ever carries match_desc + transfer,
+  // so those are the only inputs here. Non-blocking — the save still works.
+  const BROAD_MATCH_MIN_LEN = 5;           // income: a lone phrase shorter than this
+  const BROAD_TRANSFER_MATCH_MIN_LEN = 8;  // transfer: hides money both ways
+  function ruleBreadthWarning(matchDesc, isTransfer) {
+    const desc = (matchDesc || "").trim();
+    if (!desc) return "";
+    const floor = isTransfer ? BROAD_TRANSFER_MATCH_MIN_LEN : BROAD_MATCH_MIN_LEN;
+    if (desc.length >= floor) return "";
+    return isTransfer
+      ? `Heads up: “${desc}” is short, so this will also mark FUTURE ` +
+        "deposits that contain it — including a paycheck — as transfers, " +
+        "hiding them from income and spending. A longer phrase is safer."
+      : `Heads up: “${desc}” is short, so this will also tag FUTURE ` +
+        "deposits whose description contains it. A longer phrase is safer.";
+  }
+
   // A small emoji for a spending category or bill/merchant name — the icon in
   // each list row's tile. Keyword-matched on the lowercased text; 💳 as the
   // catch-all. (Income rows use 💵, set at the call site.)
@@ -1740,6 +1762,7 @@
   }
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
+           ruleBreadthWarning,
            userById, userColor, beamHTML, txnRow, billRowHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,

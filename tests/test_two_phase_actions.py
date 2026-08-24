@@ -109,6 +109,68 @@ class TwoPhaseVerbTests(unittest.TestCase):
                 {"match_desc": "ADP", "set_type": "gift"})
         self.assertEqual(0, self.count("SELECT COUNT(*) FROM pending_actions"))
 
+    # ------------------------------------------------ broad-rule warning (F3)
+
+    def test_preview_flags_broad_transfer_rule(self):
+        # A short transfer match with nothing else narrowing it matches NOTHING
+        # right now — would_match_now is 0, so the count gives the human no
+        # signal — yet it will silently mark FUTURE deposits (a paycheck next
+        # cycle) as transfers, hiding them from both income and spending. The
+        # preview must flag it broad regardless of the current-queue count.
+        result = actions.propose_action(
+            self.db, "mcp:cc", created_by=None, action_type="create_rule",
+            payload={"match_desc": "zzq", "set_transfer": 1})
+        preview = result["preview"]
+        self.assertEqual(0, preview["would_match_now"])
+        self.assertTrue(preview["broad"])
+        self.assertIsNotNone(preview["warning"])
+        self.assertIn("transfer", preview["warning"].lower())
+        # the flag rides the FROZEN preview the human's confirm reads back
+        parked = json.loads(
+            self.pending(result["confirmation_token"])["preview_json"])
+        self.assertTrue(parked["broad"])
+        self.assertEqual(preview["warning"], parked["warning"])
+
+    def test_preview_flags_broad_income_rule(self):
+        # A short income match (no bounds, no account) over-matches future
+        # inflows too — flagged, though with the milder non-transfer wording.
+        result = actions.propose_action(
+            self.db, "mcp:cc", created_by=None, action_type="create_rule",
+            payload={"match_desc": "irs", "set_type": "paycheck"})
+        self.assertTrue(result["preview"]["broad"])
+        self.assertIn("future", result["preview"]["warning"].lower())
+
+    def test_preview_does_not_flag_specific_rule(self):
+        # A long, specific match classifies future inflows too — but that's the
+        # intended, non-alarming case, so no warning.
+        result = actions.propose_action(
+            self.db, "mcp:cc", created_by=None, action_type="create_rule",
+            payload={"match_desc": "ADP PAYROLL", "set_type": "paycheck"})
+        self.assertFalse(result["preview"]["broad"])
+        self.assertIsNone(result["preview"]["warning"])
+
+    def test_preview_amount_bounds_narrow_a_short_match(self):
+        # Amount bounds narrow a short match beyond a bare substring — not broad.
+        result = actions.propose_action(
+            self.db, "mcp:cc", created_by=None, action_type="create_rule",
+            payload={"match_desc": "zzq", "set_type": "paycheck",
+                     "min_cents": 300000})
+        self.assertFalse(result["preview"]["broad"])
+        self.assertIsNone(result["preview"]["warning"])
+
+    def test_preview_mid_length_transfer_still_broad(self):
+        # Transfer rules use a stricter floor: a 5-char transfer match (e.g.
+        # 'venmo') is still broad, though the same length as an income match
+        # would not be — a broad transfer rule hides money in both directions.
+        transfer = actions.propose_action(
+            self.db, "mcp:cc", created_by=None, action_type="create_rule",
+            payload={"match_desc": "zzqxy", "set_transfer": 1})
+        self.assertTrue(transfer["preview"]["broad"])
+        income = actions.propose_action(
+            self.db, "mcp:cc", created_by=None, action_type="create_rule",
+            payload={"match_desc": "zzqxy", "set_type": "paycheck"})
+        self.assertFalse(income["preview"]["broad"])
+
     # ------------------------------------------------------------ confirm
 
     def test_confirm_create_rule_creates_and_applies(self):

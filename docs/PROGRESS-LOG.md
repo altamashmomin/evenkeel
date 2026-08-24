@@ -3716,3 +3716,55 @@ On `rework` (`a645d30` B3 + `5e8347f` hardening), pushed; **awaits Alta's merge
 next in the agreed order is B4 — wait, B4 (add bill/goal) already shipped Aug
 22, so the remaining parked items are the bill-paid pair and set_transfer from
 Ask.
+
+## Aug 23, 2026 — MIRAGE F3 second half: the "broad rule" preview warning
+
+The soft, complementary half of the F3 remediation. The hard half — a `>= 3`
+minimum `match_desc` length in the shared `_validate_income_rule` — landed
+separately as `29563d3` on `rework`; this commit sits directly on top of it, so
+the hard block and the soft nudge land together. `_preview_create_rule`
+computed `would_match_now` from CURRENT
+unclassified inflows only, so a broad-but-legal rule (short `match_desc`, no
+amount bounds, no account — especially a `set_transfer` rule) could read
+"0 matches now" and give the confirming human no signal that it will silently
+flag FUTURE inflows: a paycheck next cycle marked as a transfer, removed from
+both income and spending. This adds a **non-blocking advisory** nudge that
+fires regardless of the current-queue count.
+
+- **Server (the mechanism):** new `actions.rule_breadth_warning(fields)` +
+  `broad` (bool) / `warning` (string|None) keys in `_preview_create_rule`'s
+  return. Rides `propose_action`'s frozen `preview_json` automatically, so the
+  same flag reaches every two-phase consumer. Advisory only — never rejects
+  (the length floor is the hard block); fires even at `would_match_now == 0`.
+- **Heuristic:** broad ⇔ the ONLY narrowing is a short `match_desc` — no
+  `min_cents`/`max_cents`, no `match_account`. An account or amount bounds
+  genuinely constrain, so they're never broad; a rule with no desc at all
+  matches on those instead. Thresholds: income `< 5` chars (the `>= 3` hard
+  floor blocks 1–2), transfer `< 8` — transfers are stricter and get sterner
+  copy because a swept-in future paycheck vanishes from BOTH income and
+  spending. A 3–4 char case-insensitive substring over-matches ("irs" ⊂
+  "FIRST"); a 5–7 char transfer token ("venmo", "chase") is still dangerous.
+- **Surfaces:** the two-phase propose preview (automatic); Ask B2
+  `ledger_propose_rule` copy + the Ask system prompt (read the `warning` before
+  the human decides); the MCP `ledger_propose_income_rule` copy; and the in-app
+  suggested-rule dialog — a pure `render.js` `ruleBreadthWarning()` mirror
+  (constants cross-referenced to the server, which stays authoritative) shown
+  as a live caution under the input, the human-rubber-stamp surface.
+- **Fails-first (proven):** 5 new `test_two_phase_actions.py` tests failed with
+  `KeyError: 'broad'` before the change, pass after — headline case a broad
+  transfer rule with `would_match_now == 0` returning `broad=True`, and the
+  flag asserted riding the frozen `preview_json`. Plus 2 `test_render.js` checks
+  (income vs. transfer floors, wording, empty/whitespace).
+- **Suite 675 backend + 167 render** (+2). **GATE PASS zero-diff** (`a645d30`
+  vs new, 39 values — read-only, no schema, no verb, no money path; synthetic
+  dev.db, re-gate on the Pi before deploy). **Browser-smoked** (worktree server:
+  `Render.ruleBreadthWarning` loads, the real `input` listener toggles the
+  caution short→shows / specific→clears, no console errors, screenshot of the
+  live dialog caution).
+- **Follow-ups still open:** F2 (LOW, `confirm_action` not bound to proposer)
+  remains routed to Alta. F3 is now fully closed (hard floor `29563d3` + this
+  soft warning).
+
+Rebased onto `rework` atop `29563d3`/`71b22f3` and merged; **awaits Pi deploy**
+(no migration, schema stays v15). Post-rebase re-gate PASS zero-diff, suite
+green — the `>= 3` floor and the breadth warning compose cleanly.

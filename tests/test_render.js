@@ -90,6 +90,32 @@ check("ruleSuggestionText capitalizes the type", () => {
     "You've tagged two as Reimbursement. Auto-tag future income that matches?");
 });
 
+// ---- ruleBreadthWarning: advisory F3 caution, mirrors the server ----
+check("ruleBreadthWarning flags a short phrase, clears a specific one", () => {
+  // short income phrase → warned (mild wording, no 'transfer')
+  const w = R.ruleBreadthWarning("irs", false);
+  assert.ok(w, "a 3-char income phrase is broad");
+  assert.ok(/future/i.test(w), "names the forward effect");
+  assert.ok(!/transfer/i.test(w), "income wording, not transfer");
+  // a specific phrase → no warning
+  assert.strictEqual(R.ruleBreadthWarning("ADP PAYROLL", false), "");
+  // empty / whitespace → nothing to warn about
+  assert.strictEqual(R.ruleBreadthWarning("", false), "");
+  assert.strictEqual(R.ruleBreadthWarning("   ", true), "");
+});
+check("ruleBreadthWarning is stricter and sterner for transfers", () => {
+  // a 5-char phrase: broad as a transfer, fine as income
+  assert.ok(R.ruleBreadthWarning("venmo", true), "5-char transfer is broad");
+  assert.strictEqual(R.ruleBreadthWarning("venmo", false), "",
+    "same length is fine for income");
+  const t = R.ruleBreadthWarning("ach", true);
+  assert.ok(/transfer/i.test(t), "transfer wording names the risk");
+  assert.ok(/paycheck/i.test(t), "warns a paycheck could be hidden");
+  // at the floor, no warning (transfer floor is 8)
+  assert.strictEqual(R.ruleBreadthWarning("transfer", true), "",
+    "an 8-char transfer phrase is specific enough");
+});
+
 // ---- incomeCardHTML: every state ----
 const base = {
   gross_inflows: 3450, true_income: 3200, month_spend: 1806.5,
