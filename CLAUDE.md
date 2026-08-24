@@ -329,7 +329,19 @@ is defeated; regression test proven-fails-first), suite 667. Two LOW findings
 routed to Alta as follow-up chips (F2: confirm not bound to proposer — pre-
 existing, affects MCP; F3: no min match specificity for transfer rules). On
 `rework` (`44c1707` + `90a352e`), pushed; **awaits Alta's merge + Pi deploy**
-(no migration, schema stays v15).
+(no migration, schema stays v15). Then (Aug 23): **Ask B3 — set a category
+budget from chat** (`ledger_set_budget` → POST /api/budgets → set_budget, a
+confirm-first DEFINITION, no two-phase; facade = category + amount; chip →
+Analytics). Suite 670, GATE PASS zero-diff, route-smoked. **ledger-mirage**:
+boundary holds, money line verified at the mechanism level (budgets read by no
+money derivation; no facade escape / SQL / namespace abuse). Two LOW robustness
+nits in set_budget **fixed here** (in the exact verb B3 exposes): a huge/Infinity
+amount and a non-string category now return clean 400s (`_MAX_MONEY_CENTS` cap;
+"category must be text") instead of 500s — regression-tested proven-fail-first,
+suite 672. On `rework` (`a645d30` + `5e8347f`), pushed; **awaits Alta's merge +
+Pi deploy** (no migration, schema stays v15). The two B2 red-team follow-ups
+(F2 confirm-proposer binding, F3 transfer-match specificity) are in progress as
+separate sessions Alta started.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

@@ -3668,3 +3668,51 @@ unclassified-only). It found three gaps:
 On `rework` (`44c1707` B2 + `90a352e` F1 fix), pushed; **awaits Alta's merge +
 Pi deploy** (no migration expected live, schema stays v15). B2 complete and
 mirage-hardened; next in the agreed order is B3 (set budget from Ask).
+
+## Aug 23, 2026 — Ask B3: set a category budget from chat
+
+Third Ask-lane write increment (after B2), continuing Alta's "automate anything
+Charlee could do, within safety bounds." Charlee can now set/change a category's
+monthly budget by asking ("budget $400 a month for groceries", "bump dining to
+$250").
+
+- **One chat tool** (`agent_write_tools.py`): `ledger_set_budget` → POST
+  /api/budgets → `set_budget` verb (an upsert keyed on category). Like
+  add_bill/add_goal it's a confirm-first DEFINITION — moves no money, never
+  touches the balance — so a DIRECT tool, no two-phase/token machinery.
+  Facade is category + amount only (additionalProperties:false + the execute
+  lambda hard-codes the two keys). PARAM_SPECS gains set_budget; system prompt
+  grants it (check ledger_budget_status first to reuse a category's exact
+  name); chip → Analytics; ontology's ask door reaches it (Trace Web
+  data-driven).
+- **GATE PASS zero-diff** (ba8f083 vs rework, 42 values — no schema change, no
+  new verb, no money path). Suite 670 (+3): the tool upserts as ui:<member>, a
+  repeat changes the same row in place, a bad amount is a recoverable tool
+  error. Route-smoked live (set $400 → upsert $450 same id → negative 400s).
+
+**Then the ledger-mirage red-team pass.** Verdict: **boundary holds, money line
+intact at the mechanism level** — no facade escape (triple-checked: schema,
+execute lambda, verb), no injection path into the tool layer, no SQL (category
+`'; DROP TABLE budgets;--` stored as a literal), no category-namespace abuse (a
+budget category appears only in the budgets view, never in spending composition
+or the recategorize datalist; set_budget can't rename/shadow a category), and
+budgets are read by NO money derivation (only analytics `budget_status`) — the
+balance/spend/income were byte-identical across create/change/absurd/remove/
+resurrect. Two LOW robustness findings, both in set_budget, **FIXED this
+increment** (they're in the exact verb B3 exposes, unlike B2's F2/F3 which were
+in separate machinery):
+- **LOW-1** — an out-of-range/Infinity amount 500'd (OverflowError at SQLite
+  bind). Now capped at `_MAX_MONEY_CENTS` (2^63−1, the storage limit) → clean
+  400 "amount is too large".
+- **LOW-2** — a non-string category 500'd (AttributeError on .strip()). Now a
+  clean 400 "category must be text".
+Fix kept LOCAL to set_budget (not the shared `to_cents`, which bills/goals/
+transactions use — hardening that is its own increment). Regression test proven
+to fail (OverflowError) without the guards, then pass. Suite 672. GATE PASS
+zero-diff.
+
+On `rework` (`a645d30` B3 + `5e8347f` hardening), pushed; **awaits Alta's merge
++ Pi deploy** (no migration, schema stays v15). B3 complete and mirage-hardened;
+next in the agreed order is B4 — wait, B4 (add bill/goal) already shipped Aug
+22, so the remaining parked items are the bill-paid pair and set_transfer from
+Ask.
