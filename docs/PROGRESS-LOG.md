@@ -3801,3 +3801,40 @@ single-label MagicDNS name is flaky in iOS's system resolver besides).
 - **Awaits:** Alta's merge + Pi deploy (no migration, schema stays v15), then
   the one-time Serve/`.env` install from `deploy/calendar-https.md`, then the
   phone-side re-subscribe from the Help sheet's fresh link.
+
+### Aug 23, 2026 — DEPLOY: F3 soft-half + calendar `PUBLIC_BASE_URL` fix live (tree `f76daef` → `14647e2`)
+
+- **What shipped:** one `deploy/deploy.sh origin/main f76daef…` run on the Pi
+  advanced the live tree `f76daef` → `14647e2`, newly shipping the MIRAGE F3
+  soft half (`5351a10`, the broad-rule warning in the create-rule preview) and
+  the calendar-subscribe fix (`ac28d71`, `/api/calendar/link` honoring
+  `PUBLIC_BASE_URL`).
+- **Race handled:** a concurrent (same-day `claude/*`) session merged `ac28d71`
+  onto `main` as `14647e2` mid-deploy — the first `deploy.sh` attempt bailed on
+  its no-op/race guard (stale Pi fetch still saw `f76daef`); re-running picked up
+  the advanced `origin/main`. The extra increment was classified (no migration,
+  no money-path touch) and re-gated before shipping; the pinned `old_ref=f76daef`
+  kept the gate baseline the actually-running tree.
+- **Baseline note:** the Pi was already at `f76daef` from an earlier UNRECORDED
+  deploy that had carried the .ics feed, Trace Web detail-row flex, Ask B2
+  (propose_rule/confirm_action + F1 same-turn-confirm block), Ask B3 (set_budget
+  + hardening), and the F3 hard half (`match_desc ≥ 3`). Those are therefore also
+  live; the "awaits Alta's merge + Pi deploy" notes for them above predate that
+  deploy and are now superseded.
+- **Gate:** live real-data gate **PASS zero-diff** (42 values; who-owes-whom
+  balance and every monthly total byte-identical, zero structural diff). Synthetic
+  pre-flight also PASS zero-diff (`f76daef` vs `14647e2`), routed through the
+  ledger-release agent for the go/no-go.
+- **Schema:** no migration applied (`nothing to apply`) — live schema stays **v15**.
+- **Ops:** `pifinance` + `ledger-mcp` restarted clean; `/api/status` 200; rollback
+  backup `finance.db.bak-2026-08-23-211343` (deploy pruned to newest 10 of 11).
+- **Tailnet smoke:** served `/render.js` carries the broad-rule caution
+  (`ruleBreadthWarning`, 2 hits — note assets are served at the ROOT, not
+  `/static/`, per `static_url_path=""`); `POST /api/budgets` returns
+  `401 {"error":"authentication required"}` without a session.
+- **Still pending (infra, Alta-run):** the one-time Tailscale Serve + `.env`
+  `PUBLIC_BASE_URL` install (`deploy/calendar-https.md`) so the calendar HTTPS
+  front door activates; until then `/api/calendar/link` falls back to
+  request-mirroring (safe, but the webcal fix is inert). Then the phone-side
+  re-subscribe from the Help sheet's fresh link.
+- `origin/main` (`14647e2`) == the deployed tree.

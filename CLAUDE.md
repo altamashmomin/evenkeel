@@ -347,7 +347,25 @@ Apple rewrites `webcal://` to `https://`, so the link mirroring the plain-HTTP
 `.env` knob `PUBLIC_BASE_URL` (the Tailscale-Serve HTTPS front door; install
 doc `deploy/calendar-https.md`, Serve not Funnel). On `rework` (`ac28d71`),
 suite 678 OK, GATE PASS zero-diff; **awaits Alta's merge + Pi deploy + the
-one-time Serve/.env install.**
+one-time Serve/.env install.** **DEPLOYED (Aug 23):** Alta ran
+`deploy/deploy.sh origin/main` on the Pi, tree `f76daef`→`14647e2` — the live
+real-data gate passed **zero-diff** (42 values; who-owes-whom balance and every
+monthly total byte-identical), **no migration** (schema stays **v15**), and
+`pifinance` + `ledger-mcp` restarted clean. One deploy shipped BOTH the MIRAGE
+F3 soft half (`5351a10`, the broad-rule preview warning) AND the
+calendar-subscribe fix (`ac28d71`, `PUBLIC_BASE_URL`); a concurrent session had
+raced `ac28d71` onto `main` (as the merge `14647e2`) mid-deploy, but the pinned
+baseline (`old_ref=f76daef`) kept the gate honest and both increments shipped
+cleanly. The Pi had ALREADY been at `f76daef` from an earlier UNRECORDED deploy
+that carried the .ics feed, Trace Web flex, Ask B2, Ask B3, and the F3 hard half
+— so those are live too, and the "awaits Alta's merge + Pi deploy" notes above
+for them are now superseded. Tailnet-verified: served `/render.js` carries the
+broad-rule caution (`ruleBreadthWarning`), `POST /api/budgets` 401s without a
+session. `origin/main` (`14647e2`) == the deployed tree; the ONLY thing still
+pending is the one-time Tailscale Serve + `.env` `PUBLIC_BASE_URL` install
+(`deploy/calendar-https.md`, Alta's infra step) that activates the calendar
+HTTPS front door — until then `/api/calendar/link` safely falls back to
+request-mirroring.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
