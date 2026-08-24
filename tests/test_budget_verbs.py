@@ -61,6 +61,23 @@ class BudgetVerbTests(unittest.TestCase):
         with self.assertRaisesRegex(actions.ActionError, "invalid amount"):
             actions.set_budget(self.db, "ui:avery", {"category": "Gas", "amount": "abc"})
 
+    def test_set_budget_rejects_hostile_input_as_clean_errors(self):
+        # MIRAGE B3 LOW-1/LOW-2: absurd amounts and non-string categories used
+        # to reach a generic 500 (OverflowError / AttributeError). They must be
+        # ActionError (→ 400) instead, and write nothing.
+        for amount in (1e17, 10 ** 18, float("inf")):
+            with self.assertRaisesRegex(actions.ActionError, "amount is too large"):
+                actions.set_budget(self.db, "ui:avery",
+                                   {"category": "Gas", "amount": amount})
+        with self.assertRaisesRegex(actions.ActionError, "invalid amount"):
+            actions.set_budget(self.db, "ui:avery",
+                               {"category": "Gas", "amount": float("nan")})
+        with self.assertRaisesRegex(actions.ActionError, "category must be text"):
+            actions.set_budget(self.db, "ui:avery",
+                               {"category": 123, "amount": "100"})
+        # None of the above left a Gas budget behind.
+        self.assertIsNone(self._budget("Gas"))
+
     def test_remove_budget_soft_deletes_then_set_reactivates(self):
         row = actions.set_budget(self.db, "ui:avery", {"category": "Pets", "amount": "50"})
         actions.remove_budget(self.db, "ui:avery", row["id"])

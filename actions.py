@@ -95,6 +95,12 @@ def current_period():
     return date.today().strftime("%Y-%m")
 
 
+# SQLite stores INTEGER as signed 64-bit; a cents value past this overflows at
+# bind time. Verbs that accept a free-form amount cap against it so an absurd
+# input is a clean validation error, not a 500 (MIRAGE B3 LOW-1).
+_MAX_MONEY_CENTS = 2 ** 63 - 1
+
+
 def to_cents(value):
     """Parse a dollar amount (number or string) into integer cents, exactly."""
     try:
@@ -1637,15 +1643,31 @@ def set_budget(db, actor, data):
     Returns the budget row.
     """
     with action_transaction(db):
-        category = (data.get("category") or "").strip()[:60]
+        raw_category = data.get("category")
+        # A non-string category (e.g. a JSON number) would blow up .strip()
+        # with an AttributeError → a generic 500 (MIRAGE B3 LOW-2). Reject it
+        # as a clean validation error instead. None is allowed through — it
+        # becomes the "category is required" message below.
+        if raw_category is not None and not isinstance(raw_category, str):
+            raise ActionError("category must be text")
+        category = (raw_category or "").strip()[:60]
         if not category:
             raise ActionError("category is required")
         try:
             cents = to_cents(data.get("amount"))
-        except (ValueError, TypeError):
+        except OverflowError:
+            # Infinity → OverflowError inside to_cents' int() conversion.
+            raise ActionError("amount is too large")
+        except (InvalidOperation, ValueError, TypeError):
             raise ActionError("invalid amount")
         if cents <= 0:
             raise ActionError("amount must be positive")
+        # A huge finite amount (e.g. 1e17) parses fine but overflows SQLite's
+        # signed-64-bit integer column at bind time → a generic 500 (MIRAGE
+        # B3 LOW-1). Cap it as a clean validation error; the ceiling is the
+        # storage limit, not a business judgment.
+        if cents > _MAX_MONEY_CENTS:
+            raise ActionError("amount is too large")
         before = db.execute(
             "SELECT * FROM budgets WHERE category = ?", (category,)).fetchone()
         now = _now()
