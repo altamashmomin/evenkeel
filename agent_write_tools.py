@@ -19,7 +19,10 @@ deadline, pause-until), and set_item_interval (a user-set restock cadence,
 DEFINITION or a savings-goal TARGET, confirm-first: both move no money, touch no
 transaction, and never change the who-owes-whom balance; each bottoms out in the
 existing POST /api/bills / POST /api/goals route → create_bill / create_goal
-verb); and the rule pair (B2) — propose_rule / confirm_action, the ONE surface
+verb); set_budget (B3 — set/change a category's monthly spending limit, another
+confirm-first DEFINITION that moves no money and never touches the balance,
+POST /api/budgets → set_budget verb, an upsert keyed on category); and the rule
+pair (B2) — propose_rule / confirm_action, the ONE surface
 here that is two-phase BY THE SERVER, not just by the prompt: proposing parks a
 frozen payload + dry-run preview in pending_actions and returns a single-use
 token (nothing written), and confirming executes exactly the frozen payload —
@@ -278,6 +281,24 @@ WRITE_TOOLS = [
         "execute": lambda caller, a: caller("POST", "/api/goals", {
             k: a[k] for k in ("name", "target", "target_date")
             if a.get(k) is not None}),
+    },
+    {
+        "name": "ledger_set_budget",
+        "description":
+            "Set or change a category's MONTHLY spending limit ('budget $400 a "
+            "month for groceries', 'bump dining to $250'). A budget is just a "
+            "target the app tracks spending against — it moves NO money, isn't "
+            "a payment, and never changes the who-owes-whom balance. CONFIRM "
+            "FIRST: read back the category and the dollar limit and set it only "
+            "once they say yes — don't invent a number they didn't give. Check "
+            "ledger_budget_status first so you use an existing category's exact "
+            "name (setting the same category again just changes its limit; a "
+            "new name starts a new budget). Amount is dollars, must be "
+            "positive. Logged and reversible; removing a budget happens in the "
+            "app.",
+        "input_schema": actions.param_schema("set_budget"),
+        "execute": lambda caller, a: caller("POST", "/api/budgets", {
+            "category": a.get("category"), "amount": a.get("amount")}),
     },
 ]
 

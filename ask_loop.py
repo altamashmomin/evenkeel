@@ -46,6 +46,7 @@ _ACTION_NAV = {
     "ledger_recategorize_transaction": ("activity", "Review in Activity"),
     "ledger_add_bill": ("bills", "Open Bills"),
     "ledger_add_goal": ("goals", "Open Goals"),
+    "ledger_set_budget": ("analytics", "Open Analytics"),
     # B2: proposing parks a preview — nothing changed yet, so no chip; the
     # chip belongs to the confirm, whose backlog sweep lands in Activity.
     "ledger_propose_rule": None,
@@ -268,8 +269,16 @@ def system_prompt(period):
         "coffee', 'add paper towels', 'stop tracking napkins', 'match dog food to "
         "chewy', 'remind me to buy dish soap monthly', 'what do we need?'. Say "
         "plainly what you did; it's all reversible and logged.\n"
-        "- You can also show how they're doing against their category budgets "
-        "(ledger_budget_status) when they ask.\n"
+        "- You can show how they're doing against their category budgets "
+        "(ledger_budget_status), and you CAN set or change a category's monthly "
+        "budget with ledger_set_budget ('budget $400 a month for groceries', "
+        "'bump dining to $250'). A budget is just a target to track spending "
+        "against — it moves NO money and never changes the balance. Confirm "
+        "first: read back the category and the dollar amount and set it only "
+        "once they say yes — never invent a number. Check ledger_budget_status "
+        "first so you reuse an existing category's exact name (setting the same "
+        "one again just changes its limit). Say plainly what you set; it's "
+        "reversible (removing a budget happens in the app).\n"
         "- If a tool errors or you're unsure, say so plainly rather than guessing."
     )
 

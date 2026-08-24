@@ -202,10 +202,12 @@ class ManifestEdgeTests(unittest.TestCase):
                           "set_rule_enabled"], c["mcp"])
         # B2: the ask door now reaches the two-phase pair, same as the MCP
         # door — the rule tools call /api/actions/propose + /confirm.
+        # B2: propose/confirm; B3: set_budget — the ask door now reaches both.
         self.assertEqual(["add_item", "archive_item", "classify_inflow",
                           "confirm_action", "create_bill", "create_goal",
                           "propose_action",
                           "recategorize_transaction", "restock_items",
+                          "set_budget",
                           "set_item_interval", "set_item_match",
                           "set_item_need_by", "set_item_snooze",
                           "set_item_status", "set_item_store"], c["ask"])

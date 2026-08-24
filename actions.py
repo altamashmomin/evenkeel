@@ -2126,6 +2126,17 @@ PARAM_SPECS = {
               "ever pass a token you received this conversation — never "
               "invent or reuse one."),
     ],
+    # B3: set a category's monthly spending limit from Ask. Like add_bill/
+    # add_goal it's a DEFINITION — it moves no money and never touches the
+    # balance — so it's a direct confirm-first tool, no two-phase needed.
+    # An upsert: naming an existing category changes its limit.
+    "set_budget": [
+        Param("category", "string",
+              "The spending category to budget, e.g. 'Groceries'. If a budget "
+              "for it already exists, this changes the limit."),
+        Param("amount", "number",
+              "The monthly limit in dollars, e.g. 400. Must be positive."),
+    ],
 }
 
 
