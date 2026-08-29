@@ -3838,3 +3838,43 @@ single-label MagicDNS name is flaky in iOS's system resolver besides).
   request-mirroring (safe, but the webcal fix is inert). Then the phone-side
   re-subscribe from the Help sheet's fresh link.
 - `origin/main` (`14647e2`) == the deployed tree.
+## Aug 29, 2026 — the move-in fresh start (a DATA operation, no code)
+
+Alta & Charlee are moving in together; the books carried erroneous
+pre-move-in data that predates the `is_transfer` feature. Diagnosed live
+(MCP reads) + rehearsed on a real-data copy before any live change
+(scratchpad `stage_movein_cleanup.py`: verbs-only, exact-match target
+assertions, before/after enumeration, settle-up simulation).
+
+**What was wrong:** three $8,000 bank self-transfers (Jul 30–31) synced as
+spending — two of Alta's split 50/50 (= $8,000 phantom debt), Charlee's
+Capital One one unsplit (spend pollution only) — plus their $8,000+$8,000
+inflow arrival legs and a $1,074.95 Fidelity moneyline inflating gross
+inflows. On Aug 8 a **$13,109.90 bookkeeping-only settlement** (txn 76,
+no real money moved — Alta confirmed) had been recorded to zero the
+then-visible balance; it absorbed the $8,000 phantom AND $5,109.90 of
+real shared expenses, and sat in history as the "$12,000 issue."
+
+**The fix (all existing audited verbs, applied by Alta in the app,
+`ui:altamash`; Pi backup taken first):** mark the 6 transfer rows
+`is_transfer=1` (`set_transfer`, T2's toggle) + `delete_transaction` on
+settlement 76 (settlement delete-and-recreate policy; links severed).
+No schema change, no deploy, schema stays v15.
+
+**Verified live over the tailnet, matching the staged prediction to the
+cent:** balance $505.85 → **$5,615.75 Charlee→Alta** (the resurfaced real
+debt the fake settlement had silently absorbed, + the prior $505.85);
+July spend $24,416.64 → **$416.64** (−$24,000 exactly); July gross
+inflows → $1,872.50; Aug gross $3,045.14 / spend $3,802.50 byte-match.
+Breakdown carryover is transiently non-zero (severed links) — expected,
+and closed by the next settle-up, which links every open line.
+
+**Remaining (deliberate):** on move-in day, a real `settle_up` zeroes the
+balance and empties the breakdown (staged: $0 balance, 0 open lines, $0
+carryover). Whether Charlee pays the ~$5,615.75 or it's recorded as an
+explicit fresh-start forgiveness is Alta & Charlee's call — either is
+mathematically clean. Rollback assets: Alta's Pi backup
+(`finance.db.bak-2026-08-29`) + the Mac's pristine 18:54 pre-cleanup
+pull (`live-copy.db`); keep both until after move-in day. Also:
+`.gitignore` gained `*.db.staged` so rehearsal copies of real data can
+never be committed.
