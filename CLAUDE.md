@@ -378,8 +378,12 @@ count), folding the redundant Bills tab in. Bills-only, current month;
 `calendarAgendaHTML` + `renderBills`→`renderCalendar` + one backend line (the
 Ask add-bill chip "Open Bills"→"Open Calendar"). Suite **678**, render **173**
 (+6), **GATE zero-diff by construction** (no derivation/migration/schema),
-browser-smoked both themes. On `rework`; **awaits Alta's merge + Pi deploy**
-(no migration — schema stays **v15**). Full record in PROGRESS-LOG.
+browser-smoked both themes. **DEPLOYED (Aug 30, `main` `f510987`, tree
+`14647e2`→`f510987`):** live real-data gate PASS **zero-diff**, **no migration**
+(schema stays **v15**), `pifinance`+`ledger-mcp` restarted, smoke OK; a
+pre-deploy tidy first cleared Aug-23 debris (a truncated `migrate.py` + eight
+0-byte files) that `deploy.sh`'s dirty-tree guard had blocked on. `origin/main`
+== the deployed tree. Full record in PROGRESS-LOG.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

@@ -3917,6 +3917,25 @@ derivation/migration/schema. Real-data-copy snapshot computed clean (balance
 $505.85, 15 tables). **Browser-smoked** mobile, both themes (synthetic seed):
 agenda OVERDUE/PAID/OVERDUE/DUE/DUE with day-29 (today) highlighted, "1 of 5
 paid"; manage list intact (4 pay / 1 undo / 5 edit / add); "Calendar" in nav +
-More sheet; Help blurb updated. On `rework`; **awaits Alta's merge + Pi deploy**
-(no migration — schema stays **v15**). The external `.ics` subscribe still
+More sheet; Help blurb updated.
+
+**DEPLOYED (Aug 30):** merged to `main` (`f510987`, a `--no-ff` merge of
+`rework`) and Alta ran `deploy/deploy.sh origin/main 14647e2` on the Pi. Live
+real-data gate **PASS — zero-diff** (who-owes-whom balance and every monthly
+total unchanged to the cent, no structural diff); **no migration** (`nothing to
+apply` — schema stays **v15**); tree `14647e2`→`f510987`; `pifinance` +
+`ledger-mcp` restarted clean; `/api/status` smoke OK; local `main` healed to
+`f510987`. Rollback backup `finance.db.bak-2026-08-30-174520` (pruned to newest
+10). `origin/main` == the deployed tree. The external `.ics` subscribe still
 awaits the separate Tailscale-Serve HTTPS install (unchanged).
+
+**Pre-deploy cleanup (Pi hygiene):** `deploy.sh`'s dirty-tree guard correctly
+blocked the first attempt — the Pi's working tree carried **Aug-23 debris**:
+`migrate.py` truncated to 0 bytes plus eight 0-byte files named after
+`deploy.sh`'s own echo words (`backing`, `checkout`, `stopping`, `service`,
+`starting`, `healed`, `git`, `14647e2`), all stamped Aug 23 21:14 — splatter
+from that day's raced deploy. `migrate.py` is only invoked *during* a deploy, so
+the running service was never affected. Fixed by restoring `migrate.py` from git
+(`git checkout -- migrate.py`) and removing the eight files **by explicit name**
+— deliberately not `git clean`, which would also have taken the Pi's untracked
+`.env` / `finance.db` / backups.
