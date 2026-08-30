@@ -383,7 +383,16 @@ browser-smoked both themes. **DEPLOYED (Aug 30, `main` `f510987`, tree
 (schema stays **v15**), `pifinance`+`ledger-mcp` restarted, smoke OK; a
 pre-deploy tidy first cleared Aug-23 debris (a truncated `migrate.py` + eight
 0-byte files) that `deploy.sh`'s dirty-tree guard had blocked on. `origin/main`
-== the deployed tree. Full record in PROGRESS-LOG.
+== the deployed tree. Full record in PROGRESS-LOG. Then (Aug 30, same session):
+the **calendar HTTPS front door is now INSTALLED** — the last-pending infra item
+above is closed. On the Pi: `tailscale serve --bg 8080` (TLS on 443, tailnet-only,
+NOT Funnel) + `PUBLIC_BASE_URL=https://raspberrypi.tail67f100.ts.net` in `.env`
+(a stray placeholder `<pi-dns-name>` line from an earlier partial attempt was
+removed first — it would have overridden the real value), `pifinance`+`ledger-mcp`
+restarted. Verified over HTTPS: `/api/status` 200, `/api/calendar/link` 401
+(session-gated), bogus-token feed 404. So `webcal://` subscribe links now resolve;
+the external `.ics` calendar subscription works (final iPhone subscribe is the
+user-facing confirmation). No code/schema change — an ops/config step only.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

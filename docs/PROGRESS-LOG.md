@@ -3939,3 +3939,42 @@ the running service was never affected. Fixed by restoring `migrate.py` from git
 (`git checkout -- migrate.py`) and removing the eight files **by explicit name**
 — deliberately not `git clean`, which would also have taken the Pi's untracked
 `.env` / `finance.db` / backups.
+
+## Aug 30, 2026 — calendar HTTPS front door installed (the external .ics subscribe)
+
+The last item that had sat "pending" since Aug 23: the `.ics` calendar
+**subscription** (distinct from the in-app Calendar tab shipped earlier today).
+Apple rewrites `webcal://`→`https://`, so the subscribe link could never connect
+while it pointed at the plain-HTTP `:8080` origin. Fixed by the Pi-side install
+in `deploy/calendar-https.md` — an **ops/config step, no code or schema change**.
+
+**Done on the Pi (interactive walk with Alta, sudo his):**
+1. Enabled **HTTPS Certificates** in the Tailscale admin console (MagicDNS
+   already on).
+2. `sudo tailscale serve --bg 8080` — a real HTTPS front door: TLS on 443 with a
+   Let's Encrypt cert for the Pi's `*.ts.net` name, proxying to the app.
+   **Serve, NOT Funnel** — stays tailnet-only; the feed carries finance data
+   behind a token-in-URL and must never be public-internet exposed.
+   `tailscale serve status` → `https://raspberrypi.tail67f100.ts.net (tailnet
+   only) → 127.0.0.1:8080`.
+3. Pinned the app's links to that door: `PUBLIC_BASE_URL=https://raspberrypi.tail67f100.ts.net`
+   in `~/pifinance/.env`, then restarted `pifinance` (+ `ledger-mcp`, which
+   `Requires=pifinance` so a restart drops it — same reason `deploy.sh` restarts
+   both).
+
+**Pre-existing misconfig fixed:** `.env` already held TWO `PUBLIC_BASE_URL`
+lines from an earlier partial attempt — the correct one AND a literal
+`PUBLIC_BASE_URL=https://<pi-dns-name>` placeholder. Duplicate keys → last wins,
+so the placeholder would have won and broken every link. Backed up `.env`, then
+`grep -vF '<pi-dns-name>'` to drop only the placeholder line (the real line
+doesn't contain that token), leaving exactly one correct value.
+
+**Verified over HTTPS** (`https://raspberrypi.tail67f100.ts.net`): `/api/status`
+→ 200; `/api/calendar/link` → 401 (session-gated, correct); bogus-token feed
+`/calendar/deadbeef.ics` → 404. Server side fully proven; the final iPhone
+subscribe (Help sheet → "Get my calendar link" → tap the `webcal://…` → Apple
+Calendar adds "Ledger") is the user-facing confirmation. Notes: the phone
+refreshes the feed only while its Tailscale is connected; rotating `SECRET_KEY`
+still revokes every derived feed link at once (`PUBLIC_BASE_URL` only changes
+where links point). This closes the calendar effort end to end — in-app tab
+**and** external subscribe both live.
