@@ -1436,6 +1436,63 @@ check("billRowHTML escapes hostile name/category (no breakout)", () => {
   assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
 });
 
+// ---- calendarAgendaHTML: the Calendar tab's dated bills agenda ----
+check("calendarAgendaHTML empty state", () => {
+  assert.ok(R.calendarAgendaHTML([], "2026-09-15", "2026-09").includes("No bills this month."));
+  assert.ok(R.calendarAgendaHTML(null, "2026-09-15", "2026-09").includes("No bills this month."));
+});
+check("calendarAgendaHTML: paid vs due vs overdue markers + today highlight", () => {
+  const h = R.calendarAgendaHTML([
+    { id: 1, name: "Internet", category: "Utilities", due_day: 1,  amount: 60,   paid_this_period: true },
+    { id: 2, name: "Rent",     category: "Housing",   due_day: 5,  amount: 1800, paid_this_period: false },
+    { id: 3, name: "Car ins",  category: "Auto",      due_day: 15, amount: 140,  paid_this_period: false },
+    { id: 4, name: "Phone",    category: "Utilities", due_day: 20, amount: 45,   paid_this_period: false },
+  ], "2026-09-15", "2026-09");
+  assert.ok(h.includes("badge paid"), "the paid bill reads paid");
+  assert.ok(h.includes("badge overdue"), "the past-due unpaid bill (day 5 < 15) reads overdue");
+  assert.ok(h.includes("badge due"), "the future unpaid bill (day 20) reads due");
+  assert.ok(h.includes("cal-today"), "the bill due today (day 15) is highlighted");
+  assert.ok(h.includes("$1,800.00") && h.includes("Rent"), "amount + name render");
+});
+check("calendarAgendaHTML orders by clamped date regardless of input order", () => {
+  const h = R.calendarAgendaHTML([
+    { id: 1, name: "Late",  category: "", due_day: 25, amount: 10, paid_this_period: false },
+    { id: 2, name: "Early", category: "", due_day: 3,  amount: 10, paid_this_period: false },
+  ], "2026-09-01", "2026-09");
+  assert.ok(h.indexOf("Early") < h.indexOf("Late"), "day 3 sorts before day 25");
+});
+check("calendarAgendaHTML clamps due_day 31 to the month's real last day", () => {
+  // Sept has 30 days; Feb 2026 (not a leap year) has 28.
+  const sep = R.calendarAgendaHTML(
+    [{ id: 1, name: "X", category: "", due_day: 31, amount: 1, paid_this_period: false }],
+    "2026-09-01", "2026-09");
+  assert.ok(sep.includes("<b>30</b>"), "day 31 -> 30 in September");
+  const feb = R.calendarAgendaHTML(
+    [{ id: 1, name: "X", category: "", due_day: 31, amount: 1, paid_this_period: false }],
+    "2026-02-01", "2026-02");
+  assert.ok(feb.includes("<b>28</b>"), "day 31 -> 28 in Feb 2026");
+});
+check("calendarAgendaHTML summary counts paid, celebrates all-paid", () => {
+  const some = R.calendarAgendaHTML([
+    { id: 1, name: "A", category: "", due_day: 1, amount: 1, paid_this_period: true },
+    { id: 2, name: "B", category: "", due_day: 2, amount: 1, paid_this_period: false },
+  ], "2026-09-15", "2026-09");
+  assert.ok(some.includes("1 of 2 paid"), "partial count");
+  const all = R.calendarAgendaHTML([
+    { id: 1, name: "A", category: "", due_day: 1, amount: 1, paid_this_period: true },
+  ], "2026-09-15", "2026-09");
+  assert.ok(all.includes("All 1 paid"), "all-paid celebratory line");
+});
+check("calendarAgendaHTML escapes a hostile bill name (no breakout)", () => {
+  // The agenda legitimately emits <b>DAY</b> for the date cell, so we probe the
+  // exact hostile fragments (name "<b>&", category "<x>") rather than any <b>.
+  const h = R.calendarAgendaHTML(
+    [{ id: 1, name: 'A"<b>&', category: 'C"<x>', due_day: 4, amount: 1, paid_this_period: false }],
+    "2026-09-15", "2026-09");
+  assert.ok(!h.includes("<b>&") && !h.includes("<x>"), "name/category markup neutralized");
+  assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
+});
+
 // ---- contribLogHTML: the goal contribution log (empty / sign / escaping) ----
 check("contribLogHTML empty state", () => {
   const h = R.contribLogHTML([]);

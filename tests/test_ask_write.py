@@ -211,8 +211,8 @@ class AskWriteTests(AskWriteBase):
         out = self.ask(mock, msg="add our $85.50 electric bill due the 12th",
                        caller=self.caller)
         self.assertEqual(["ledger_add_bill"], out["tools_used"])
-        # A1: adding a bill is reviewable in the Bills tab.
-        self.assertEqual([{"tab": "bills", "label": "Open Bills"}], out["actions"])
+        # A1: adding a bill is reviewable in the Calendar tab (the `bills` key).
+        self.assertEqual([{"tab": "bills", "label": "Open Calendar"}], out["actions"])
         conn = self.db()
         try:
             # the row just created (highest id) — the seed also has an 'Electric'

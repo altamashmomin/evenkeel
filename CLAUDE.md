@@ -365,7 +365,21 @@ session. `origin/main` (`14647e2`) == the deployed tree; the ONLY thing still
 pending is the one-time Tailscale Serve + `.env` `PUBLIC_BASE_URL` install
 (`deploy/calendar-https.md`, Alta's infra step) that activates the calendar
 HTTPS front door — until then `/api/calendar/link` safely falls back to
-request-mirroring.
+request-mirroring. Then (Aug 29) the **move-in fresh start** — a DATA
+operation, no code: six bank self-transfers marked `is_transfer=1` and the
+$13,109.90 bookkeeping-only settlement (txn 76) deleted, all via existing
+audited verbs; the real $5,615.75 Charlee→Alta debt the fake settlement had
+absorbed resurfaced, and a move-in `settle_up` to zero it is pending Alta &
+Charlee's call. Schema stays v15, nothing deployed. Then (Aug 30): **the
+Calendar tab** — the Bills tab reworked into a shared, in-app agenda of the
+month's bills (paid ✓ / due / overdue, today highlighted, "N of M paid"
+count), folding the redundant Bills tab in. Bills-only, current month;
+**frontend-only**, reuses `/api/bills`, tab key stays `bills`. New pure
+`calendarAgendaHTML` + `renderBills`→`renderCalendar` + one backend line (the
+Ask add-bill chip "Open Bills"→"Open Calendar"). Suite **678**, render **173**
+(+6), **GATE zero-diff by construction** (no derivation/migration/schema),
+browser-smoked both themes. On `rework`; **awaits Alta's merge + Pi deploy**
+(no migration — schema stays **v15**). Full record in PROGRESS-LOG.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

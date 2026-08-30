@@ -1448,7 +1448,7 @@
   const HELP_TAB_BLURB = {
     dashboard: "The big picture — who owes who, what you've spent this month, and what's coming up.",
     activity:  "Every transaction. Tap one to fix its label or details.",
-    bills:     "What's due, and when. Mark things paid here.",
+    bills:     "Your shared bill calendar — what's due, when, and what's paid. Mark things paid here.",
     goals:     "What you're saving toward, and how it's growing.",
     analytics: "Trends over time — for when you're curious. Nothing you need to touch.",
     inventory: "The shared shopping list and the staples you keep on hand.",
@@ -1685,6 +1685,59 @@
       </li>`;
   }
 
+  // The Calendar tab's agenda: this month's bills laid out by due-date, each
+  // showing paid / due / overdue, with today highlighted. It reads the very
+  // same /api/bills rows the manage-list below uses — it only reorganizes them
+  // by date, so the two views can never disagree. Pure and CLOCK-FREE: todayISO
+  // and monthISO are injected (same convention as the calendar_events
+  // derivation taking as_of), so it's headless-testable.
+  //   - each bill's due_day is clamped into the month (due_day 31 -> the
+  //     month's real last day; mirrors derivations._clamped_due_date), so
+  //     Feb/short months never render a nonexistent date;
+  //   - rows sort by clamped date then name, independent of caller order;
+  //   - unpaid + due-date-already-past reads "overdue", else "due".
+  // NO money is summed here (bill amounts arrive as dollars-as-floats at the
+  // JSON edge): the summary is a COUNT, honoring the integer-cents invariant.
+  // A "$ still due" figure would have to come from the server's
+  // cash_flow_forecast, never JS addition.
+  function calendarAgendaHTML(bills, todayISO, monthISO) {
+    if (!bills || !bills.length)
+      return `<div class="card cal-agenda"><p class="empty">No bills this month.</p></div>`;
+    const [y, mo] = monthISO.split("-").map(Number);
+    const lastDay = new Date(y, mo, 0).getDate();   // day 0 of next month = this month's last
+    const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dated = bills.map((b) => {
+      const day = Math.min(b.due_day, lastDay);
+      const dISO = `${monthISO}-${String(day).padStart(2, "0")}`;
+      return { b, day, dISO, wd: WD[new Date(y, mo - 1, day).getDay()] };
+    }).sort((p, q) => p.day - q.day || String(p.b.name).localeCompare(String(q.b.name)));
+    const rows = dated.map(({ b, day, dISO, wd }) => {
+      const paid = b.paid_this_period;
+      const overdue = !paid && dISO < todayISO;
+      const state = paid ? "paid" : overdue ? "overdue" : "due";
+      const today = dISO === todayISO ? " cal-today" : "";
+      return `
+        <li class="cal-row${today}">
+          <span class="cal-day"><b>${day}</b><span>${wd}</span></span>
+          <div class="grow">
+            <div class="title">${esc(b.name)}</div>
+            <div class="sub">${esc(b.category || "")}</div>
+          </div>
+          <span class="amt amount">${fmt(b.amount)}</span>
+          <span class="badge ${state}">${state}</span>
+        </li>`;
+    });
+    const paidCount = bills.filter((b) => b.paid_this_period).length;
+    const sum = paidCount === bills.length
+      ? `All ${bills.length} paid 🎉`
+      : `${paidCount} of ${bills.length} paid`;
+    return `
+      <div class="card cal-agenda">
+        <p class="cal-sum">${sum}</p>
+        <ul class="list">${rows.join("")}</ul>
+      </div>`;
+  }
+
   // One Bills-tab row. Pure: paid_this_period picks the "paid" badge + Undo vs
   // the Mark-paid button; the icon falls back to the bill name when the bill
   // carries no category. The section-head + empty state stay in app.js, as with
@@ -1763,7 +1816,7 @@
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            ruleBreadthWarning,
-           userById, userColor, beamHTML, txnRow, billRowHTML,
+           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, billRowHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
            moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,

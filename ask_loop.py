@@ -44,7 +44,7 @@ class NotConfigured(RuntimeError):
 _ACTION_NAV = {
     "ledger_classify_inflow": ("activity", "Review in Activity"),
     "ledger_recategorize_transaction": ("activity", "Review in Activity"),
-    "ledger_add_bill": ("bills", "Open Bills"),
+    "ledger_add_bill": ("bills", "Open Calendar"),
     "ledger_add_goal": ("goals", "Open Goals"),
     "ledger_set_budget": ("analytics", "Open Analytics"),
     # B2: proposing parks a preview — nothing changed yet, so no chip; the

@@ -3878,3 +3878,45 @@ mathematically clean. Rollback assets: Alta's Pi backup
 pull (`live-copy.db`); keep both until after move-in day. Also:
 `.gitignore` gained `*.db.staged` so rehearsal copies of real data can
 never be committed.
+
+## Aug 30, 2026 — Calendar tab (replaces Bills)
+
+Alta & Charlee wanted a shared, in-app calendar of the month's bills with
+paid status. The `.ics` subscribe link can't serve that yet — Apple rewrites
+`webcal://`→`https://`, so it needs the Tailscale-Serve HTTPS front door
+(`deploy/calendar-https.md`), still Alta's pending one-time install. An in-app
+tab **sidesteps the subscription entirely** (both people see the calendar with
+no external subscribe) and folds the now-redundant Bills tab in.
+
+**Scope (chosen with Alta):** bills-only · agenda-list layout (phone-first,
+no cramped 7-column grid) · current month only (keeps "mark paid" tied to the
+current period). ⇒ **frontend-only**, reuses `/api/bills`, no backend*/schema/
+money change.
+
+The **Bills tab became the Calendar tab** — internal key stays `bills`, so
+`MORE_TABS` / `PINNED` / the Help sheet / the Ask `_ACTION_NAV` chip keep
+working. Two cards:
+1. a new pure `calendarAgendaHTML(bills, todayISO, monthISO)` (render.js): this
+   month's bills laid out by **clamped** due-date (due_day 31 → the month's real
+   last day, mirroring `_clamped_due_date`), each showing **paid ✓ / due /
+   overdue** with **today highlighted**, plus a **"N of M paid" COUNT** —
+   deliberately no dollar sum in JS (integer-cents invariant; a "$ still due"
+   figure would come from the server's `cash_flow_forecast`). Clock-free
+   (todayISO/monthISO injected), so headless-testable.
+2. the **unchanged** `billRowHTML` manage list (Mark paid / Undo / edit / Add
+   bill) — the proven money-touching surface, untouched.
+
+`renderBills`→`renderCalendar`; small additive CSS (reuses `.badge.*` + theme
+tokens, so light/dark both hold). *The one backend line: the Ask add-bill chip
+label "Open Bills"→"Open Calendar" (+ its test).
+
+Suite **678** OK, render **173** (+6: Sept→30/Feb→28 clamp, paid/due/overdue
+markers & ordering, today highlight, count, escaping). **GATE zero-diff by
+construction** — only `static/*.js` + `static/style.css` + two tests changed; no
+derivation/migration/schema. Real-data-copy snapshot computed clean (balance
+$505.85, 15 tables). **Browser-smoked** mobile, both themes (synthetic seed):
+agenda OVERDUE/PAID/OVERDUE/DUE/DUE with day-29 (today) highlighted, "1 of 5
+paid"; manage list intact (4 pay / 1 undo / 5 edit / add); "Calendar" in nav +
+More sheet; Help blurb updated. On `rework`; **awaits Alta's merge + Pi deploy**
+(no migration — schema stays **v15**). The external `.ics` subscribe still
+awaits the separate Tailscale-Serve HTTPS install (unchanged).
