@@ -6,6 +6,7 @@
 *.db
 *.db.bak-*
 *.db.nightly-*
+*.db.staged
 .last-sync
 *.db-wal
 *.db-shm

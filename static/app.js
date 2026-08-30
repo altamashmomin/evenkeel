@@ -14,7 +14,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
-        beamHTML, txnRow, billRowHTML, contribLogHTML, goalCardHTML } = window.Render;
+        beamHTML, txnRow, calendarAgendaHTML, billRowHTML, contribLogHTML, goalCardHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -223,7 +223,7 @@ dlgPassword?.addEventListener("click", (e) => { if (e.target === dlgPassword) dl
 const TABS = [
   ["dashboard", "Home"],
   ["activity", "Activity"],
-  ["bills", "Bills"],
+  ["bills", "Calendar"],
   ["goals", "Goals"],
   ["analytics", "Analytics"],
   ["inventory", "Pantry"],
@@ -436,7 +436,7 @@ async function render() {
   try {
     if (state.tab === "dashboard") main.innerHTML = await renderDashboard();
     if (state.tab === "activity") main.innerHTML = await renderActivity();
-    if (state.tab === "bills") main.innerHTML = await renderBills();
+    if (state.tab === "bills") main.innerHTML = await renderCalendar();
     if (state.tab === "goals") main.innerHTML = await renderGoals();
     if (state.tab === "analytics") main.innerHTML = await renderAnalytics();
     if (state.tab === "inventory") main.innerHTML = await renderInventory();
@@ -578,18 +578,25 @@ async function renderActivity() {
 
 /* ================= bills ================= */
 
-async function renderBills() {
+// The Calendar tab (was Bills): a shared, at-a-glance agenda of this month's
+// bills by due-date on top, then the manage-list below with the pay/undo/edit
+// actions. Both read the one /api/bills fetch, so they can't disagree; only the
+// agenda is new presentation — the lower list and its [data-bill-*] wiring
+// (wireMain) are the proven money-touching surface, unchanged.
+async function renderCalendar() {
   const bills = await api("/api/bills");
   window._bills = bills;
-  const rows = bills.length
+  const manageRows = bills.length
     ? `<ul class="list">${bills.map(billRowHTML).join("")}</ul>`
     : `<p class="empty">No recurring bills yet.</p>`;
   return `
     <div class="section-head">
-      <p class="eyebrow" style="margin:0">Bills — ${monthName(thisMonthISO())}</p>
+      <p class="eyebrow" style="margin:0">Calendar — ${monthName(thisMonthISO())}</p>
       <button class="btn small" id="btn-add-bill">Add bill</button>
     </div>
-    <div class="card">${rows}</div>`;
+    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO())}
+    <p class="eyebrow cal-manage-head">Your bills</p>
+    <div class="card">${manageRows}</div>`;
 }
 
 /* ================= goals ================= */

@@ -3801,3 +3801,122 @@ single-label MagicDNS name is flaky in iOS's system resolver besides).
 - **Awaits:** Alta's merge + Pi deploy (no migration, schema stays v15), then
   the one-time Serve/`.env` install from `deploy/calendar-https.md`, then the
   phone-side re-subscribe from the Help sheet's fresh link.
+
+### Aug 23, 2026 — DEPLOY: F3 soft-half + calendar `PUBLIC_BASE_URL` fix live (tree `f76daef` → `14647e2`)
+
+- **What shipped:** one `deploy/deploy.sh origin/main f76daef…` run on the Pi
+  advanced the live tree `f76daef` → `14647e2`, newly shipping the MIRAGE F3
+  soft half (`5351a10`, the broad-rule warning in the create-rule preview) and
+  the calendar-subscribe fix (`ac28d71`, `/api/calendar/link` honoring
+  `PUBLIC_BASE_URL`).
+- **Race handled:** a concurrent (same-day `claude/*`) session merged `ac28d71`
+  onto `main` as `14647e2` mid-deploy — the first `deploy.sh` attempt bailed on
+  its no-op/race guard (stale Pi fetch still saw `f76daef`); re-running picked up
+  the advanced `origin/main`. The extra increment was classified (no migration,
+  no money-path touch) and re-gated before shipping; the pinned `old_ref=f76daef`
+  kept the gate baseline the actually-running tree.
+- **Baseline note:** the Pi was already at `f76daef` from an earlier UNRECORDED
+  deploy that had carried the .ics feed, Trace Web detail-row flex, Ask B2
+  (propose_rule/confirm_action + F1 same-turn-confirm block), Ask B3 (set_budget
+  + hardening), and the F3 hard half (`match_desc ≥ 3`). Those are therefore also
+  live; the "awaits Alta's merge + Pi deploy" notes for them above predate that
+  deploy and are now superseded.
+- **Gate:** live real-data gate **PASS zero-diff** (42 values; who-owes-whom
+  balance and every monthly total byte-identical, zero structural diff). Synthetic
+  pre-flight also PASS zero-diff (`f76daef` vs `14647e2`), routed through the
+  ledger-release agent for the go/no-go.
+- **Schema:** no migration applied (`nothing to apply`) — live schema stays **v15**.
+- **Ops:** `pifinance` + `ledger-mcp` restarted clean; `/api/status` 200; rollback
+  backup `finance.db.bak-2026-08-23-211343` (deploy pruned to newest 10 of 11).
+- **Tailnet smoke:** served `/render.js` carries the broad-rule caution
+  (`ruleBreadthWarning`, 2 hits — note assets are served at the ROOT, not
+  `/static/`, per `static_url_path=""`); `POST /api/budgets` returns
+  `401 {"error":"authentication required"}` without a session.
+- **Still pending (infra, Alta-run):** the one-time Tailscale Serve + `.env`
+  `PUBLIC_BASE_URL` install (`deploy/calendar-https.md`) so the calendar HTTPS
+  front door activates; until then `/api/calendar/link` falls back to
+  request-mirroring (safe, but the webcal fix is inert). Then the phone-side
+  re-subscribe from the Help sheet's fresh link.
+- `origin/main` (`14647e2`) == the deployed tree.
+## Aug 29, 2026 — the move-in fresh start (a DATA operation, no code)
+
+Alta & Charlee are moving in together; the books carried erroneous
+pre-move-in data that predates the `is_transfer` feature. Diagnosed live
+(MCP reads) + rehearsed on a real-data copy before any live change
+(scratchpad `stage_movein_cleanup.py`: verbs-only, exact-match target
+assertions, before/after enumeration, settle-up simulation).
+
+**What was wrong:** three $8,000 bank self-transfers (Jul 30–31) synced as
+spending — two of Alta's split 50/50 (= $8,000 phantom debt), Charlee's
+Capital One one unsplit (spend pollution only) — plus their $8,000+$8,000
+inflow arrival legs and a $1,074.95 Fidelity moneyline inflating gross
+inflows. On Aug 8 a **$13,109.90 bookkeeping-only settlement** (txn 76,
+no real money moved — Alta confirmed) had been recorded to zero the
+then-visible balance; it absorbed the $8,000 phantom AND $5,109.90 of
+real shared expenses, and sat in history as the "$12,000 issue."
+
+**The fix (all existing audited verbs, applied by Alta in the app,
+`ui:altamash`; Pi backup taken first):** mark the 6 transfer rows
+`is_transfer=1` (`set_transfer`, T2's toggle) + `delete_transaction` on
+settlement 76 (settlement delete-and-recreate policy; links severed).
+No schema change, no deploy, schema stays v15.
+
+**Verified live over the tailnet, matching the staged prediction to the
+cent:** balance $505.85 → **$5,615.75 Charlee→Alta** (the resurfaced real
+debt the fake settlement had silently absorbed, + the prior $505.85);
+July spend $24,416.64 → **$416.64** (−$24,000 exactly); July gross
+inflows → $1,872.50; Aug gross $3,045.14 / spend $3,802.50 byte-match.
+Breakdown carryover is transiently non-zero (severed links) — expected,
+and closed by the next settle-up, which links every open line.
+
+**Remaining (deliberate):** on move-in day, a real `settle_up` zeroes the
+balance and empties the breakdown (staged: $0 balance, 0 open lines, $0
+carryover). Whether Charlee pays the ~$5,615.75 or it's recorded as an
+explicit fresh-start forgiveness is Alta & Charlee's call — either is
+mathematically clean. Rollback assets: Alta's Pi backup
+(`finance.db.bak-2026-08-29`) + the Mac's pristine 18:54 pre-cleanup
+pull (`live-copy.db`); keep both until after move-in day. Also:
+`.gitignore` gained `*.db.staged` so rehearsal copies of real data can
+never be committed.
+
+## Aug 30, 2026 — Calendar tab (replaces Bills)
+
+Alta & Charlee wanted a shared, in-app calendar of the month's bills with
+paid status. The `.ics` subscribe link can't serve that yet — Apple rewrites
+`webcal://`→`https://`, so it needs the Tailscale-Serve HTTPS front door
+(`deploy/calendar-https.md`), still Alta's pending one-time install. An in-app
+tab **sidesteps the subscription entirely** (both people see the calendar with
+no external subscribe) and folds the now-redundant Bills tab in.
+
+**Scope (chosen with Alta):** bills-only · agenda-list layout (phone-first,
+no cramped 7-column grid) · current month only (keeps "mark paid" tied to the
+current period). ⇒ **frontend-only**, reuses `/api/bills`, no backend*/schema/
+money change.
+
+The **Bills tab became the Calendar tab** — internal key stays `bills`, so
+`MORE_TABS` / `PINNED` / the Help sheet / the Ask `_ACTION_NAV` chip keep
+working. Two cards:
+1. a new pure `calendarAgendaHTML(bills, todayISO, monthISO)` (render.js): this
+   month's bills laid out by **clamped** due-date (due_day 31 → the month's real
+   last day, mirroring `_clamped_due_date`), each showing **paid ✓ / due /
+   overdue** with **today highlighted**, plus a **"N of M paid" COUNT** —
+   deliberately no dollar sum in JS (integer-cents invariant; a "$ still due"
+   figure would come from the server's `cash_flow_forecast`). Clock-free
+   (todayISO/monthISO injected), so headless-testable.
+2. the **unchanged** `billRowHTML` manage list (Mark paid / Undo / edit / Add
+   bill) — the proven money-touching surface, untouched.
+
+`renderBills`→`renderCalendar`; small additive CSS (reuses `.badge.*` + theme
+tokens, so light/dark both hold). *The one backend line: the Ask add-bill chip
+label "Open Bills"→"Open Calendar" (+ its test).
+
+Suite **678** OK, render **173** (+6: Sept→30/Feb→28 clamp, paid/due/overdue
+markers & ordering, today highlight, count, escaping). **GATE zero-diff by
+construction** — only `static/*.js` + `static/style.css` + two tests changed; no
+derivation/migration/schema. Real-data-copy snapshot computed clean (balance
+$505.85, 15 tables). **Browser-smoked** mobile, both themes (synthetic seed):
+agenda OVERDUE/PAID/OVERDUE/DUE/DUE with day-29 (today) highlighted, "1 of 5
+paid"; manage list intact (4 pay / 1 undo / 5 edit / add); "Calendar" in nav +
+More sheet; Help blurb updated. On `rework`; **awaits Alta's merge + Pi deploy**
+(no migration — schema stays **v15**). The external `.ics` subscribe still
+awaits the separate Tailscale-Serve HTTPS install (unchanged).
