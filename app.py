@@ -11,6 +11,7 @@ import secrets
 import sqlite3
 import time
 from datetime import date, datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from flask import Flask, Response, g, jsonify, redirect, request, session
@@ -1884,9 +1885,16 @@ def calendar_link():
     path = f"/calendar/{token}.ics"
     base = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
     if base:
-        host = base.split("://", 1)[-1]
-        return jsonify({"webcal": f"webcal://{host}{path}",
-                        "https": f"{base}{path}"})
+        # C-2: accept only a well-formed origin (scheme + host). A value missing
+        # the scheme, or carrying a path, would emit an unsubscribable link (no
+        # scheme) or one that 404s (a path prepended to /calendar/…). Normalize
+        # to scheme://host, dropping any path/query; a malformed value falls
+        # through to the safe request-mirroring default rather than a bad link.
+        parts = urlsplit(base)
+        if parts.scheme and parts.netloc:
+            origin = f"{parts.scheme}://{parts.netloc}"
+            return jsonify({"webcal": f"webcal://{parts.netloc}{path}",
+                            "https": f"{origin}{path}"})
     return jsonify({"webcal": f"webcal://{request.host}{path}",
                     "https": f"{request.scheme}://{request.host}{path}"})
 

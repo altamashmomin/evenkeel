@@ -424,10 +424,13 @@ index.html only). On `rework`; **awaits merge + Pi deploy** (no dep, no migratio
 schema v15). Then (Aug 31): **audit calendar-feed hardening (C-1, C-4, C-5)** — non-ASCII
 `.ics` token → 404 not 500; snoozed shopping items off the subscribed feed
 (`calendar_events`, money untouched); `_ics_escape` neutralizes a bare CR. Suite
-**690**, render **176**, tripwire clean, GATE zero-diff. Audit backlog: F-1, R1,
-R2/R3, calendar-feed done (4 commits on `rework`, unpushed); **next (grouped):
-PUBLIC_BASE_URL robustness (C-2 + H-3), then H-4 add_item, F-2 confirm-binding,
-H-1 debris doc; H-2 toolchain + structure slice last**.
+**690**, render **176**, tripwire clean, GATE zero-diff. Then **PUBLIC_BASE_URL
+robustness (C-2 + H-3)** — `/api/calendar/link` validates the env value via
+`urlsplit` (well-formed origin only, else safe request-mirror fallback);
+`.env.example` documents the knob. Suite **692**, GATE zero-diff. Audit backlog:
+F-1, R1, R2/R3, calendar-feed, PUBLIC_BASE_URL done (6 commits on `rework`,
+unpushed); **next: H-4 add_item 400-hardening, then F-2 confirm-binding, H-1
+debris doc; H-2 toolchain + structure slice last**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

@@ -4094,3 +4094,20 @@ bare-CR escape. Suite **690** (+3), render **176**, tripwire clean. **GATE
 zero-diff by construction** — the `derivations.py` diff is only `calendar_events`'s
 snoozed filter (no money aggregate); snapshot $505.85 unchanged. On `rework`;
 **awaits merge + Pi deploy** (no migration, schema **v15**).
+
+## Aug 31, 2026 — audit PUBLIC_BASE_URL robustness (C-2, H-3)
+
+- **C-2** — `/api/calendar/link` now validates `PUBLIC_BASE_URL` via
+  `urllib.parse.urlsplit`: accepts only a well-formed origin (scheme + host),
+  drops any path/query, and **falls back to the safe request-mirroring default**
+  on a malformed value (no scheme → an unsubscribable link; a path → the feed
+  404s). Was a raw `base.split("://")[-1]` that trusted the value's shape.
+- **H-3** — `.env.example` gained a documented `PUBLIC_BASE_URL` section (the
+  calendar HTTPS front door; scheme + host only), so a Pi re-provision or a
+  second deployer discovers the knob from the template, not just from
+  `deploy/calendar-https.md`.
+
+Tests: a no-scheme value falls back safely; a value with a path is normalized to
+the origin. Suite **692** (+2), render **176**. **GATE zero-diff** (a route + docs
+only; `derivations.py` untouched by this increment). On `rework`; **awaits merge +
+Pi deploy** (no migration, schema **v15**).
