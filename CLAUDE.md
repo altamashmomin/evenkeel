@@ -453,10 +453,15 @@ channel (`OPS_ALERT_GH_REPO`); terse/privacy-preserving; no schema/money path.
 **Increment 1 done**: `derivations.activity_digest(db, since, now)` (audit_log +
 pending_actions, never transactions; tripwire-safe via a None-default bare call
 like `calendar_events`) + `GET /api/activity/digest?since=`. Suite **700**, render
-**176**, GATE zero-diff. On `rework` (unpushed, past the deployed `57688af`).
-**Next: increment 2** (daily `change_digest` Pi job → GitHub issue, mirrors
-`pantry_pulse.py`) then **increment 3** (approval alerts + bump
-`PENDING_ACTION_TTL_SECONDS` 10min→~24h).
+**176**, GATE zero-diff. **Increment 2 done**: `deploy/change_digest.py` (daily
+Pi job → terse `change-digest` GitHub issue over `OPS_ALERT_GH_*`; mirrors
+`pantry_pulse.py`) + service/timer + install doc; `*.state` gitignored for the
+high-water-mark. Suite **706**, render **176**, GATE zero-diff by construction (a
+Pi-side script, no app/money code). On `rework` (unpushed, past the deployed
+`57688af`). **Next: increment 3** — approval alerts (`notify_approvals.py` +
+~15-min timer) + bump `PENDING_ACTION_TTL_SECONDS` 10 min → ~24h. Deploying this
+feature = merge + push, then Alta installs the change-digest timer on the Pi
+(like pantry-pulse) — `deploy/change-digest.md`.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

@@ -1,0 +1,14 @@
+# Ledger daily change digest — /etc/systemd/system/pifinance-change-digest.timer
+# Daily 08:00 local: a summary of the prior day's changes by you and the
+# assistants, plus anything still awaiting your approval. Quiet days post
+# nothing. Persistent so a missed run (Pi off) fires on next boot.
+[Unit]
+Description=Run the Ledger daily change digest
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

@@ -4200,3 +4200,24 @@ construction** (reads no transactions; only `activity_digest` added to
 `derivations.py`; snapshot $505.85 unchanged). On `rework`; **awaits merge + Pi
 deploy** (no migration, schema **v15**). Next: increment 2 (the daily
 `change_digest` Pi job) and increment 3 (approval alerts + the pending-TTL bump).
+
+## Aug 31, 2026 — notifications increment 2: the daily change_digest Pi job
+
+`deploy/change_digest.py` (self-contained, mirrors `pantry_pulse.py`): reads `GET
+/api/activity/digest` since a high-water-mark, renders **TERSE** markdown (counts
++ kinds + who, **never amounts** — the privacy rule), and posts a `change-digest`
+GitHub issue over the existing `OPS_ALERT_GH_*` bridge (which must be a **private**
+repo — it names who changed what). `sync` (the bank feed) is a one-line footnote,
+not a section; a quiet day (no human/assistant writes, nothing pending) posts
+nothing. The high-water-mark lives in a gitignored `.change-digest.state`
+(advanced after a successful post or on a quiet day; left alone on a post failure
+so the next run retries the window) — `*.state` added to `.gitignore` so it can't
+dirty the deploy tree (the `.env.bak` lesson). systemd service + timer (daily
+08:00, `Persistent`) + an install doc mirroring pantry-pulse; reuses
+`PANTRY_PULSE_TOKEN` if already set. Tests: the sync/human split, terse (no `$`),
+quiet detection, pending-only-is-not-quiet, singular grammar, state round-trip +
+first-run fallback. Suite **706** (+6), render **176**. **GATE zero-diff by
+construction** — a Pi-side script; no `app.py`/`derivations.py`/money code touched.
+On `rework`; **awaits merge + Alta installing the timer on the Pi** (like the
+pantry-pulse timer). Next: increment 3 (approval alerts + bump
+`PENDING_ACTION_TTL_SECONDS` 10 min → ~24h).
