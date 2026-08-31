@@ -1776,7 +1776,8 @@ def _calendar_token(member_id):
 def _ics_escape(text):
     r"""RFC 5545 TEXT escaping: backslash first, then ; , and newlines."""
     return (str(text).replace("\\", "\\\\").replace(";", "\\;")
-            .replace(",", "\\,").replace("\r\n", "\n").replace("\n", "\\n"))
+            .replace(",", "\\,").replace("\r\n", "\n").replace("\n", "\\n")
+            .replace("\r", "\\n"))  # C-5: a lone CR (old-Mac ending) too
 
 
 def _ics_fold(line):
@@ -1850,6 +1851,12 @@ def calendar_feed(token):
     (hard rule 2 governs writes). no-store: the token is in the URL, so no
     shared cache may keep the response."""
     db = get_db()
+    # C-1: a non-ASCII token makes hmac.compare_digest raise TypeError — a 500
+    # that breaks the deliberate "no oracle" (every wrong token is a 404) and
+    # spams the log with a stack trace. Real tokens are 32 hex chars, so reject
+    # non-ASCII up front as the same plain 404.
+    if not token.isascii():
+        return jsonify({"error": "not found"}), 404
     if not any(hmac.compare_digest(_calendar_token(m["id"]), token)
                for m in active_members(db)):
         return jsonify({"error": "not found"}), 404

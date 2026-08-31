@@ -4074,3 +4074,23 @@ round-trips→0.** Suite **687** (+3), render **176**. Real-server curl:
 and `/` → `no-cache`. **GATE zero-diff by construction** (response headers +
 index.html only; `derivations.py` untouched). On `rework`; **awaits merge + Pi
 deploy** (no new dep, no migration, schema **v15**).
+
+## Aug 31, 2026 — audit calendar-feed hardening (C-1, C-4, C-5)
+
+Three LOW edge-case fixes on the `.ics` feed, grouped (all touch the feed):
+- **C-1** — a non-ASCII token now returns a plain **404**, not a 500:
+  `hmac.compare_digest` raises `TypeError` on a non-ASCII `str`, which broke the
+  deliberate "no oracle" uniform-404 and spammed the log; guarded with
+  `token.isascii()` up front (`app.py` `calendar_feed`).
+- **C-4** — a snoozed shopping item is now **off** the subscribed calendar (it
+  used to show, disagreeing with the app's shopping view): `calendar_events`,
+  already clock-aware via `as_of`, drops items with `snoozed_until > as_of`
+  (`derivations.py`; reads no transactions — money untouched, tripwire clean).
+- **C-5** — `_ics_escape` now neutralizes a bare `\r` (a lone CR survived raw
+  into a folded `SUMMARY` line); added `.replace("\r", "\\n")`.
+
+Tests: non-ASCII token→404, snoozed-off-feed (+ a lapsed snooze still shows),
+bare-CR escape. Suite **690** (+3), render **176**, tripwire clean. **GATE
+zero-diff by construction** — the `derivations.py` diff is only `calendar_events`'s
+snoozed filter (no money aggregate); snapshot $505.85 unchanged. On `rework`;
+**awaits merge + Pi deploy** (no migration, schema **v15**).

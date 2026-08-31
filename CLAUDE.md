@@ -421,9 +421,13 @@ revalidation round-trips → 0; bare/shell/API stay no-cache), and both scripts 
 `defer`. With R1: first load 218KB→64KB, repeat →0 round-trips. Suite **687**,
 render **176**, real-server curl + boot smoke confirm, GATE zero-diff (headers +
 index.html only). On `rework`; **awaits merge + Pi deploy** (no dep, no migration,
-schema v15). Audit backlog: F-1, R1, R2/R3 done (3 commits on `rework`, unpushed);
-**next: H-1** (Pi debris-recovery doc) then the LOW fixes (C-1, C-4, H-3, C-2, F-2,
-H-4/C-5, H-2, structure slice).
+schema v15). Then (Aug 31): **audit calendar-feed hardening (C-1, C-4, C-5)** — non-ASCII
+`.ics` token → 404 not 500; snoozed shopping items off the subscribed feed
+(`calendar_events`, money untouched); `_ics_escape` neutralizes a bare CR. Suite
+**690**, render **176**, tripwire clean, GATE zero-diff. Audit backlog: F-1, R1,
+R2/R3, calendar-feed done (4 commits on `rework`, unpushed); **next (grouped):
+PUBLIC_BASE_URL robustness (C-2 + H-3), then H-4 add_item, F-2 confirm-binding,
+H-1 debris doc; H-2 toolchain + structure slice last**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

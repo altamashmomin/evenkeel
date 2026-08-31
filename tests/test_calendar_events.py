@@ -47,12 +47,12 @@ class CalendarEventsTests(unittest.TestCase):
         return cur.lastrowid
 
     def _item(self, name, status="low", kind="staple", need_by=None,
-              store=None, active=1):
+              store=None, active=1, snoozed_until=None):
         cur = self.db.execute(
             "INSERT INTO items (name, kind, status, active, need_by, store, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, "
+            "snoozed_until, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, "
             "'2026-07-01T00:00:00', '2026-07-01T00:00:00')",
-            (name, kind, status, active, need_by, store))
+            (name, kind, status, active, need_by, store, snoozed_until))
         self.db.commit()
         return cur.lastrowid
 
@@ -122,6 +122,20 @@ class CalendarEventsTests(unittest.TestCase):
                          [e["name"] for e in events])
         self.assertEqual("Costco", events[1]["store"])
         self.assertEqual("ordered", events[2]["status"])
+
+    def test_snoozed_items_are_off_the_feed(self):
+        # C-4: an item snoozed to a FUTURE date is hidden in the app's shopping
+        # view, so it must not surface on the subscribed calendar either. One
+        # whose snooze has LAPSED (snoozed_until <= as_of) is back and shows.
+        self._item("Snoozed", status="low", need_by="2026-07-22",
+                   snoozed_until="2026-08-15")            # still snoozed → hidden
+        self._item("Woke", status="low", need_by="2026-07-22",
+                   snoozed_until="2026-07-10")            # snooze lapsed → shown
+        self._item("Plain", status="out", need_by="2026-07-20")
+        names = [e["name"] for e in calendar_events(self.db, as_of=AS_OF)]
+        self.assertNotIn("Snoozed", names)
+        self.assertIn("Woke", names)
+        self.assertIn("Plain", names)
 
     def test_item_deadlines_expire_14_days_after_passing(self):
         self._item("Recent miss", status="out", need_by="2026-07-06")  # 13 days ago
