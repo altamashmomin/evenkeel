@@ -4182,3 +4182,21 @@ secrets copy NOT covered by `.gitignore`) was removed, and `.gitignore` now cove
 `.env.bak*` / `.env.*.bak` so a future `.env` backup can't be committed.
 `origin/main` == the deployed tree. **F-1 is now live**, so keeping MCP writes
 enabled is safe — the injection gap is closed.
+
+## Aug 31, 2026 — notifications increment 1: activity_digest derivation + route
+
+First of the NOTIFICATIONS-DESIGN build (after the design doc landed, `3aa5dad`).
+`derivations.activity_digest(db, since, now)` reads `audit_log` (executed writes)
+over [since, now) + `pending_actions` — **never `transactions`** — and returns
+grouped counts (`by_actor`, `by_action`), the human/assistant-vs-`sync` split, and
+the current pending-approvals count. `since`/`now` default to None (empty digest)
+purely so the derivation tripwire can call it bare, the same convention as
+`calendar_events`. `GET /api/activity/digest?since=` (`login_required` — a read
+bearer suffices, for the Pi job) is a thin caller. Tests: window/grouping/split,
+pending counts only unexpired-pending, empty window is money-neutral, the real
+`_write_audit` lands in it; route requires `since` (400), read-bearer 200, no-auth
+401. Suite **700** (+7), render **176**, tripwire clean. **GATE zero-diff by
+construction** (reads no transactions; only `activity_digest` added to
+`derivations.py`; snapshot $505.85 unchanged). On `rework`; **awaits merge + Pi
+deploy** (no migration, schema **v15**). Next: increment 2 (the daily
+`change_digest` Pi job) and increment 3 (approval alerts + the pending-TTL bump).

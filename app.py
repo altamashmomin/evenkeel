@@ -25,7 +25,7 @@ import ask_loop
 import ontology
 from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
-from derivations import (anomaly_flags, bill_variance, budget_status,
+from derivations import (activity_digest, anomaly_flags, bill_variance, budget_status,
                          calendar_events, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
                          settle_breakdown,
@@ -925,6 +925,22 @@ def pending_actions_view():
         "WHERE p.status = 'pending' AND p.expires_at > ? "
         "ORDER BY p.created_at", (now,)).fetchall()
     return jsonify([_pending_to_json(r) for r in rows])
+
+
+@app.get("/api/activity/digest")
+@login_required
+def activity_digest_view():
+    """The change-notification digest (NOTIFICATIONS-DESIGN): what people and the
+    assistants changed since `since` (ISO-8601, required), grouped, plus the
+    count awaiting approval right now. Read-only over audit_log — the Pi digest
+    job polls this under a read-scope bearer and posts a terse GitHub issue.
+    login_required — a read token suffices (a GET); no money table is read."""
+    db = get_db()
+    since = request.args.get("since")
+    if not since:
+        return bad_request("since is required (ISO-8601)")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return jsonify(activity_digest(db, since, now))
 
 
 # ------------------------------------------- inventory (INVENTORY-DESIGN)

@@ -446,6 +446,17 @@ Pi and `.gitignore` now covers `.env.bak*`. **F-1 is live → MCP writes are saf
 keep enabled** (injection gap closed). `origin/main` == the deployed tree. **The
 entire audit backlog is done and live** (structure slice deferred by choice; the
 venv toolchain bump is an optional ops one-liner on the Pi).
+Then (Aug 31): a new **change-notifications** feature (spec
+`docs/NOTIFICATIONS-DESIGN.md`, `3aa5dad`) — tell Alta when the assistants change
+something, built as a read over `audit_log` + the existing GitHub-issue alert
+channel (`OPS_ALERT_GH_REPO`); terse/privacy-preserving; no schema/money path.
+**Increment 1 done**: `derivations.activity_digest(db, since, now)` (audit_log +
+pending_actions, never transactions; tripwire-safe via a None-default bare call
+like `calendar_events`) + `GET /api/activity/digest?since=`. Suite **700**, render
+**176**, GATE zero-diff. On `rework` (unpushed, past the deployed `57688af`).
+**Next: increment 2** (daily `change_digest` Pi job → GitHub issue, mirrors
+`pantry_pulse.py`) then **increment 3** (approval alerts + bump
+`PENDING_ACTION_TTL_SECONDS` 10min→~24h).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
