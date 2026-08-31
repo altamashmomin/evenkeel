@@ -1,5 +1,7 @@
 # Secrets — never commit (CLAUDE.md rule 7)
 .env
+.env.bak*
+.env.*.bak
 *.token
 
 # Databases — real financial data never enters git

@@ -435,10 +435,17 @@ Then **H-2 repo part** — a new `requirements-dev.txt` homes `pip-audit` +
 documents the venv-toolchain bump (`pip install -U pip setuptools`) as an ops step
 (the runtime deps are already clean). **That closes the audit's actionable
 backlog**; the **structure slice is deliberately deferred** (ergonomic-only,
-riskiest change, touches deploy/gate/test paths). **9 commits on `rework`** —
-push done to origin; **awaits Alta's merge + Pi deploy.** ⚠ The F-1 security fix
-isn't live until deployed — MCP writes are enabled on the Pi now; the
-`LEDGER_MCP_ENABLE_WRITES=0` stopgap is available until then.
+riskiest change, touches deploy/gate/test paths). **DEPLOYED (Aug 31, `main`
+`57688af`, tree `f510987`→`57688af`):** merged `rework`→`main` `--no-ff`; live
+gate PASS **zero-diff**, **no migration** (schema stays **v15**), `pip install`
+picked up Flask-Compress, `pifinance`+`ledger-mcp` restarted, smoke OK.
+**Tailnet-verified live**: gzip+Vary on `render.js` (R1), `?v=` assets
+immutable-cached (R2), `pendingApprovalsHTML`/`approvePending` served +
+`/api/actions/pending` 401 (F-1). A stray `.env.bak-httpssetup` was tidied off the
+Pi and `.gitignore` now covers `.env.bak*`. **F-1 is live → MCP writes are safe to
+keep enabled** (injection gap closed). `origin/main` == the deployed tree. **The
+entire audit backlog is done and live** (structure slice deferred by choice; the
+venv toolchain bump is an optional ops one-liner on the Pi).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

@@ -4163,3 +4163,22 @@ assumptions on a live app), and lowest value. 9 commits on `rework`; **awaits
 Alta's push + merge + Pi deploy** (the F-1 fix isn't live until then — MCP writes
 are currently enabled on the Pi; the `LEDGER_MCP_ENABLE_WRITES=0` stopgap remains
 available in the meantime).
+
+## Aug 31, 2026 — DEPLOYED the audit-remediation batch (f510987 → 57688af)
+
+Alta merged `rework` → `main` (`--no-ff`, `57688af`) and ran
+`deploy/deploy.sh origin/main f510987` on the Pi. **Pre-merge gate** (f510987 vs
+rework, on a real-data-shaped copy) PASS **zero-diff** (24 values); **live deploy
+gate** PASS **zero-diff** (balance + every monthly total unchanged, no structural
+diff); **no migration** (`nothing to apply` — schema stays **v15**); the
+`pip install` picked up **Flask-Compress**; `pifinance` + `ledger-mcp` restarted
+clean; `/api/status` smoke OK; local `main` healed to `57688af`. Backup
+`finance.db.bak-2026-08-31-160921` (pruned to 10). **Tailnet-verified LIVE**:
+`render.js` served with `Content-Encoding: gzip` + `Vary` (R1); `?v=` assets
+`Cache-Control: …immutable` (R2); served `render.js` carries `pendingApprovalsHTML`
++ `app.js` `approvePending`, and `/api/actions/pending` → 401 (F-1). One pre-deploy
+tidy: a stray `.env.bak-httpssetup` (the HTTPS-setup `.env` backup — a plaintext
+secrets copy NOT covered by `.gitignore`) was removed, and `.gitignore` now covers
+`.env.bak*` / `.env.*.bak` so a future `.env` backup can't be committed.
+`origin/main` == the deployed tree. **F-1 is now live**, so keeping MCP writes
+enabled is safe — the injection gap is closed.
