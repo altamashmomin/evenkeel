@@ -1409,6 +1409,15 @@ def confirm_action(db, actor, token):
     own audit row — that is the executed-write record.
     Returns what was executed + the pending action id.
     """
+    # MIRAGE F-1 backstop (defense-in-depth beneath the route's session gate):
+    # confirming a two-phase proposal is a HUMAN act. actor is 'mcp:<label>' for
+    # a bearer/MCP caller, 'ui:<name>' for a session — refuse an mcp: actor in
+    # the money layer, so no automation can self-approve even if it reaches the
+    # verb directly.
+    if str(actor).startswith("mcp:"):
+        raise ActionError(
+            "a proposed action must be confirmed by a signed-in person in the "
+            "app, not by an automation")
     row = db.execute(
         "SELECT * FROM pending_actions WHERE token = ?", (token,)).fetchone()
     if row is None:
@@ -1546,7 +1555,13 @@ def add_item(db, actor, data):
     Never touches money. Returns the row.
     """
     with action_transaction(db):
-        name = (data.get("name") or "").strip()[:100]
+        # H-4: a non-string name (e.g. a number from an API/MCP caller) hit
+        # .strip() and raised AttributeError → a 500. Reject it as a clean 400,
+        # mirroring the B3 "category must be text" hardening in set_budget.
+        raw_name = data.get("name")
+        if raw_name is not None and not isinstance(raw_name, str):
+            raise ActionError("name must be text")
+        name = (raw_name or "").strip()[:100]
         if not name:
             raise ActionError("name is required")
         kind = data.get("kind") or "staple"

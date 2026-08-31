@@ -139,7 +139,10 @@ class LedgerMcpWriteTierTests(unittest.TestCase):
             conn.close()
 
     # -- two-phase: rule ------------------------------------------------------
-    def test_propose_rule_previews_then_confirm_creates_and_applies(self):
+    def test_propose_rule_previews_but_mcp_confirm_is_refused(self):
+        # MIRAGE F-1: an automation may PROPOSE (park a preview) but NOT confirm
+        # — a human approves it in the app. Propose works; the MCP confirm tool
+        # is refused; nothing is written and the proposal stays pending.
         txn_id = self.insert_inflow()
         proposal = self.call("ledger_propose_income_rule",
                              match_desc="ADP PAYROLL", set_type="paycheck")
@@ -155,25 +158,25 @@ class LedgerMcpWriteTierTests(unittest.TestCase):
             conn.close()
         self.assertEqual("unclassified", self.income_type(txn_id))
 
-        # PHASE 2 executes exactly the frozen proposal
-        result = self.call("ledger_confirm_action",
-                           confirmation_token=proposal["confirmation_token"])
-        self.assertEqual("create_rule", result["action_type"])
-        self.assertEqual("ADP PAYROLL", result["rule"]["match_desc"])
-        self.assertEqual("paycheck", self.income_type(txn_id))
-
-    def test_confirm_is_single_use_through_the_tool(self):
-        self.insert_inflow()
-        token = self.call("ledger_propose_income_rule",
-                          match_desc="ADP", set_type="paycheck"
-                          )["confirmation_token"]
-        self.call("ledger_confirm_action", confirmation_token=token)
+        # PHASE 2 through the MCP tool is REFUSED (human-confirm gate)
         with self.assertRaises(ToolError) as ctx:
-            self.call("ledger_confirm_action", confirmation_token=token)
-        self.assertIn("already confirmed", str(ctx.exception))
+            self.call("ledger_confirm_action",
+                      confirmation_token=proposal["confirmation_token"])
+        self.assertIn("human step", str(ctx.exception))
+        # nothing executed; the proposal remains pending for a human to approve
+        self.assertEqual("unclassified", self.income_type(txn_id))
+        conn = self.db()
+        try:
+            self.assertEqual(0, conn.execute(
+                "SELECT COUNT(*) FROM income_rules").fetchone()[0])
+            self.assertEqual("pending", conn.execute(
+                "SELECT status FROM pending_actions WHERE token = ?",
+                (proposal["confirmation_token"],)).fetchone()[0])
+        finally:
+            conn.close()
 
     # -- two-phase: apply-rules backlog sweep ---------------------------------
-    def test_apply_rules_propose_then_confirm(self):
+    def test_apply_rules_proposes_but_mcp_confirm_is_refused(self):
         conn = self.db()
         actions.create_income_rule(
             conn, "ui:avery", {"match_desc": "ADP PAYROLL", "set_type": "paycheck"})
@@ -184,9 +187,11 @@ class LedgerMcpWriteTierTests(unittest.TestCase):
         self.assertEqual(1, proposal["preview"]["rows_affected"])
         self.assertEqual("unclassified", self.income_type(txn_id))
 
-        self.call("ledger_confirm_action",
-                  confirmation_token=proposal["confirmation_token"])
-        self.assertEqual("paycheck", self.income_type(txn_id))
+        with self.assertRaises(ToolError) as ctx:
+            self.call("ledger_confirm_action",
+                      confirmation_token=proposal["confirmation_token"])
+        self.assertIn("human step", str(ctx.exception))
+        self.assertEqual("unclassified", self.income_type(txn_id))  # not applied
 
     # -- scope gate holds end to end ------------------------------------------
     def test_read_token_is_refused_by_a_write_tool(self):

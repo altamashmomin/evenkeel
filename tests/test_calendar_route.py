@@ -49,6 +49,13 @@ class CalendarRouteTests(unittest.TestCase):
         response = self.client(logged_in=False).get("/calendar/not-a-token.ics")
         self.assertEqual(404, response.status_code)
 
+    def test_non_ascii_token_is_a_plain_404_not_a_500(self):
+        # C-1: a Unicode token would make hmac.compare_digest raise TypeError → a
+        # 500 (distinguishable from a plain wrong-token 404, and a log spam). It
+        # must be the same uniform 404 as any other miss.
+        response = self.client(logged_in=False).get("/calendar/héllo.ics")
+        self.assertEqual(404, response.status_code)
+
     def test_valid_token_serves_the_calendar_without_a_session(self):
         token = self.app_module._calendar_token(1)
         response = self.client(logged_in=False).get(f"/calendar/{token}.ics")
@@ -99,11 +106,39 @@ class CalendarRouteTests(unittest.TestCase):
             f"https://raspberrypi.tail1234.ts.net/calendar/{token}.ics",
             body["https"])
 
+    def test_public_base_url_without_a_scheme_falls_back_safely(self):
+        # C-2: a value missing the scheme can't form a valid absolute link, so we
+        # ignore it and mirror the request rather than emit an unsubscribable URL.
+        os.environ["PUBLIC_BASE_URL"] = "raspberrypi.tail1234.ts.net"
+        self.addCleanup(os.environ.pop, "PUBLIC_BASE_URL", None)
+        body = self.client().get("/api/calendar/link").get_json()
+        self.assertRegex(body["https"], r"^https?://")   # a real absolute URL
+        self.assertNotIn("tail1234", body["https"])       # the bad value ignored
+
+    def test_public_base_url_with_a_path_is_normalized_to_the_origin(self):
+        # C-2: a stray path would 404 the feed (it lives at the absolute
+        # /calendar/…); normalize to scheme + host only.
+        os.environ["PUBLIC_BASE_URL"] = "https://raspberrypi.tail1234.ts.net/ledger/"
+        self.addCleanup(os.environ.pop, "PUBLIC_BASE_URL", None)
+        body = self.client().get("/api/calendar/link").get_json()
+        token = self.app_module._calendar_token(1)
+        self.assertEqual(
+            f"https://raspberrypi.tail1234.ts.net/calendar/{token}.ics",
+            body["https"])
+        self.assertNotIn("/ledger", body["https"])
+
     def test_tokens_differ_per_member_and_depend_on_the_secret(self):
         self.assertNotEqual(self.app_module._calendar_token(1),
                             self.app_module._calendar_token(2))
 
     # ------------------------------------------------------------ the renderer
+
+    def test_ics_escape_neutralizes_a_bare_cr(self):
+        # C-5: a lone \r (an old-Mac ending pasted into a name) must not survive
+        # raw into a folded SUMMARY line; CRLF still collapses to one \n.
+        m = self.app_module
+        self.assertEqual(r"a\nb", m._ics_escape("a\rb"))
+        self.assertEqual(r"a\nb", m._ics_escape("a\r\nb"))
 
     def test_ics_escape_and_fold(self):
         m = self.app_module

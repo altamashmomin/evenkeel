@@ -1672,7 +1672,12 @@ def calendar_events(db, as_of=None, months_ahead=3):
 
     floor = (anchor - timedelta(days=14)).isoformat()
     for item in shopping_list(db) + on_the_way(db):
-        if item["need_by"] and item["need_by"] >= floor:
+        # C-4: an item snoozed to a future date is hidden in the app's shopping
+        # view, so it must not surface on the subscribed calendar either — the
+        # two would otherwise disagree. shopping_list keeps snoozed rows (snooze
+        # is a view concern); here, being clock-aware via as_of, we drop them.
+        snoozed = item["snoozed_until"] and item["snoozed_until"] > as_of
+        if item["need_by"] and item["need_by"] >= floor and not snoozed:
             events.append({
                 "kind": "item", "uid": f"ledger-item-{item['id']}",
                 "date": item["need_by"], "name": item["name"],

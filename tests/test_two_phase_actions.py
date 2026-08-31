@@ -180,7 +180,7 @@ class TwoPhaseVerbTests(unittest.TestCase):
             {"match_desc": "ADP PAYROLL", "set_type": "paycheck"}
         )["confirmation_token"]
 
-        result = actions.confirm_action(self.db, "mcp:cc", token)
+        result = actions.confirm_action(self.db, "ui:avery", token)
         self.assertEqual("create_rule", result["action_type"])
         self.assertEqual("ADP PAYROLL", result["rule"]["match_desc"])
         self.assertEqual(1, len(result["applied"]))
@@ -208,7 +208,7 @@ class TwoPhaseVerbTests(unittest.TestCase):
              "also_apply_to_existing": False}
         )["confirmation_token"]
 
-        result = actions.confirm_action(self.db, "mcp:cc", token)
+        result = actions.confirm_action(self.db, "ui:avery", token)
         self.assertEqual([], result["applied"])
         self.assertEqual(1, self.count("SELECT COUNT(*) FROM income_rules"))
         self.assertEqual("unclassified", self.db.execute(
@@ -229,7 +229,7 @@ class TwoPhaseVerbTests(unittest.TestCase):
             self.db, "mcp:cc", None, "create_rule",
             {"match_desc": "ADP", "set_type": "paycheck"}
         )["confirmation_token"]
-        result = actions.confirm_action(self.db, "mcp:cc", token)
+        result = actions.confirm_action(self.db, "ui:avery", token)
 
         self.assertEqual(1, len(result["applied"]))
         types = {r["id"]: r["income_type"] for r in self.db.execute(
@@ -242,9 +242,9 @@ class TwoPhaseVerbTests(unittest.TestCase):
             self.db, "mcp:cc", None, "create_rule",
             {"match_desc": "ADP", "set_type": "paycheck"}
         )["confirmation_token"]
-        actions.confirm_action(self.db, "mcp:cc", token)
+        actions.confirm_action(self.db, "ui:avery", token)
         with self.assertRaisesRegex(actions.ActionError, "already confirmed"):
-            actions.confirm_action(self.db, "mcp:cc", token)
+            actions.confirm_action(self.db, "ui:avery", token)
         # exactly one rule, not two
         self.assertEqual(1, self.count("SELECT COUNT(*) FROM income_rules"))
 
@@ -258,13 +258,30 @@ class TwoPhaseVerbTests(unittest.TestCase):
             "WHERE token = ?", (token,))
         self.db.commit()
         with self.assertRaisesRegex(actions.ActionError, "expired"):
-            actions.confirm_action(self.db, "mcp:cc", token)
+            actions.confirm_action(self.db, "ui:avery", token)
         self.assertEqual("expired", self.pending(token)["status"])
         self.assertEqual(0, self.count("SELECT COUNT(*) FROM income_rules"))
 
     def test_confirm_unknown_token_is_not_found(self):
         with self.assertRaises(actions.NotFound):
-            actions.confirm_action(self.db, "mcp:cc", "no-such-token")
+            actions.confirm_action(self.db, "ui:avery", "no-such-token")
+
+    def test_mcp_actor_cannot_confirm_a_proposal(self):
+        # MIRAGE F-1 backstop: an automation (actor 'mcp:*') may propose but not
+        # confirm — a human does that in the app. Refused in the money layer,
+        # independent of the route; the proposal stays pending for the human.
+        token = actions.propose_action(
+            self.db, "mcp:cc", None, "create_rule",
+            {"match_desc": "ADP PAYROLL", "set_type": "paycheck"}
+        )["confirmation_token"]
+        with self.assertRaisesRegex(actions.ActionError, "signed-in person"):
+            actions.confirm_action(self.db, "mcp:cc", token)
+        # nothing executed; the proposal is still pending for a human to approve
+        self.assertEqual(0, self.count("SELECT COUNT(*) FROM income_rules"))
+        self.assertEqual("pending", self.pending(token)["status"])
+        # ...and a human (ui:*) actor CAN confirm the very same token
+        actions.confirm_action(self.db, "ui:avery", token)
+        self.assertEqual(1, self.count("SELECT COUNT(*) FROM income_rules"))
 
     # ------------------------------------------------- apply_rules variant
 
@@ -285,7 +302,7 @@ class TwoPhaseVerbTests(unittest.TestCase):
         ).fetchone()["income_type"])
 
         result = actions.confirm_action(
-            self.db, "mcp:cc", proposal["confirmation_token"])
+            self.db, "ui:avery", proposal["confirmation_token"])
         self.assertEqual(1, len(result["applied"]))
         self.assertEqual("paycheck", self.db.execute(
             "SELECT income_type FROM transactions WHERE id = ?", (txn_id,)
@@ -388,6 +405,66 @@ class TwoPhaseRouteTests(unittest.TestCase):
         unknown = client.post("/api/actions/confirm",
                               json={"confirmation_token": "nope"})
         self.assertEqual(404, unknown.status_code)
+
+    def _income_type(self, txn_id):
+        conn = sqlite3.connect(self.db_path)
+        try:
+            return conn.execute(
+                "SELECT income_type FROM transactions WHERE id = ?",
+                (txn_id,)).fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_bearer_cannot_confirm_but_a_session_can(self):
+        # MIRAGE F-1: a bearer/MCP client PROPOSES; only a session (human)
+        # CONFIRMS. Propose via a write bearer; bearer confirm -> 403; a session
+        # confirm of the SAME token executes.
+        write_token = self.token("read,write")
+        client = self.app_module.app.test_client()
+        txn_id = self.insert_inflow()
+        proposal = client.post(
+            "/api/actions/propose",
+            json={"action_type": "create_rule",
+                  "match_desc": "ADP PAYROLL", "set_type": "paycheck"},
+            headers={"Authorization": f"Bearer {write_token}"})
+        self.assertEqual(201, proposal.status_code)
+        token = proposal.get_json()["confirmation_token"]
+
+        denied = client.post(
+            "/api/actions/confirm", json={"confirmation_token": token},
+            headers={"Authorization": f"Bearer {write_token}"})
+        self.assertEqual(403, denied.status_code)
+        self.assertIn("signed-in person", denied.get_json()["error"])
+        self.assertEqual("unclassified", self._income_type(txn_id))  # nothing ran
+
+        ok = self.session_client().post(
+            "/api/actions/confirm", json={"confirmation_token": token})
+        self.assertEqual(200, ok.status_code)
+        self.assertEqual("paycheck", self._income_type(txn_id))  # human approved
+
+    def test_pending_queue_lists_a_bearer_proposal_for_the_human(self):
+        write_token = self.token("read,write")
+        client = self.app_module.app.test_client()
+        self.insert_inflow()
+        client.post(
+            "/api/actions/propose",
+            json={"action_type": "create_rule",
+                  "match_desc": "ADP PAYROLL", "set_type": "paycheck"},
+            headers={"Authorization": f"Bearer {write_token}"})
+
+        listed = self.session_client().get("/api/actions/pending")
+        self.assertEqual(200, listed.status_code)
+        rows = listed.get_json()
+        self.assertEqual(1, len(rows))
+        self.assertIn("ADP PAYROLL", rows[0]["summary"])
+        self.assertEqual("cc", rows[0]["proposed_by"])   # the token's label
+        self.assertIn("token", rows[0])                  # so the human can approve
+
+        # a bearer cannot read the approvals queue — approving is a human act
+        denied = client.get(
+            "/api/actions/pending",
+            headers={"Authorization": f"Bearer {write_token}"})
+        self.assertEqual(401, denied.status_code)
 
 
 if __name__ == "__main__":

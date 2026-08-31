@@ -1,0 +1,18 @@
+# Dev / CI tooling — NOT part of the app runtime (the Pi installs only
+# requirements.txt). Install into a dev venv:
+#     venv/bin/pip install -r requirements-dev.txt
+#
+# pip-audit scans the DECLARED runtime deps for known CVEs. Run it in CI and
+# before any dependency bump:
+#     pip-audit -r requirements.txt
+# It pulls in `cryptography` transitively — that is the "orphaned" package the
+# Aug-30 2026 audit saw in the full-environment scan; it is dev-only and is never
+# imported by the running app.
+pip-audit>=2.7
+
+# H-2 venv-toolchain hygiene is an OPS step, not a package. The Jul-2026 venv
+# bootstrap shipped pip 22.3 / setuptools 65.5.0, whose CVEs fire only during a
+# `pip install` against a hostile index — never when serving requests. Refresh
+# them on each venv (the dev venv AND the Pi's):
+#     venv/bin/pip install -U pip setuptools
+# or recreate the venv from requirements.txt. Zero runtime-app impact.

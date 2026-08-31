@@ -14,7 +14,8 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
-        beamHTML, txnRow, calendarAgendaHTML, billRowHTML, contribLogHTML, goalCardHTML } = window.Render;
+        beamHTML, txnRow, calendarAgendaHTML, billRowHTML, contribLogHTML, goalCardHTML,
+        pendingApprovalsHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -461,6 +462,10 @@ async function renderDashboard() {
   const trend = await api(`/api/income/trend?months_back=2&anchor=${d.month}`);
   const spentPill = vsLastMonth(trend.series);
   window._dash = d;
+  // Pending approvals (MIRAGE F-1): two-phase changes an assistant proposed
+  // that a person must approve. Failure here only costs the card, never the
+  // Home render (same defensive pattern as the pantry badge).
+  const pending = await api("/api/actions/pending").catch(() => []);
   // The pantry badge rides alongside (not inside) the frozen dashboard payload;
   // a failure here only costs the ambient line, never the Home render.
   api("/api/inventory/badge").then((b) => { window._pantryBadge = b; renderHeader(); })
@@ -521,6 +526,7 @@ async function renderDashboard() {
     : `<p class="empty">No transactions yet. Tap + to add the first one.</p>`;
 
   return `
+    ${pendingApprovalsHTML(pending)}
     ${beamHTML(d.balance)}
     <div class="card">
       <div class="spent-head">
@@ -893,6 +899,9 @@ function wireMain() {
   // Home "Spent" rows → the recategorize sheet for that category this month.
   $$("[data-spent-cat]").forEach((el) =>
     el.addEventListener("click", () => openRecatSheet(el.dataset.spentCat)));
+  // Pending approvals (F-1): a person approves an assistant-proposed change.
+  $$("[data-approve]").forEach((el) =>
+    el.addEventListener("click", () => approvePending(el.dataset.approve)));
   // A4: ask-from-anywhere entry points (Home spend card, Pantry header) →
   // open Ask pre-filled with the keyed question.
   $$("[data-ask]").forEach((el) =>
@@ -1389,6 +1398,14 @@ formPay.addEventListener("submit", async (ev) => {
 async function unpayBill(billId) {
   if (!confirm("Undo this payment? The logged transaction is removed too.")) return;
   await api(`/api/bills/${billId}/pay`, { method: "DELETE" });
+  render();
+}
+
+// Approve one assistant-proposed change (MIRAGE F-1): confirming is a human
+// act, done here under the person's own session — the same POST /api/actions/
+// confirm the two-phase gate always used, just now reachable only from the app.
+async function approvePending(token) {
+  await api("/api/actions/confirm", { method: "POST", body: { confirmation_token: token } });
   render();
 }
 
