@@ -428,9 +428,9 @@ schema v15). Then (Aug 31): **audit calendar-feed hardening (C-1, C-4, C-5)** â€
 robustness (C-2 + H-3)** â€” `/api/calendar/link` validates the env value via
 `urlsplit` (well-formed origin only, else safe request-mirror fallback);
 `.env.example` documents the knob. Suite **692**, GATE zero-diff. Audit backlog:
-F-1, R1, R2/R3, calendar-feed, PUBLIC_BASE_URL done (6 commits on `rework`,
-unpushed); **next: H-4 add_item 400-hardening, then F-2 confirm-binding, H-1
-debris doc; H-2 toolchain + structure slice last**.
+F-1, R1, R2/R3, calendar-feed, PUBLIC_BASE_URL, H-4 (add_item 400-hardening) done
+(7 commits on `rework`, unpushed); **next: F-2 confirm-binding, then H-1 debris
+doc; H-2 toolchain + structure slice last**.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

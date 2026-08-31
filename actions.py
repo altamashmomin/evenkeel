@@ -1555,7 +1555,13 @@ def add_item(db, actor, data):
     Never touches money. Returns the row.
     """
     with action_transaction(db):
-        name = (data.get("name") or "").strip()[:100]
+        # H-4: a non-string name (e.g. a number from an API/MCP caller) hit
+        # .strip() and raised AttributeError → a 500. Reject it as a clean 400,
+        # mirroring the B3 "category must be text" hardening in set_budget.
+        raw_name = data.get("name")
+        if raw_name is not None and not isinstance(raw_name, str):
+            raise ActionError("name must be text")
+        name = (raw_name or "").strip()[:100]
         if not name:
             raise ActionError("name is required")
         kind = data.get("kind") or "staple"

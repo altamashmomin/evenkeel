@@ -4111,3 +4111,15 @@ Tests: a no-scheme value falls back safely; a value with a path is normalized to
 the origin. Suite **692** (+2), render **176**. **GATE zero-diff** (a route + docs
 only; `derivations.py` untouched by this increment). On `rework`; **awaits merge +
 Pi deploy** (no migration, schema **v15**).
+
+## Aug 31, 2026 — audit H-4: add_item 400-hardening
+
+`add_item` did `(data.get("name") or "").strip()`, so a non-string `name` (a
+number from an API/MCP caller) hit `.strip()` and raised `AttributeError` → a 500.
+Now it rejects a non-string name with a clean **400** (`"name must be text"`),
+mirroring the B3 `set_budget` hardening. The global JSON-500 backstop test
+(finding #14) had used this exact 500 as its trigger — decoupled it onto a
+throwaway raising route, so it tests the errorhandler, not `add_item`. Tests:
+non-string name → 400; the backstop still returns JSON on a genuine 500. Suite
+**693** (+1), render **176**. **GATE zero-diff** (a pantry verb, no money path).
+On `rework`; **awaits merge + Pi deploy** (no migration, schema **v15**).
