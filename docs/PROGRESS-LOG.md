@@ -4049,3 +4049,28 @@ gzipped when sizable. Suite **684** (+3), render **176**. Real-server curl:
 construction** (transport/config only; `derivations.py` untouched). On `rework`;
 **awaits merge + Pi deploy** — `deploy.sh`'s `pip install -r requirements.txt`
 picks up Flask-Compress; no migration, schema **v15**.
+
+## Aug 31, 2026 — audit R2/R3: immutable caching for ?v= assets + defer the scripts
+
+Finishes the "fast frontend" story alongside R1. **R2:** the `?v=<mtime>`-stamped
+assets (style.css/render.js/app.js) are content-addressed — the URL changes when
+the file changes (index() re-stamps each load) — so they're now served
+`Cache-Control: public, max-age=31536000, immutable`, scoped in `_security_headers`
+to a request that actually carries the `?v=` stamp. Repeat loads make **0 requests**
+for them (was a `304` revalidation round-trip each). A bare `/app.js` (hard refresh)
+still revalidates; the shell `/` and `/api/*` stay `no-cache` (the shell must
+re-read to emit current stamps). Coexists with R1 (gzip + immutable + Vary all
+present on the versioned asset).
+
+**R3:** both `<script src>` in `index.html` gained `defer` — they download in
+parallel with HTML parse and execute in document order after it (render.js's
+`window.Render` before app.js, which needs it; `async` would break that ordering).
+The `?v=` stamp rides through index()'s replace. Browser-smoked: the SPA boots
+(`state.tab=dashboard`, main rendered, `window.Render` loaded) with defer.
+
+Together with R1: **first load 218KB→64KB, repeat loads 3 revalidation
+round-trips→0.** Suite **687** (+3), render **176**. Real-server curl:
+`/render.js?v=…` → `public, max-age=31536000, immutable` + gzip; bare `/render.js`
+and `/` → `no-cache`. **GATE zero-diff by construction** (response headers +
+index.html only; `derivations.py` untouched). On `rework`; **awaits merge + Pi
+deploy** (no new dep, no migration, schema **v15**).

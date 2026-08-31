@@ -90,6 +90,33 @@ class SecurityHeaderTests(unittest.TestCase):
         # activity over a seeded month is well past COMPRESS_MIN_SIZE (500B)
         self.assertEqual("gzip", r.headers.get("Content-Encoding"))
 
+    # ---- R2: immutable caching for ?v=-stamped assets ----
+    def test_stamped_asset_is_cached_immutably_only_with_the_v_stamp(self):
+        c = self.app_module.app.test_client()
+        stamped = c.get("/render.js?v=123").headers.get("Cache-Control", "")
+        self.assertIn("immutable", stamped)
+        self.assertIn("max-age=31536000", stamped)
+        # a bare hit (no ?v=) must NOT be cached forever — it can still revalidate
+        bare = c.get("/render.js").headers.get("Cache-Control", "")
+        self.assertNotIn("immutable", bare)
+
+    def test_shell_and_api_are_never_immutable(self):
+        c = self.app_module.app.test_client()
+        # even with a ?v= on the shell URL, / must stay no-cache (it re-stamps)
+        self.assertIn("no-cache", c.get("/?v=123").headers.get("Cache-Control", ""))
+        self.assertNotIn("immutable", c.get("/?v=123").headers.get("Cache-Control", ""))
+        self.login(c)
+        self.assertNotIn("immutable",
+                         c.get("/api/activity?v=1").headers.get("Cache-Control", ""))
+
+    # ---- R3: the shell defers both scripts ----
+    def test_shell_defers_both_scripts(self):
+        c = self.app_module.app.test_client()
+        html = c.get("/").get_data(as_text=True)
+        self.assertEqual(2, html.count("defer></script>"))   # render.js + app.js
+        self.assertIn('src="render.js?v=', html)             # ?v= stamp preserved
+        self.assertIn('src="app.js?v=', html)
+
 
 if __name__ == "__main__":
     unittest.main()

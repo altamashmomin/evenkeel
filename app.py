@@ -121,6 +121,14 @@ def _security_headers(resp):
     resp.headers.setdefault("Content-Security-Policy", _CSP)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
+    # R2 (audit): the ?v=<mtime>-stamped assets are content-addressed — the URL
+    # changes when the file changes (index() re-stamps on each load) — so cache
+    # them HARD (immutable = the browser won't even revalidate) and repeat loads
+    # make 0 requests for them instead of a 304 round-trip each. Scoped to a
+    # request that actually carries the ?v= stamp: a bare /app.js (a hard refresh)
+    # still gets normal revalidation, and the shell / API stay no-cache.
+    if request.args.get("v") and request.path.lstrip("/") in _VERSIONED_ASSETS:
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     # Let Flask-Compress reach static-file bodies (audit R1): it skips STREAMED
     # responses, which is how Flask serves the static JS/CSS — the very biggest
     # assets. Materialize compressible 200s (read the small file into memory —

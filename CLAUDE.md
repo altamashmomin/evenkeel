@@ -414,9 +414,16 @@ pinned for `text/javascript`; a materialize step in `_security_headers` lets it
 reach streamed static files too. Suite **684**, render **176**, real-server curl
 confirms `Content-Encoding: gzip`, GATE zero-diff (transport/config only). On
 `rework`; **awaits merge + Pi deploy** (adds a dep — `deploy.sh` pip-installs it;
-no migration, schema v15). Working down the audit backlog in order; **next: R2/R3
-— immutable caching for the `?v=` assets + `defer` the two scripts** (repeat loads
-3 revalidation round-trips → 0).
+no migration, schema v15).
+Then (Aug 31): **audit R2/R3 — immutable caching + `defer`**: the `?v=`-stamped
+assets now serve `Cache-Control: immutable, max-age=1y` (repeat loads 3
+revalidation round-trips → 0; bare/shell/API stay no-cache), and both scripts got
+`defer`. With R1: first load 218KB→64KB, repeat →0 round-trips. Suite **687**,
+render **176**, real-server curl + boot smoke confirm, GATE zero-diff (headers +
+index.html only). On `rework`; **awaits merge + Pi deploy** (no dep, no migration,
+schema v15). Audit backlog: F-1, R1, R2/R3 done (3 commits on `rework`, unpushed);
+**next: H-1** (Pi debris-recovery doc) then the LOW fixes (C-1, C-4, H-3, C-2, F-2,
+H-4/C-5, H-2, structure slice).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

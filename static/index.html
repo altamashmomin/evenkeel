@@ -243,7 +243,11 @@
   </form>
 </dialog>
 
-<script src="render.js"></script>
-<script src="app.js"></script>
+<!-- defer (audit R3): both download in parallel with HTML parse and execute in
+     document order after it — render.js (window.Render) before app.js, which
+     needs it. The ?v= stamp is injected by index(); the defer attribute rides
+     through the replace. -->
+<script src="render.js" defer></script>
+<script src="app.js" defer></script>
 </body>
 </html>
