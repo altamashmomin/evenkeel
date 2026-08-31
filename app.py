@@ -5,11 +5,12 @@ Flask + SQLite, no build step. See README.md for setup.
 import functools
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from flask import Flask, Response, g, jsonify, redirect, request, session
@@ -818,8 +819,20 @@ def propose_action_view():
 @login_required
 def confirm_action_view():
     """Thin caller: PHASE 2. Executes exactly the frozen payload the token
-    points to. Single-use; an expired or already-consumed token is refused."""
+    points to. Single-use; an expired or already-consumed token is refused.
+
+    MIRAGE F-1: confirming a two-phase proposal is a HUMAN act. A bearer/MCP
+    client may PROPOSE (park a preview) but only a signed-in member may confirm,
+    so a prompt-injected automation cannot self-approve its own write. The
+    in-app assistant reaches this route under the member's own session
+    (ask_loop.make_app_caller), so it is unaffected; confirm_action carries a
+    verb-level backstop too."""
     db = get_db()
+    if (g.get("auth") or {}).get("via") == "token":
+        return jsonify({"error":
+            "Confirming a proposed change is a human step: open Ledger and "
+            "approve it under Pending approvals. An automation can propose, "
+            "but only a signed-in person can confirm."}), 403
     data = request.get_json(silent=True) or {}
     token = data.get("confirmation_token")
     if not token:
@@ -831,6 +844,51 @@ def confirm_action_view():
     except ValueError as e:
         return bad_request(str(e))
     return jsonify(result)
+
+
+def _pending_to_json(r):
+    """Shape one pending_actions row for the in-app approvals card: a plain
+    summary of what would happen, who proposed it, and its expiry. The
+    confirmation token rides along so the signed-in member can approve it (the
+    same token PHASE 2 needs) — safe because the row is only ever returned to a
+    session (see the route). No money is read here; a proposal is a parked
+    intent, not a financial row."""
+    preview = json.loads(r["preview_json"]) if r["preview_json"] else {}
+    payload = json.loads(r["payload_json"]) if r["payload_json"] else {}
+    if r["action_type"] == "create_rule":
+        match = payload.get("match_desc", "")
+        set_type = payload.get("set_type", "")
+        n = int(preview.get("would_match_now", 0) or 0)
+        summary = f"Create a rule: tag deposits matching “{match}” as {set_type}"
+        detail = (f"{n} unclassified deposit{'' if n == 1 else 's'} would be tagged now"
+                  if payload.get("also_apply_to_existing", True) and n
+                  else "affects future deposits; none match right now")
+    else:  # apply_rules
+        n = int(preview.get("rows_affected", 0) or 0)
+        summary = "Apply all rules to the backlog"
+        detail = f"{n} unclassified deposit{'' if n == 1 else 's'} would be tagged"
+    return {"token": r["token"], "action_type": r["action_type"],
+            "summary": summary, "detail": detail,
+            "proposed_by": r["proposer_label"] or "in the app",
+            "expires_at": r["expires_at"]}
+
+
+@app.get("/api/actions/pending")
+@session_required
+def pending_actions_view():
+    """The human approvals queue: two-phase proposals awaiting a person's yes.
+    Session-only — approving is a human act (MIRAGE F-1: an automation may
+    PROPOSE, but a signed-in member CONFIRMS). Returns unexpired 'pending' rows
+    with a plain summary and who proposed them; the SPA renders these as the
+    Home approvals card. Read-only, touches no money table."""
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rows = db.execute(
+        "SELECT p.*, t.label AS proposer_label "
+        "FROM pending_actions p LEFT JOIN api_tokens t ON t.id = p.created_by "
+        "WHERE p.status = 'pending' AND p.expires_at > ? "
+        "ORDER BY p.created_at", (now,)).fetchall()
+    return jsonify([_pending_to_json(r) for r in rows])
 
 
 # ------------------------------------------- inventory (INVENTORY-DESIGN)

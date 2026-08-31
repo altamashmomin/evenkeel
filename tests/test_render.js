@@ -1493,6 +1493,33 @@ check("calendarAgendaHTML escapes a hostile bill name (no breakout)", () => {
   assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
 });
 
+// ---- pendingApprovalsHTML: the Home approvals card (F-1 human-confirm) ----
+check("pendingApprovalsHTML: empty -> '' (card hidden when nothing waits)", () => {
+  assert.strictEqual(R.pendingApprovalsHTML([]), "");
+  assert.strictEqual(R.pendingApprovalsHTML(null), "");
+});
+check("pendingApprovalsHTML: one proposal renders summary + Approve with token", () => {
+  const h = R.pendingApprovalsHTML([{
+    token: "tok_ABC-123", action_type: "create_rule",
+    summary: "Create a rule: tag deposits matching “ADP” as paycheck",
+    detail: "1 unclassified deposit would be tagged now", proposed_by: "cc",
+  }]);
+  assert.ok(h.includes("Pending approvals"));
+  assert.ok(h.includes("ADP") && h.includes("paycheck"));
+  assert.ok(h.includes("proposed cc"));
+  assert.ok(h.includes('data-approve="tok_ABC-123"'), "Approve carries the token");
+  assert.ok(h.includes("this change"), "singular copy for one item");
+});
+check("pendingApprovalsHTML: plural copy + escapes a hostile summary", () => {
+  const h = R.pendingApprovalsHTML([
+    { token: "t1", summary: 'A"<b>&', detail: "x", proposed_by: "cc" },
+    { token: "t2", summary: "B", detail: "y", proposed_by: "cc" },
+  ]);
+  assert.ok(h.includes("these changes"), "plural copy for many");
+  assert.ok(!h.includes("<b>&"), "hostile summary neutralized");
+  assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
+});
+
 // ---- contribLogHTML: the goal contribution log (empty / sign / escaping) ----
 check("contribLogHTML empty state", () => {
   const h = R.contribLogHTML([]);

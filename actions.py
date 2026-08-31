@@ -1409,6 +1409,15 @@ def confirm_action(db, actor, token):
     own audit row — that is the executed-write record.
     Returns what was executed + the pending action id.
     """
+    # MIRAGE F-1 backstop (defense-in-depth beneath the route's session gate):
+    # confirming a two-phase proposal is a HUMAN act. actor is 'mcp:<label>' for
+    # a bearer/MCP caller, 'ui:<name>' for a session — refuse an mcp: actor in
+    # the money layer, so no automation can self-approve even if it reaches the
+    # verb directly.
+    if str(actor).startswith("mcp:"):
+        raise ActionError(
+            "a proposed action must be confirmed by a signed-in person in the "
+            "app, not by an automation")
     row = db.execute(
         "SELECT * FROM pending_actions WHERE token = ?", (token,)).fetchone()
     if row is None:

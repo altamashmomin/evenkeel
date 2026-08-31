@@ -1738,6 +1738,32 @@
       </div>`;
   }
 
+  // The Home "Pending approvals" card: two-phase changes an assistant PROPOSED
+  // that a person must approve (MIRAGE F-1 — an automation proposes, a human
+  // confirms). Pure: app.js fetches /api/actions/pending and passes the rows;
+  // empty -> "" so the card only shows when something is waiting. Each summary
+  // carries bank/user text, so esc() it; the token rides in a data attr for the
+  // Approve handler (POST /api/actions/confirm under the person's session).
+  function pendingApprovalsHTML(items) {
+    if (!items || !items.length) return "";
+    const one = items.length === 1;
+    const rows = items.map((a) => `
+        <li>
+          <div class="grow">
+            <div class="title">${esc(a.summary)}</div>
+            <div class="sub">${esc(a.detail)} · proposed ${esc(a.proposed_by)}</div>
+          </div>
+          <button class="btn small" data-approve="${esc(a.token)}">Approve</button>
+        </li>`).join("");
+    return `
+      <div class="card approvals">
+        <p class="eyebrow">Pending approvals</p>
+        <p class="approvals-sub">An assistant proposed ${one ? "this change" : "these changes"} —
+          approve to apply, or ignore to let ${one ? "it" : "them"} expire.</p>
+        <ul class="list">${rows}</ul>
+      </div>`;
+  }
+
   // One Bills-tab row. Pure: paid_this_period picks the "paid" badge + Undo vs
   // the Mark-paid button; the icon falls back to the bill name when the bill
   // carries no category. The section-head + empty state stay in app.js, as with
@@ -1817,6 +1843,7 @@
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            ruleBreadthWarning,
            userById, userColor, beamHTML, txnRow, calendarAgendaHTML, billRowHTML,
+           pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
            moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
