@@ -2,6 +2,12 @@ flask>=3.0
 python-dotenv>=1.0
 requests>=2.31
 gunicorn>=21.2
+# gzip the SPA shell + static JS/CSS + API JSON on the fly (audit R1). The
+# frontend critical path is ~211KB uncompressed → ~61KB gzipped (−71% first
+# load); this handles the HTTP-correctness edges (static direct_passthrough,
+# ETag/304, Vary, HEAD) that a hand-rolled after_request gets subtly wrong.
+# gzip only — no brotli dep (COMPRESS_ALGORITHM='gzip' in app.py).
+Flask-Compress>=1.14
 
 # Agent layer (AGENT-DESIGN): the ledger_mcp read-tier sibling process.
 # Upper-bounded: mcp 2.0 removed mcp.server.fastmcp.FastMCP, which

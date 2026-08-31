@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from flask import Flask, Response, g, jsonify, redirect, request, session
+from flask_compress import Compress
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -57,6 +58,19 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 90,  # 90 days
     MAX_CONTENT_LENGTH=64 * 1024,
 )
+
+# gzip the SPA shell + static JS/CSS + API JSON on the fly (audit R1) — cuts the
+# first-load critical path ~71% (211KB → ~61KB), no build step. gzip only (no
+# brotli dependency). MIMETYPES pinned explicitly so text/javascript — how
+# Python 3.11 serves .js — is covered, not just application/javascript; the
+# default list misses it. Flask-Compress owns the correctness edges (static
+# direct_passthrough, ETag/304, Vary: Accept-Encoding, HEAD).
+app.config["COMPRESS_ALGORITHM"] = "gzip"
+app.config["COMPRESS_MIMETYPES"] = [
+    "text/html", "text/css", "text/javascript", "application/javascript",
+    "application/json", "image/svg+xml", "text/plain",
+]
+Compress(app)
 
 # Security response headers (CODE-REVIEW-2026-08-07 #13). All scripts/styles are
 # same-origin files and there are no inline <script> blocks, so a strict
@@ -107,6 +121,19 @@ def _security_headers(resp):
     resp.headers.setdefault("Content-Security-Policy", _CSP)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
+    # Let Flask-Compress reach static-file bodies (audit R1): it skips STREAMED
+    # responses, which is how Flask serves the static JS/CSS — the very biggest
+    # assets. Materialize compressible 200s (read the small file into memory —
+    # fine at two users on a Pi) so the response is no longer streamed and
+    # Compress gzips it with a real Content-Length. This after_request is
+    # registered after Compress(app), so it runs BEFORE Compress here (Flask runs
+    # after_request in reverse registration order) — the body is ready when
+    # Compress inspects it. A conditional hit is a 304 (no body) and is skipped
+    # by the status guard.
+    if (resp.status_code == 200 and resp.direct_passthrough
+            and (resp.mimetype or "") in app.config["COMPRESS_MIMETYPES"]):
+        resp.direct_passthrough = False
+        resp.get_data()   # consume the file wrapper so is_streamed becomes False
     return resp
 
 

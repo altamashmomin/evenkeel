@@ -4023,3 +4023,29 @@ card renders on Home, Approve created the rule and cleared the queue. On `rework
 **awaits Alta's merge + Pi deploy** (no migration, schema stays **v15**). Interim
 stopgap available but not taken (flip `LEDGER_MCP_ENABLE_WRITES=0`). F-2 (bind
 confirm to the proposing identity) remains a separate open LOW.
+
+## Aug 31, 2026 — audit remediation R1: gzip at the Flask layer
+
+The audit's biggest load-time win, no build step. **Flask-Compress** (a
+documented dep, gzip only — no brotli) compresses the SPA shell + static JS/CSS +
+API JSON on the fly: the first-load critical path drops **218KB → 64KB (−71%)**,
+and every API JSON response shrinks too. `COMPRESS_MIMETYPES` is pinned
+explicitly so `text/javascript` (how Python 3.11 serves `.js`) is covered — the
+default list only has `application/javascript` and would miss our JS.
+
+One subtlety worth recording: Flask-Compress **skips STREAMED responses**, which
+is exactly how Flask serves static files (the biggest assets), so out of the box
+only the shell + API JSON compressed. Fix: a materialize step in the
+`_security_headers` after_request — which is registered after `Compress(app)`, so
+Flask runs it BEFORE Compress — reads the small static body into memory for
+compressible 200s, making the response non-streamed so Compress gzips it with a
+real `Content-Length`. A conditional hit (304, no body) is skipped by the status
+guard.
+
+Tests (test_security_headers.py): static JS gzipped only when the client accepts
+it (+ `Vary: Accept-Encoding`, + actually smaller), index shell gzipped, API JSON
+gzipped when sizable. Suite **684** (+3), render **176**. Real-server curl:
+`/render.js` 97KB → 30KB on the wire, `Content-Encoding: gzip`. **GATE zero-diff by
+construction** (transport/config only; `derivations.py` untouched). On `rework`;
+**awaits merge + Pi deploy** — `deploy.sh`'s `pip install -r requirements.txt`
+picks up Flask-Compress; no migration, schema **v15**.

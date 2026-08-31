@@ -66,6 +66,30 @@ class SecurityHeaderTests(unittest.TestCase):
         self.assertEqual("application/json", r.mimetype)
         self.assertIn("error", r.get_json())
 
+    # ---- gzip compression (audit R1) ----
+    def test_static_js_is_gzipped_only_when_the_client_accepts_it(self):
+        c = self.app_module.app.test_client()
+        plain = c.get("/render.js")                                    # no Accept-Encoding
+        gz = c.get("/render.js", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(200, gz.status_code)
+        self.assertEqual("gzip", gz.headers.get("Content-Encoding"))
+        self.assertIn("Accept-Encoding", gz.headers.get("Vary", ""))
+        self.assertLess(len(gz.data), len(plain.data))                # actually smaller
+        self.assertNotIn("Content-Encoding", plain.headers)           # untouched w/o accept
+
+    def test_index_shell_is_gzipped(self):
+        c = self.app_module.app.test_client()
+        r = c.get("/", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual("gzip", r.headers.get("Content-Encoding"))
+
+    def test_api_json_is_gzipped_when_sizable(self):
+        c = self.app_module.app.test_client()
+        self.login(c)
+        r = c.get("/api/activity?filter=all", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(200, r.status_code)
+        # activity over a seeded month is well past COMPRESS_MIN_SIZE (500B)
+        self.assertEqual("gzip", r.headers.get("Content-Encoding"))
+
 
 if __name__ == "__main__":
     unittest.main()
