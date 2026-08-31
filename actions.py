@@ -391,6 +391,13 @@ def edit_transaction(db, actor, txn_id, data):
         pct = cols.pop("payer_share_pct", None)
         if not cols and pct is None:
             raise ActionError("nothing to update")
+        # An inflow never carries splits (INCOME-DESIGN invariant 1) — the money
+        # derivations read direction='out' splits only, so a shared inflow is a
+        # latent invariant breach. create_transaction forces is_shared=0 for a
+        # money-in leg; edit must refuse the same here rather than writing split
+        # rows onto an inflow (CODE-REVIEW 2026-08-08, Tier 2 #7).
+        if existing["direction"] == "in" and cols.get("is_shared") == 1:
+            raise ActionError("an inflow cannot be shared")
         if pct is None:
             # Share not part of this edit: the current payer's share
             # travels, exactly as the old column did.

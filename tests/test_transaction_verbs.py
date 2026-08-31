@@ -194,6 +194,29 @@ class TransactionVerbTests(unittest.TestCase):
             (txn_id,)).fetchone()["share_bp"]
         self.assertEqual(7000, share)
 
+    def test_edit_cannot_share_an_inflow(self):
+        # An inflow never carries splits (INCOME-DESIGN invariant 1); every
+        # money derivation reads direction='out' splits only, so splits on an
+        # inflow are a latent invariant breach — masked today but real.
+        # edit_transaction must REFUSE `is_shared` on an inflow rather than
+        # writing two split rows onto it (CODE-REVIEW 2026-08-08, Tier 2 #7).
+        cur = self.db.execute(
+            """INSERT INTO transactions (txn_date, amount_cents, description,
+                   category, paid_by, is_shared, source, direction, income_type)
+               VALUES (?, 4000, 'Paycheck', 'Income', 1, 0, 'manual', 'in', 'paycheck')""",
+            (date.today().isoformat(),))
+        inflow_id = cur.lastrowid
+        self.db.commit()
+        with self.assertRaisesRegex(actions.ActionError, "an inflow cannot be shared"):
+            actions.edit_transaction(self.db, "ui:avery", inflow_id, {"is_shared": True})
+        # Nothing was written: no split rows, is_shared still 0, no dangling txn.
+        self.assertEqual(0, self.count(
+            "SELECT COUNT(*) FROM splits WHERE transaction_id = ?", inflow_id))
+        self.assertEqual(0, self.db.execute(
+            "SELECT is_shared FROM transactions WHERE id = ?",
+            (inflow_id,)).fetchone()["is_shared"])
+        self.assertFalse(self.db.in_transaction)
+
     def test_editing_a_covered_row_severs_its_settles_link_and_audits_it(self):
         settled = self.settle()
         covered_id = self.db.execute(
