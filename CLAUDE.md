@@ -431,9 +431,14 @@ robustness (C-2 + H-3)** — `/api/calendar/link` validates the env value via
 F-1, R1, R2/R3, calendar-feed, PUBLIC_BASE_URL, H-4, H-1 (debris-recovery doc)
 done; **F-2 closed by F-1** (confirm is session-only, so no bearer can confirm —
 binding which human confirms would break the MCP-proposes/human-approves flow).
-8 commits on `rework`, unpushed. **Remaining: H-2 (venv toolchain refresh) + the
-optional structure slice (move seeds/tooling into folders); the audit's LOW
-correctness/security/docs items are all done.**
+Then **H-2 repo part** — a new `requirements-dev.txt` homes `pip-audit` +
+documents the venv-toolchain bump (`pip install -U pip setuptools`) as an ops step
+(the runtime deps are already clean). **That closes the audit's actionable
+backlog**; the **structure slice is deliberately deferred** (ergonomic-only,
+riskiest change, touches deploy/gate/test paths). **9 commits on `rework`** —
+push done to origin; **awaits Alta's merge + Pi deploy.** ⚠ The F-1 security fix
+isn't live until deployed — MCP writes are enabled on the Pi now; the
+`LEDGER_MCP_ENABLE_WRITES=0` stopgap is available until then.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

@@ -4142,3 +4142,24 @@ On `rework`; **awaits merge + Pi deploy** (no migration, schema **v15**).
   confirmer are deliberately different identities there) and adds no real security
   between two trusted partners, so no code change (Alta's call). No suite run —
   docs only.
+
+## Aug 31, 2026 — audit H-2 (repo part): pip-audit in dev tooling + toolchain-bump note
+
+The runtime deps are clean (`pip-audit -r requirements.txt` = no known vulns);
+H-2 was the venv **bootstrap** toolchain (pip 22.3 / setuptools 65.5.0), whose
+CVEs fire only during `pip install` against a hostile index, never when serving.
+Repo-side fix: a new **`requirements-dev.txt`** homes `pip-audit` (for CI /
+pre-bump scans) and documents the toolchain refresh
+(`venv/bin/pip install -U pip setuptools`, or recreate the venv) as an **ops step**
+for each venv including the Pi's. The "orphaned `cryptography`" the full-env scan
+saw is `pip-audit`'s own transitive dep (dev-only, never imported by the app).
+Docs/tooling only — no runtime code, no migration.
+
+**That closes the audit's actionable backlog** (F-1 + R1 + R2/R3 + all the LOW
+correctness/security/docs items + H-1 + H-2 repo part; F-2 subsumed by F-1). The
+**structure slice is deliberately deferred** — ergonomic-only, the riskiest
+remaining change (it would touch `deploy.sh` / the balance gate / test path
+assumptions on a live app), and lowest value. 9 commits on `rework`; **awaits
+Alta's push + merge + Pi deploy** (the F-1 fix isn't live until then — MCP writes
+are currently enabled on the Pi; the `LEDGER_MCP_ENABLE_WRITES=0` stopgap remains
+available in the meantime).
