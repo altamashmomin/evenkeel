@@ -4221,3 +4221,30 @@ construction** — a Pi-side script; no `app.py`/`derivations.py`/money code tou
 On `rework`; **awaits merge + Alta installing the timer on the Pi** (like the
 pantry-pulse timer). Next: increment 3 (approval alerts + bump
 `PENDING_ACTION_TTL_SECONDS` 10 min → ~24h).
+
+## Aug 31, 2026 — notifications increment 3: approval alerts + TTL bump (feature complete)
+
+Completes NOTIFICATIONS-DESIGN. Two parts:
+- **TTL bump** — `PENDING_ACTION_TTL_SECONDS` 600 → 86400 (10 min → 24h). The 10
+  min was sized for the old same-conversation confirm; F-1 made approval a
+  separate human-in-the-app step and the alert tells a person out-of-band, so a
+  proposal must live long enough to notice a notification and act. A stale
+  approval still dies. Constant-only change; snapshot $505.85 unchanged.
+- **`deploy/notify_approvals.py`** (self-contained, mirrors `change_digest.py`):
+  every ~15 min reads `GET /api/actions/pending`, and for proposals it hasn't
+  announced (a gitignored `.notify-approvals.state` JSON token set, pruned each
+  run to those still pending — so nothing is announced twice and the file can't
+  grow), files a terse `approval-pending` GitHub issue — the **kind** (a new rule
+  / a backlog sweep), who, and expiry; **never** the match phrase or an amount
+  (privacy rule, verified in a test: a summary carrying a payee never reaches the
+  issue). systemd service + timer (`*:0/15`, `Persistent`); the install doc gained
+  an approvals section (shares the read token + `OPS_ALERT_GH_*` private repo).
+
+Tests: render terseness/kinds/grammar + match-phrase-never-leaks; announced
+round-trip + prune; missing-state-empty. Suite **711** (+5), render **176**.
+**GATE zero-diff by construction** (a TTL constant + a Pi-side script; no money
+computation touched). On `rework`; **awaits merge + Alta installing BOTH timers on
+the Pi** (`deploy/change-digest.md` covers both). **The change-notifications
+feature is complete** — inc 1 (`activity_digest` + route), inc 2 (daily digest),
+inc 3 (approval alerts + TTL) — closing the visibility gap the F-1 discussion
+surfaced.

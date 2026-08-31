@@ -1,0 +1,29 @@
+# Ledger approval alerts — /etc/systemd/system/pifinance-notify-approvals.service
+# Triggered by pifinance-notify-approvals.timer; not enabled directly. Reads the
+# F-1 Pending-approvals queue through the app's own API with a read-scope bearer
+# (CHANGE_DIGEST_TOKEN or PANTRY_PULSE_TOKEN) and files a terse `approval-pending`
+# GitHub issue over the OPS_ALERT_GH_* bridge — a PRIVATE repo. Read-only; never
+# touches finance.db; never stops the app. Pi-side because the cloud can't reach
+# the Pi (NOTIFICATIONS-DESIGN inc 3).
+#
+# Adjust User and paths if your username or install dir differs (the deployed Pi
+# is user `altamash` at /home/altamash/pifinance; rewrite with sed on copy, never
+# edit this tracked file — a future `git pull` would conflict).
+[Unit]
+Description=Ledger approval alerts
+After=pifinance.service
+Requires=pifinance.service
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/pifinance
+EnvironmentFile=-/home/pi/pifinance/.env
+ExecStart=/home/pi/pifinance/venv/bin/python /home/pi/pifinance/deploy/notify_approvals.py
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

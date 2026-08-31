@@ -458,10 +458,16 @@ Pi job → terse `change-digest` GitHub issue over `OPS_ALERT_GH_*`; mirrors
 `pantry_pulse.py`) + service/timer + install doc; `*.state` gitignored for the
 high-water-mark. Suite **706**, render **176**, GATE zero-diff by construction (a
 Pi-side script, no app/money code). On `rework` (unpushed, past the deployed
-`57688af`). **Next: increment 3** — approval alerts (`notify_approvals.py` +
-~15-min timer) + bump `PENDING_ACTION_TTL_SECONDS` 10 min → ~24h. Deploying this
-feature = merge + push, then Alta installs the change-digest timer on the Pi
-(like pantry-pulse) — `deploy/change-digest.md`.
+`57688af`). **Increment 3 done → feature complete**: `deploy/notify_approvals.py`
+(~15-min timer → terse `approval-pending` GitHub issue for new pending proposals,
+announced-tokens state) + `PENDING_ACTION_TTL_SECONDS` 600→86400 (10min→24h, so a
+notification has time). Suite **711**, render **176**, GATE zero-diff by
+construction. **The change-notifications feature is complete** (inc 1 digest read
++ route, inc 2 daily digest job, inc 3 approval alerts + TTL). **6 commits on
+`rework` unpushed** (audit F-1..H-2 are already deployed at `57688af`; these 6 =
+the notifications spec + 3 increments + this). Deploying = push → merge →
+`deploy.sh`, then Alta installs the **two** Pi timers (`deploy/change-digest.md`
+covers both; reuses the pantry-pulse read token + `OPS_ALERT_GH_*` PRIVATE repo).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

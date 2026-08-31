@@ -1246,7 +1246,11 @@ def _apply_single_rule(db, actor, rule):
 # ──────────────── two-phase agent writes (AGENT-DESIGN step 4) ───────────
 
 PROPOSABLE_ACTIONS = frozenset({"create_rule", "apply_rules"})
-PENDING_ACTION_TTL_SECONDS = 600   # ~10 minutes; a stale approval dies
+PENDING_ACTION_TTL_SECONDS = 86400   # 24h. Was 10 min, sized for the old flow
+# where the proposer confirmed in the same conversation. MIRAGE F-1 made approval
+# a separate human-in-the-app step, and the change-notification digest/alert
+# (NOTIFICATIONS-DESIGN) tells a person out-of-band — so a proposal must live
+# long enough to notice a notification and act. A stale approval still dies.
 
 # A rule is "broad" when the ONLY thing narrowing it is a short description
 # substring — no amount bounds, no account. Such a rule can read "0 matches

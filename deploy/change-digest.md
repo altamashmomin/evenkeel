@@ -70,3 +70,34 @@ approval) posts nothing.
 The read token doesn't expire but can be revoked (`POST /api/tokens/<id>/revoke`
 with a session; `GET /api/tokens` lists ids). The GitHub PAT rotates with the
 guardian's.
+
+---
+
+## Also: approval alerts (a second, faster timer)
+
+The **daily** digest above is for review. Its sibling, `notify_approvals.py`,
+runs **every 15 minutes** and files a terse issue the moment an automation
+proposes something awaiting your approval — so you can act before it expires
+(proposals now live ~24h, up from 10 min, precisely so a notification has time to
+land). Same read token, same `OPS_ALERT_GH_*` private repo; it remembers which
+proposals it has announced in a gitignored `.notify-approvals.state`, so nothing
+is announced twice. Terse by the same rule — the *kind* (a new rule / a backlog
+sweep), who proposed it, and when it expires; the specifics and the Approve
+button live in the app.
+
+Install the second pair of units the same way:
+```bash
+cd ~/pifinance
+for u in pifinance-notify-approvals.service pifinance-notify-approvals.timer; do
+  sed 's#/home/pi/pifinance#/home/altamash/pifinance#g; s/^User=pi/User=altamash/' \
+    deploy/$u | sudo tee /etc/systemd/system/$u >/dev/null
+done
+sudo systemctl daemon-reload
+sudo systemctl enable --now pifinance-notify-approvals.timer
+systemctl list-timers pifinance-notify-approvals.timer
+```
+Dry run (prints, posts nothing):
+```bash
+set -a; . ~/pifinance/.env; set +a
+~/pifinance/venv/bin/python ~/pifinance/deploy/notify_approvals.py --dry-run
+```
