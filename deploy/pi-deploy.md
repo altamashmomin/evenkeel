@@ -194,6 +194,40 @@ sudo systemctl start pifinance
 
 ---
 
+## Recovering a dirty / debris working tree
+
+`deploy.sh` refuses to run when `git status` isn't clean — a fail-safe, so it can
+never ship a half-written tree. This has fired once (Aug 2026) from **power-loss
+debris**: an unclean shutdown on the SD card left ext4 delayed-allocation files
+zeroed, so `git status` showed a **truncated tracked file** (` M migrate.py`, now
+0 bytes) plus **stray 0-byte untracked files** named after `deploy.sh`'s own echo
+words (`backing`, `checkout`, `stopping`, …). The running service was fine —
+`migrate.py` is only used *during* a deploy — but the next deploy was blocked
+until the tree was tidied. To recover, on the Pi:
+
+```bash
+cd /home/altamash/pifinance
+git status                 # see what's dirty: modified tracked files + ?? junk
+git checkout -- .          # restore every tracked file from the deployed commit
+git clean -fdn             # DRY RUN — list the untracked files that would be removed
+git clean -fd              # remove them (the 0-byte debris)
+git status                 # must be clean before re-running deploy.sh
+```
+
+- **The Pi never commits**, so `git checkout -- .` can't discard real work — it
+  only heals corruption back to the deployed tree.
+- **`git clean -fd` is safe here**: it honors `.gitignore`, so it leaves `.env`,
+  `finance.db`, and the `finance.db.bak-*` backups (all ignored) untouched — the
+  `-fdn` dry run confirms that before you commit to it. **Never add `-x`**
+  (`git clean -fdx` would also delete those ignored files, including your live
+  database and its backups).
+
+**Prevention (infra):** the root cause is power loss to the SD card. A small UPS
+/ battery HAT for a clean shutdown, or an `fstab` mount tweak (e.g. `commit=` /
+data-journaling), reduces the chance of zeroed files on the next boot.
+
+---
+
 ## Future increments (after this go-live)
 
 Once `rework` work merges to `main` one increment at a time, each Pi update

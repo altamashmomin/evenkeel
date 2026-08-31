@@ -4123,3 +4123,22 @@ throwaway raising route, so it tests the errorhandler, not `add_item`. Tests:
 non-string name → 400; the backstop still returns JSON on a genuine 500. Suite
 **693** (+1), render **176**. **GATE zero-diff** (a pantry verb, no money path).
 On `rework`; **awaits merge + Pi deploy** (no migration, schema **v15**).
+
+## Aug 31, 2026 — audit H-1 (debris-recovery doc) + F-2 closed by F-1
+
+- **H-1** — `deploy/pi-deploy.md` gained a **"Recovering a dirty / debris working
+  tree"** section: the exact recovery for the Aug-2026 power-loss debris (a
+  truncated tracked `migrate.py` + stray 0-byte untracked files) —
+  `git checkout -- .` then `git clean -fd` (with a `-fdn` dry run first, and a
+  loud **never `-x`** so the gitignored `.env` / `finance.db` / backups are never
+  touched) — plus a prevention note (a UPS / clean shutdown, or an `fstab`
+  `commit=` / data-journaling tweak). Docs only, no code.
+- **F-2** (bind confirm to the proposing identity) — **CLOSED by F-1.** F-2's
+  exploit was "a bearer confirms a proposal it didn't make," but F-1 already makes
+  confirm **session-only** (route 403 on `via=='token'` + the verb's `mcp:`
+  backstop), so no bearer can confirm at all — proven by
+  `test_bearer_cannot_confirm_but_a_session_can`. Binding *which household member*
+  confirms would break the MCP-proposes/human-approves flow (proposer and
+  confirmer are deliberately different identities there) and adds no real security
+  between two trusted partners, so no code change (Alta's call). No suite run —
+  docs only.
