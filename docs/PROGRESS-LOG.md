@@ -4337,4 +4337,9 @@ dev.db). Merged into `rework` Sep 1 — auto-merged cleanly with the audit F-1
 confirm gate and the #6 apply_rules freeze (each edits a different region of
 `confirm_action`), only the append-only PROGRESS-LOG needing a hand-merge.
 Re-gated on current data (GATE PASS by enumeration, sole diff
-`schema_version 15→16`); the Pi deploy applies migration #016 → live schema **v16**.
+`schema_version 15→16`). **DEPLOYED (Sep 1, `main` `d028650`→`623aecf`):** live
+gate PASS — balance + every monthly total byte-identical, sole structural diff
+`schema_version 15→16`; migration #016 applied to the live `finance.db` (**live
+schema now v16**), `pifinance`+`ledger-mcp` restarted, smoke OK. This closes the
+last MIRAGE follow-up; every thread from the Aug 8 review and its red-team
+offshoots is now remediated and live.
