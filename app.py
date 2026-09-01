@@ -473,7 +473,11 @@ def ops_audit():
     """Recent audit-log activity (newest first) — the system of record made
     visible without sqlite3 on the Pi. Row summaries only; detail payloads
     stay out of the response."""
-    limit = max(1, min(int(request.args.get("limit", 30)), 200))
+    try:
+        limit = int(request.args.get("limit", 30))
+    except (TypeError, ValueError):
+        return bad_request("limit must be an integer")
+    limit = max(1, min(limit, 200))
     db = get_db()
     rows = db.execute(
         "SELECT id, at, actor, action, target FROM audit_log "

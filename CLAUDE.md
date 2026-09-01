@@ -489,10 +489,16 @@ and stale current-state counts (agent_read_tools 13→20, ask_loop "one write
 tool"→16, ops-health-check `--workers` 2→4, pi-deploy "daily"→"twice-daily");
 local `dev-old.db`/`seed.db` + two merged worktrees removed. Live gate PASS
 **zero-diff**, no migration (schema **v15**), suite **722**. **The entire Aug 8
-code review (Tier 1/2/3) is now remediated and live**; `origin/main` == the
-deployed tree, nothing merged-but-undeployed. The one loose thread is the
-unmerged `.claude/worktrees/pensive-noether-9c2daf` branch (MIRAGE F3
-`match_desc≥3`), left for Alta to merge or drop.
+code review (Tier 1/2/3) is now remediated and live.** Then the git workspace was
+scrubbed (25 merged remote branches + stale worktrees/local branches removed) and
+the last two red-team offshoots resolved: MIRAGE **F3** (`match_desc≥3`) proved
+already live via a twin commit (its duplicate branch dropped), and MIRAGE **F2**
+(proposer-bound two-phase `confirm_action`) was merged + **DEPLOYED (Sep 1, `main`
+`d028650`→`623aecf`) — migration #016 applied to the live DB, schema now v16**
+(the gate passed by enumeration, sole diff `schema_version 15→16`, money
+byte-identical; F2 layers cleanly beneath the audit F-1 mcp-gate and the #6
+id-freeze). `origin/main` == the deployed tree; nothing merged-but-undeployed, no
+loose threads remain.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

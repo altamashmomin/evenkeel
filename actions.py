@@ -2156,6 +2156,8 @@ class Param:
     required: bool = True
     enum: tuple = None        # ordered choices; references a verb constant
     items: str = None         # for type="array": the element JSON type
+    minimum: int = None       # integer/number lower bound, surfaced in the schema
+    maximum: int = None       # integer/number upper bound, surfaced in the schema
 
 
 PARAM_SPECS = {
@@ -2179,7 +2181,8 @@ PARAM_SPECS = {
         Param("name", "string", "What the bill is, e.g. 'Electric' or 'Rent'."),
         Param("amount", "number", "The bill amount in dollars, e.g. 85.50."),
         Param("due_day", "integer",
-              "The day of the month it's due, a whole number 1–31."),
+              "The day of the month it's due, a whole number 1–31.",
+              minimum=1, maximum=31),
         Param("category", "string",
               "Optional category label; defaults to 'Bills'.", required=False),
     ],
@@ -2226,7 +2229,8 @@ PARAM_SPECS = {
         Param("item_id", "integer", "The staple's id, from ledger_inventory."),
         Param("days", "integer",
               "How many days between restocks — e.g. 14 for every two weeks, 30 "
-              "for monthly. A whole number from 1 to 365."),
+              "for monthly. A whole number from 1 to 365.",
+              minimum=1, maximum=365),
     ],
     "set_item_store": [
         Param("item_id", "integer", "The item's id, from ledger_inventory."),
@@ -2297,6 +2301,10 @@ def param_schema(verb):
             prop["items"] = {"type": p.items}
         if p.enum is not None:
             prop["enum"] = list(p.enum)
+        if p.minimum is not None:
+            prop["minimum"] = p.minimum
+        if p.maximum is not None:
+            prop["maximum"] = p.maximum
         prop["description"] = p.description
         props[p.name] = prop
         if p.required:

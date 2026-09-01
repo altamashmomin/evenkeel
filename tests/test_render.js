@@ -46,6 +46,20 @@ check("esc'd item name cannot break out of an aria-label attribute", () => {
   assert.ok(!/"\s+onmouseover=/.test(html),
     "hostile item name broke out of the attribute into a live handler");
 });
+check("esc'd item status cannot break out of the status-chip attributes", () => {
+  // CODE-REVIEW 2026-08-08 §7 (defense-in-depth): it.status is interpolated
+  // into class / data-status / aria-label. The server validates status to
+  // {stocked,low,out}, but the render must not silently depend on that.
+  const evil = 'low" onmouseover=alert(1) x="';
+  const html = R.inventoryHTML({
+    items: [{ id: 1, name: "Milk", kind: "staple", status: evil, active: 1 }],
+    shopping: [], low_count: 1, restock_suggestions: [], restock_forecast: [],
+    new_staple_suggestions: [], unmatched_staples: [], stale_shopping_items: [],
+    staple_spend: [], last_shopping_trip: null,
+  });
+  assert.ok(!/"\s+onmouseover=/.test(html),
+    "hostile item status broke out of an attribute into a live handler");
+});
 
 // ---- fmt: US currency, two decimals, thousands separators ----
 check("fmt formats money", () => {
