@@ -32,11 +32,12 @@ class FakeResponse:
 
 
 class FakeRequests:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self.payload = payload
+        self.status_code = status_code
 
     def get(self, url, params=None, timeout=None):
-        return FakeResponse(self.payload)
+        return FakeResponse(self.payload, self.status_code)
 
 
 def simplefin_payload():
@@ -157,6 +158,38 @@ class SimplefinSyncTests(unittest.TestCase):
         splits = self.count(
             "SELECT COUNT(*) FROM splits WHERE transaction_id = ?", txn["id"])
         self.assertEqual(0, splits)
+
+    def test_a_zero_dollar_line_is_skipped_not_fatal(self):
+        # A $0 feed line (a pending auth, a reversal) records nothing — validate
+        # rejects amount <= 0. It must be SKIPPED, not abort the whole import,
+        # so the other rows in the same batch still land (CODE-REVIEW 2026-08-08
+        # Tier 2 #8). Before the fix this raised out of sync() and killed the run.
+        now = int(time.time())
+        payload = {"accounts": [{"id": "acc1", "name": "Checking", "transactions": [
+            {"id": "tx-zero", "amount": "0.00", "posted": now, "description": "Pending auth"},
+            {"id": "tx-real", "amount": "-12.34", "posted": now, "description": "Real spend"},
+        ]}]}
+        self.run_sync(payload)   # must not raise
+        self.assertEqual(0, len(self.query(
+            "SELECT id FROM transactions WHERE external_id = ?", "simplefin:acc1:tx-zero")))
+        self.assertEqual(1, len(self.query(
+            "SELECT id FROM transactions WHERE external_id = ?", "simplefin:acc1:tx-real")))
+
+    def test_stamps_last_sync_even_on_an_error_response(self):
+        # A 403/non-200 spent a request against SimpleFIN's ~24/day quota; the
+        # stamp must advance so the next scheduled run is throttled instead of
+        # hammering a revoked/rate-limited token every timer tick (CODE-REVIEW
+        # 2026-08-08 Tier 2 #8). Before the fix, the stamp was written only after
+        # a 200 — an error response exited first and never throttled.
+        stamp = Path(self.sync_module.STAMP_FILE)
+        if stamp.exists():
+            stamp.unlink()
+        with mock.patch.object(self.sync_module, "requests",
+                               FakeRequests(simplefin_payload(), status_code=403)):
+            with self.assertRaises(SystemExit):
+                self.sync_module.sync(force=True)
+        self.assertTrue(stamp.exists(),
+                        "a 403 response must still stamp .last-sync to throttle the next run")
 
     def test_inflow_is_auto_classified_when_a_rule_matches(self):
         conn = sqlite3.connect(self.db_path)
