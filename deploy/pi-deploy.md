@@ -163,9 +163,9 @@ cross-check.)
 
 ---
 
-## Phase F — Turn on daily sync, finish up
+## Phase F — Turn on scheduled sync, finish up
 
-Enable the daily SimpleFIN timer (README §7). On `rework`, sync now also
+Enable the twice-daily SimpleFIN timer (README §7). On `rework`, sync now also
 imports **income** (money in), classified by any rules you set up later:
 
 ```bash

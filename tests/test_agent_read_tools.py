@@ -115,6 +115,19 @@ class AgentReadToolsTests(unittest.TestCase):
         self.assertEqual(want, by_name["ledger_propose_income_rule"]
                          .inputSchema["properties"]["set_type"]["enum"])
 
+    def test_search_income_type_enum_is_sourced_from_actions(self):
+        # The read tier's search income_type filter is sourced from the verb
+        # layer too, not a hand-listed copy (CODE-REVIEW 2026-08-08 Tier 3) — the
+        # exact drift the 'single source' registry exists to prevent. Search also
+        # filters the unclassified backlog (which classify can't set), so it
+        # carries the full actions.INCOME_TYPES, not just REAL_INCOME_TYPE_ORDER.
+        import actions
+        tool = next(t for t in art.READ_TOOLS
+                    if t["name"] == "ledger_search_transactions")
+        enum = tool["input_schema"]["properties"]["income_type"]["enum"]
+        self.assertEqual(enum, list(actions.REAL_INCOME_TYPE_ORDER) + ["unclassified"])
+        self.assertEqual(set(enum), actions.INCOME_TYPES)
+
     def test_anthropic_tools_schema_and_caching(self):
         tools = art.anthropic_tools()
         self.assertEqual(20, len(tools))

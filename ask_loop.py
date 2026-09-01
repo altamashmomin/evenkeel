@@ -1,7 +1,8 @@
 """ask_loop — the bounded Anthropic tool-use loop behind Charlee's Ask tab.
 
 It wires the shared read tools (agent_read_tools) plus, when a write `caller`
-is supplied, the one write tool (agent_write_tools: tag an inflow) to the
+is supplied, the write tools (agent_write_tools — inflow tagging, recategorize,
+bills/goals, budgets, the pantry, and rule propose/confirm) to the
 Anthropic Messages API, and runs the tool→answer loop until the model has an
 answer or the round cap is hit. The Anthropic client, the read `getter`, and
 the write `caller` are all injected, so this runs headless in tests against a

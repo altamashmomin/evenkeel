@@ -211,7 +211,7 @@ else
 fi
 
 # ── 6. Credentials before they die silently ─────────────────────────────────
-# Session signing key: if unset, each gunicorn worker (the app runs --workers 2)
+# Session signing key: if unset, each gunicorn worker (the app runs --workers 4)
 # invents its OWN key, so a cookie signed by one worker is rejected by the other
 # — logins fail intermittently and never survive a restart, and app.py only logs
 # a warning. See docs/SECURITY-AUDIT-2026-08-04.md finding #1.
