@@ -1,7 +1,13 @@
-flask>=3.0
+# Flask + gunicorn upper-bounded below the next major. The Pi runs
+# `pip install -r requirements.txt` on every deploy, so an unpinned major
+# (Flask 4, gunicorn 27) could land mid-deploy and break a live app. The
+# ceilings sit above the current latest (3.x / 26.x), so they don't change what
+# a deploy resolves today — they only block a FUTURE breaking major until it's
+# tested and the ceiling raised deliberately (CODE-REVIEW 2026-08-08 Tier 2 #9).
+flask>=3.0,<4
 python-dotenv>=1.0
 requests>=2.31
-gunicorn>=21.2
+gunicorn>=21.2,<27
 # gzip the SPA shell + static JS/CSS + API JSON on the fly (audit R1). The
 # frontend critical path is ~211KB uncompressed → ~61KB gzipped (−71% first
 # load); this handles the HTTP-correctness edges (static direct_passthrough,
@@ -17,7 +23,10 @@ mcp>=1.2,<2
 httpx>=0.27
 # Charlee's in-app Ask tab — the Anthropic tool-use loop (POST /api/ask).
 # Only used at runtime by the endpoint; the loop tests mock the client.
-anthropic>=0.40
+# Upper-bounded below 1.0 so the pre-1.0 SDK's eventual major restructure can't
+# land in a deploy uninvited (Tier 2 #9). Note: still pre-1.0, so 0.x minors
+# flow through — tighten to a minor ceiling if a bump ever breaks /api/ask.
+anthropic>=0.40,<1
 
 # Transitive security floors. urllib3 and idna arrive via requests/httpx, whose
 # own floors don't forbid the vulnerable versions — so without an explicit pin a
