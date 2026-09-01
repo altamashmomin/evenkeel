@@ -1355,7 +1355,8 @@ def _preview_create_rule(db, fields):
     }
 
 
-def propose_action(db, actor, created_by, action_type, payload):
+def propose_action(db, actor, created_by, action_type, payload,
+                   proposed_by_user=None):
     """PHASE 1 of the agent write tier's two-phase choreography. Does NOT
     execute anything: it validates + dry-runs the action, then parks a
     pending_actions row with the FROZEN payload and the computed preview,
@@ -1367,6 +1368,12 @@ def propose_action(db, actor, created_by, action_type, payload):
     would be rejected at create is rejected here, not at confirm).
     edit — one transaction inserting the pending_actions row.
     Returns {confirmation_token, action_type, preview, expires_at}.
+
+    `proposed_by_user` (member id) is the PROPOSING identity, recorded so
+    confirm_action can bind execution to it (MIRAGE F2 — migration #016). The
+    route passes g.auth["user_id"]; it is set server-side from the
+    authenticated session/token, never from the request body. `created_by`
+    stays the api_tokens-level audit trail (NULL for a session).
     """
     if action_type not in PROPOSABLE_ACTIONS:
         raise ActionError(
@@ -1405,18 +1412,31 @@ def propose_action(db, actor, created_by, action_type, payload):
         db.execute(
             """INSERT INTO pending_actions
                (token, action_type, payload_json, preview_json, created_by,
-                created_at, expires_at, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')""",
+                proposed_by_user, created_at, expires_at, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
             (token, action_type, json.dumps(frozen, sort_keys=True),
-             json.dumps(preview, sort_keys=True), created_by, created, expires))
+             json.dumps(preview, sort_keys=True), created_by, proposed_by_user,
+             created, expires))
     return {"confirmation_token": token, "action_type": action_type,
             "preview": preview, "expires_at": expires}
 
 
-def confirm_action(db, actor, token):
+def confirm_action(db, actor, token, confirming_user=None):
     """PHASE 2. Executes exactly the frozen payload the token points to — the
     parked args, never the caller's. Single-use; refused if already
     consumed, or past its expiry.
+
+    Bound to the proposer (MIRAGE F2, migration #016): when the pending row
+    carries a `proposed_by_user` and `confirming_user` is supplied, they must
+    match — a member cannot confirm a proposal another member parked. A
+    mismatch is refused as NotFound, identical to an unknown token, so a
+    non-proposer learns nothing about whether the token exists (the token is
+    already unguessable and only returned inside the proposer's own
+    conversation). `confirming_user` comes from the route's authenticated
+    identity (g.auth["user_id"]) for both the Ask session and a bearer token;
+    it is never read from the request body. A NULL `proposed_by_user` (legacy
+    row) or an unsupplied `confirming_user` (a direct verb-level caller) skips
+    the check — it never loosens an already-bound row.
 
     Ordering (see AGENT-DESIGN's flagged friction): the pending row is
     claimed — flipped 'pending'→'confirmed' — in its OWN committed
@@ -1446,6 +1466,13 @@ def confirm_action(db, actor, token):
     row = db.execute(
         "SELECT * FROM pending_actions WHERE token = ?", (token,)).fetchone()
     if row is None:
+        raise NotFound("not found")
+    # Proposer binding (MIRAGE F2): a token parked by one member cannot be
+    # confirmed by another. Treated as not-found so a non-proposer can't tell a
+    # real-but-someone-else's token from a bogus one. NULL proposer (legacy) or
+    # an unsupplied confirming_user (direct verb caller) leaves it unbound.
+    if (confirming_user is not None and row["proposed_by_user"] is not None
+            and row["proposed_by_user"] != confirming_user):
         raise NotFound("not found")
     if row["status"] != "pending":
         raise ActionError(f"this proposal is already {row['status']}")

@@ -283,6 +283,43 @@ class TwoPhaseVerbTests(unittest.TestCase):
         actions.confirm_action(self.db, "ui:avery", token)
         self.assertEqual(1, self.count("SELECT COUNT(*) FROM income_rules"))
 
+    # ---------------------------------------- proposer binding (MIRAGE F2)
+
+    def test_confirm_rejects_a_different_proposer(self):
+        # Member 1 parks a proposal; member 2 must not be able to confirm it.
+        # Refused as NotFound (indistinguishable from a bogus token), nothing
+        # executed, and the row stays pending so the real proposer still can.
+        txn_id = self.an_inflow()
+        token = actions.propose_action(
+            self.db, "ui:avery", created_by=None, action_type="create_rule",
+            payload={"match_desc": "ADP PAYROLL", "set_type": "paycheck"},
+            proposed_by_user=1)["confirmation_token"]
+
+        with self.assertRaises(actions.NotFound):
+            actions.confirm_action(self.db, "ui:blake", token, confirming_user=2)
+
+        # nothing ran, and the proposal is still claimable
+        self.assertEqual(0, self.count("SELECT COUNT(*) FROM income_rules"))
+        self.assertEqual("unclassified", self.db.execute(
+            "SELECT income_type FROM transactions WHERE id = ?", (txn_id,)
+        ).fetchone()["income_type"])
+        self.assertEqual("pending", self.pending(token)["status"])
+
+        # the proposer themselves confirms fine
+        result = actions.confirm_action(self.db, "ui:avery", token, confirming_user=1)
+        self.assertEqual("create_rule", result["action_type"])
+        self.assertEqual("confirmed", self.pending(token)["status"])
+
+    def test_confirm_unbound_legacy_row_still_confirms(self):
+        # A row parked without a proposer (legacy / pre-migration) is unbound:
+        # any confirming identity may execute it — the check never blocks NULL.
+        token = actions.propose_action(
+            self.db, "mcp:cc", created_by=None, action_type="create_rule",
+            payload={"match_desc": "ADP", "set_type": "paycheck"},
+            proposed_by_user=None)["confirmation_token"]
+        result = actions.confirm_action(self.db, "ui:blake", token, confirming_user=2)
+        self.assertEqual("create_rule", result["action_type"])
+
     # ------------------------------------------------- apply_rules variant
 
     def test_propose_and_confirm_apply_rules(self):
@@ -355,10 +392,10 @@ class TwoPhaseRouteTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def session_client(self):
+    def session_client(self, user_id=1):
         client = self.app_module.app.test_client()
         with client.session_transaction() as session:
-            session["user_id"] = 1
+            session["user_id"] = user_id
         return client
 
     def token(self, scopes):
@@ -427,6 +464,40 @@ class TwoPhaseRouteTests(unittest.TestCase):
             "/api/actions/propose", json={"action_type": "apply_rules"},
             headers={"Authorization": f"Bearer {write_token}"})
         self.assertEqual(201, allowed.status_code)
+
+    def test_a_second_member_cannot_confirm_anothers_proposal(self):
+        # The MIRAGE F2 scenario end to end: member 1 proposes; member 2's
+        # session must not be able to confirm it. 404 (like a bogus token),
+        # nothing executed; then member 1 confirms and it runs.
+        txn_id = self.insert_inflow()
+        proposer = self.session_client(user_id=1)
+        proposal = proposer.post("/api/actions/propose", json={
+            "action_type": "create_rule",
+            "match_desc": "ADP PAYROLL", "set_type": "paycheck"})
+        self.assertEqual(201, proposal.status_code)
+        token = proposal.get_json()["confirmation_token"]
+
+        intruder = self.session_client(user_id=2)
+        denied = intruder.post("/api/actions/confirm",
+                               json={"confirmation_token": token})
+        self.assertEqual(404, denied.status_code)
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            still_unclassified = conn.execute(
+                "SELECT income_type FROM transactions WHERE id = ?",
+                (txn_id,)).fetchone()[0]
+            rule_count = conn.execute(
+                "SELECT COUNT(*) FROM income_rules").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual("unclassified", still_unclassified)
+        self.assertEqual(0, rule_count)
+
+        # the real proposer can still confirm
+        ok = proposer.post("/api/actions/confirm",
+                           json={"confirmation_token": token})
+        self.assertEqual(200, ok.status_code)
 
     def test_confirm_missing_and_unknown_token(self):
         client = self.session_client()
