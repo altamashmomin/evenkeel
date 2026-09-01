@@ -1164,11 +1164,17 @@ def suggest_transfer_rule_after_mark(db, row):
             "set_type": "transfer", "set_transfer": True}
 
 
-def _matching_pass(db, rules=None):
+def _matching_pass(db, rules=None, only_ids=None):
     """Read-only: each rule (priority ascending, ties by id) tried in order
     against every unclassified inflow; first match wins. Defaults to all
     enabled rules; pass a single-element `rules` list to scope the pass to
-    one rule (the new-rule-only application confirm_action needs)."""
+    one rule (the new-rule-only application confirm_action needs).
+
+    `only_ids` restricts the pass to a specific set of transaction ids — the
+    two-phase apply_rules confirm freezes the previewed id-set at propose time
+    and passes it here, so confirm can never classify a row that arrived AFTER
+    the preview (CODE-REVIEW 2026-08-08 Tier 2 #6). None means every
+    unclassified inflow (the direct, non-two-phase callers)."""
     if rules is None:
         rules = db.execute(
             "SELECT * FROM income_rules WHERE enabled = 1 "
@@ -1176,6 +1182,9 @@ def _matching_pass(db, rules=None):
     rows = db.execute(
         "SELECT * FROM transactions WHERE direction = 'in' "
         "AND income_type = 'unclassified' ORDER BY id").fetchall()
+    if only_ids is not None:
+        allowed = set(only_ids)
+        rows = [row for row in rows if row["id"] in allowed]
     matches = []
     for row in rows:
         rule = _first_matching_rule(db, row, rules)
@@ -1216,7 +1225,7 @@ def _write_matches(db, actor, matches, action="apply_rules"):
         _write_audit(db, actor, action, None, {"applied": matches})
 
 
-def apply_rules(db, actor, dry_run=False):
+def apply_rules(db, actor, dry_run=False, only_ids=None):
     """Re-run enabled rules over every unclassified inflow, in priority
     order; first match wins; no match leaves a row unclassified.
 
@@ -1224,15 +1233,17 @@ def apply_rules(db, actor, dry_run=False):
     edit — skipped entirely when dry_run (a pure preview, no transaction
     opened at all). Otherwise, one transaction via _write_matches.
     side effects — none yet.
+    `only_ids` bounds the pass to a frozen id-set (the two-phase confirm's
+    previewed rows); None sweeps every unclassified inflow.
     Returns the list of {transaction_id, rule_id, set_type, set_paid_by}
     — a preview under dry_run, the applied changes otherwise; empty if
     nothing matched.
     """
     if dry_run:
-        return _matching_pass(db)
+        return _matching_pass(db, only_ids=only_ids)
 
     with action_transaction(db):
-        matches = _matching_pass(db)
+        matches = _matching_pass(db, only_ids=only_ids)
         _write_matches(db, actor, matches)
     return matches
 
@@ -1370,8 +1381,11 @@ def propose_action(db, actor, created_by, action_type, payload):
         preview = _preview_create_rule(db, fields)
         preview["also_apply_to_existing"] = also_apply
     else:  # apply_rules
-        frozen = {}
         matches = _matching_pass(db)
+        # Freeze the exact id-set the preview counted, so confirm classifies
+        # only these rows — never a wider live re-match that swept in inflows
+        # arriving during the approval window (CODE-REVIEW 2026-08-08 Tier 2 #6).
+        frozen = {"transaction_ids": sorted({m["transaction_id"] for m in matches})}
         by_rule = {}
         for match in matches:
             by_rule[match["rule_id"]] = by_rule.get(match["rule_id"], 0) + 1
@@ -1457,7 +1471,11 @@ def confirm_action(db, actor, token):
         return {"action_type": "create_rule", "rule": dict(rule),
                 "applied": applied, "pending_action_id": row["id"]}
     if row["action_type"] == "apply_rules":
-        applied = apply_rules(db, actor, dry_run=False)
+        # Apply only the rows frozen at propose time. `.get` is None for a
+        # proposal parked before Tier-2 #6 (frozen was {}), which keeps the old
+        # sweep-all behavior for any in-flight legacy token.
+        only_ids = payload.get("transaction_ids")
+        applied = apply_rules(db, actor, dry_run=False, only_ids=only_ids)
         return {"action_type": "apply_rules", "applied": applied,
                 "pending_action_id": row["id"]}
     raise ActionError(f"unknown action_type: {row['action_type']}")

@@ -308,6 +308,36 @@ class TwoPhaseVerbTests(unittest.TestCase):
             "SELECT income_type FROM transactions WHERE id = ?", (txn_id,)
         ).fetchone()["income_type"])
 
+    def test_confirm_apply_rules_only_touches_the_previewed_rows(self):
+        # The two-phase contract is "confirm executes exactly what was
+        # previewed." A new unclassified inflow arriving between propose and
+        # confirm (a sync during the ~24h approval window) must NOT be swept in:
+        # confirm classifies only the id-set frozen at propose time
+        # (CODE-REVIEW 2026-08-08 Tier 2 #6). Before the fix, confirm re-ran the
+        # match live and classified both rows.
+        actions.create_income_rule(
+            self.db, "ui:avery", {"match_desc": "ADP PAYROLL", "set_type": "paycheck"})
+        first = self.an_inflow(external_id="simplefin:acc:1")   # matches the rule
+
+        proposal = actions.propose_action(self.db, "mcp:cc", None, "apply_rules", {})
+        self.assertEqual(1, proposal["preview"]["rows_affected"])
+        # the frozen payload pins the exact previewed id-set
+        frozen = json.loads(self.pending(proposal["confirmation_token"])["payload_json"])
+        self.assertEqual([first], frozen["transaction_ids"])
+
+        # a sync lands a SECOND matching inflow before the human approves
+        second = self.an_inflow(external_id="simplefin:acc:2")
+
+        result = actions.confirm_action(
+            self.db, "ui:avery", proposal["confirmation_token"])
+        self.assertEqual(1, len(result["applied"]))             # the frozen row only, not 2
+        self.assertEqual("paycheck", self.db.execute(
+            "SELECT income_type FROM transactions WHERE id = ?", (first,)
+        ).fetchone()["income_type"])
+        self.assertEqual("unclassified", self.db.execute(       # the newcomer is untouched
+            "SELECT income_type FROM transactions WHERE id = ?", (second,)
+        ).fetchone()["income_type"])
+
 
 class TwoPhaseRouteTests(unittest.TestCase):
     def setUp(self):

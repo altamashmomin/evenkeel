@@ -139,13 +139,19 @@ def sync(force: bool = False) -> None:
                             params={"start-date": start}, timeout=TIMEOUT)
     except requests.RequestException as e:
         sys.exit(f"error: could not reach SimpleFIN Bridge: {e.__class__.__name__}")
+    # A response came back — the request counted against SimpleFIN's ~24/day
+    # quota whatever its status, so stamp NOW, before the status checks. A 403 or
+    # other non-200 must still throttle the next run; otherwise a revoked or
+    # rate-limited token gets retried every timer tick, risking a hard disable
+    # (CODE-REVIEW 2026-08-08 Tier 2 #8). A network failure above never reached
+    # SimpleFIN, so it deliberately does NOT stamp — that's the fast-retry case.
+    _stamp_sync()
     if resp.status_code == 403:
         sys.exit("error: access denied (HTTP 403). The access URL may have been "
                  "revoked — re-run --claim with a new setup token.")
     if resp.status_code != 200:
         sys.exit(f"error: SimpleFIN returned HTTP {resp.status_code}")
     data = resp.json()
-    _stamp_sync()   # a request was spent — count it against the interval guard
 
     for err in data.get("errors", []):
         print(f"simplefin notice: {err}")
@@ -168,6 +174,12 @@ def sync(force: bool = False) -> None:
         acct_name = account.get("name", acct_id)
         for txn in account.get("transactions", []):
             cents = to_cents(txn.get("amount", "0"))
+            if cents == 0:
+                # A $0 line (a pending auth, a reversal) records nothing —
+                # record_transaction's validate rejects amount <= 0. Skip it
+                # rather than let one bad line abort the whole import
+                # (CODE-REVIEW 2026-08-08 Tier 2 #8).
+                continue
             external_id = f"simplefin:{acct_id}:{txn['id']}"
             posted = txn.get("posted") or txn.get("transacted_at") or time.time()
             txn_date = datetime.fromtimestamp(int(posted)).date().isoformat()
