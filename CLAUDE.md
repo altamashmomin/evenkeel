@@ -481,10 +481,18 @@ aborting + stamps `.last-sync` on any HTTP response so a 403/non-200 throttles),
 sweep in inflows that arrived after the preview), **#9-deps**
 (flask<4/gunicorn<27/anthropic<1 ceilings, above current latest). Each
 test-proven-fail-first; live gate PASS **zero-diff**, no migration (schema
-**v15**). Suite **721**. `origin/main` == the deployed tree; nothing
-merged-but-undeployed remains. **Only the review's optional Tier 3 mechanical
-cleanup is left** (stale `.claude/worktrees/*`, dead CSS, docstring/count rot,
-MCP input-schema parity test).
+**v15**). Suite **721**. Then **Tier 3 — the review's mechanical cleanup —
+DEPLOYED (Sep 1, `main` `bded3a2`→`d028650`)**: dead CSS (`--ink`→`--text`,
+dropped `.wordmark.small`/`.ves i`), `renderAsk` closing `</div>`, the
+`search_transactions` income_type enum sourced from `actions` (+ parity test),
+and stale current-state counts (agent_read_tools 13→20, ask_loop "one write
+tool"→16, ops-health-check `--workers` 2→4, pi-deploy "daily"→"twice-daily");
+local `dev-old.db`/`seed.db` + two merged worktrees removed. Live gate PASS
+**zero-diff**, no migration (schema **v15**), suite **722**. **The entire Aug 8
+code review (Tier 1/2/3) is now remediated and live**; `origin/main` == the
+deployed tree, nothing merged-but-undeployed. The one loose thread is the
+unmerged `.claude/worktrees/pensive-noether-9c2daf` branch (MIRAGE F3
+`match_desc≥3`), left for Alta to merge or drop.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

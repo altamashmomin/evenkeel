@@ -4292,3 +4292,22 @@ values, balance + every monthly total byte-identical), no migration (schema
 The review's action plan is now fully closed except the **optional Tier 3**
 mechanical cleanup (stale `.claude/worktrees/*`, dead CSS, docstring/count rot,
 MCP input-schema parity test).
+
+**Sep 1, 2026 — Tier 3 mechanical cleanup DEPLOYED (`bded3a2`→`d028650`).** The
+review's last, cosmetic tier: dead CSS (`.item-match:hover` used undefined
+`var(--ink)` → `var(--text)`; dropped dead `.wordmark.small` and `.ves i`),
+`renderAsk` given its missing closing `</div>` (innerHTML had been
+auto-correcting the malformed source), the `search_transactions` income_type
+enum sourced from `actions.REAL_INCOME_TYPE_ORDER + 'unclassified'` (== 
+`actions.INCOME_TYPES`, the same single-source pattern `ledger_mcp` uses) with a
+parity test, and stale CURRENT-STATE counts fixed (agent_read_tools 13→20 reads,
+ask_loop "one write tool"→the 16 write tools, ops-health-check `--workers` 2→4
+to match the service unit, pi-deploy "daily"→"twice-daily" sync per the timer);
+dated audit reports + this journal left as history. Local (gitignored): removed
+stale `dev-old.db`/`seed.db` and two merged/clean worktrees; kept
+`pensive-noether` (unmerged MIRAGE F3 work). Suite 721→**722** (+1 parity),
+render 176, live gate PASS **zero-diff**, no migration (schema **v15**). **This
+closes the entire Aug 8 code review — Tier 1, 2, and 3 — remediated and live.**
+The verify-and-close pass's headline: the review's own "all findings closed"
+note had been optimistic (Tier-2 #6/#8/#12 + #9-deps were never actually done);
+they are now.
