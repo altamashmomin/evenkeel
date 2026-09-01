@@ -1,0 +1,14 @@
+# Ledger approval alerts — /etc/systemd/system/pifinance-notify-approvals.timer
+# Every 15 minutes: notice a new automation proposal awaiting approval and file a
+# terse issue, so you can act before it expires (proposals live ~24h). Nothing
+# new posts nothing. Persistent so a missed run fires on next boot.
+[Unit]
+Description=Run the Ledger approval-alerts check
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=1m
+
+[Install]
+WantedBy=timers.target

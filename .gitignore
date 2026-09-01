@@ -1,5 +1,7 @@
 # Secrets — never commit (CLAUDE.md rule 7)
 .env
+.env.bak*
+.env.*.bak
 *.token
 
 # Databases — real financial data never enters git
@@ -15,6 +17,9 @@
 
 # SimpleFIN credentials (merged from app .gitignore)
 simplefin_access.url
+
+# Runtime state — job high-water-marks (change-digest, etc.), never source
+*.state
 
 # Python
 __pycache__/

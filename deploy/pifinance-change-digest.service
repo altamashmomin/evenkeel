@@ -1,0 +1,30 @@
+# Ledger daily change digest — /etc/systemd/system/pifinance-change-digest.service
+# Triggered by pifinance-change-digest.timer; not enabled directly. Reads the
+# change digest through the app's own API with a read-scope bearer
+# (CHANGE_DIGEST_TOKEN, or PANTRY_PULSE_TOKEN) and files it as a `change-digest`
+# GitHub issue over the existing alert bridge (OPS_ALERT_GH_*) — which MUST point
+# at a PRIVATE repo, since the digest names who changed what. Read-only; never
+# touches finance.db; never stops the app. Pi-side because the cloud can't reach
+# the Pi (NOTIFICATIONS-DESIGN inc 2).
+#
+# Adjust User and paths if your username or install dir differs (the deployed Pi
+# is user `altamash` at /home/altamash/pifinance; rewrite with sed on copy, never
+# edit this tracked file — a future `git pull` would conflict).
+[Unit]
+Description=Ledger daily change digest
+After=pifinance.service
+Requires=pifinance.service
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/pifinance
+EnvironmentFile=-/home/pi/pifinance/.env
+ExecStart=/home/pi/pifinance/venv/bin/python /home/pi/pifinance/deploy/change_digest.py
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

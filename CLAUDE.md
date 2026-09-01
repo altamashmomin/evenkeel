@@ -435,10 +435,39 @@ Then **H-2 repo part** — a new `requirements-dev.txt` homes `pip-audit` +
 documents the venv-toolchain bump (`pip install -U pip setuptools`) as an ops step
 (the runtime deps are already clean). **That closes the audit's actionable
 backlog**; the **structure slice is deliberately deferred** (ergonomic-only,
-riskiest change, touches deploy/gate/test paths). **9 commits on `rework`** —
-push done to origin; **awaits Alta's merge + Pi deploy.** ⚠ The F-1 security fix
-isn't live until deployed — MCP writes are enabled on the Pi now; the
-`LEDGER_MCP_ENABLE_WRITES=0` stopgap is available until then.
+riskiest change, touches deploy/gate/test paths). **DEPLOYED (Aug 31, `main`
+`57688af`, tree `f510987`→`57688af`):** merged `rework`→`main` `--no-ff`; live
+gate PASS **zero-diff**, **no migration** (schema stays **v15**), `pip install`
+picked up Flask-Compress, `pifinance`+`ledger-mcp` restarted, smoke OK.
+**Tailnet-verified live**: gzip+Vary on `render.js` (R1), `?v=` assets
+immutable-cached (R2), `pendingApprovalsHTML`/`approvePending` served +
+`/api/actions/pending` 401 (F-1). A stray `.env.bak-httpssetup` was tidied off the
+Pi and `.gitignore` now covers `.env.bak*`. **F-1 is live → MCP writes are safe to
+keep enabled** (injection gap closed). `origin/main` == the deployed tree. **The
+entire audit backlog is done and live** (structure slice deferred by choice; the
+venv toolchain bump is an optional ops one-liner on the Pi).
+Then (Aug 31): a new **change-notifications** feature (spec
+`docs/NOTIFICATIONS-DESIGN.md`, `3aa5dad`) — tell Alta when the assistants change
+something, built as a read over `audit_log` + the existing GitHub-issue alert
+channel (`OPS_ALERT_GH_REPO`); terse/privacy-preserving; no schema/money path.
+**Increment 1 done**: `derivations.activity_digest(db, since, now)` (audit_log +
+pending_actions, never transactions; tripwire-safe via a None-default bare call
+like `calendar_events`) + `GET /api/activity/digest?since=`. Suite **700**, render
+**176**, GATE zero-diff. **Increment 2 done**: `deploy/change_digest.py` (daily
+Pi job → terse `change-digest` GitHub issue over `OPS_ALERT_GH_*`; mirrors
+`pantry_pulse.py`) + service/timer + install doc; `*.state` gitignored for the
+high-water-mark. Suite **706**, render **176**, GATE zero-diff by construction (a
+Pi-side script, no app/money code). On `rework` (unpushed, past the deployed
+`57688af`). **Increment 3 done → feature complete**: `deploy/notify_approvals.py`
+(~15-min timer → terse `approval-pending` GitHub issue for new pending proposals,
+announced-tokens state) + `PENDING_ACTION_TTL_SECONDS` 600→86400 (10min→24h, so a
+notification has time). Suite **711**, render **176**, GATE zero-diff by
+construction. **The change-notifications feature is complete** (inc 1 digest read
++ route, inc 2 daily digest job, inc 3 approval alerts + TTL). **6 commits on
+`rework` unpushed** (audit F-1..H-2 are already deployed at `57688af`; these 6 =
+the notifications spec + 3 increments + this). Deploying = push → merge →
+`deploy.sh`, then Alta installs the **two** Pi timers (`deploy/change-digest.md`
+covers both; reuses the pantry-pulse read token + `OPS_ALERT_GH_*` PRIVATE repo).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

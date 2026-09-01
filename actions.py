@@ -391,6 +391,13 @@ def edit_transaction(db, actor, txn_id, data):
         pct = cols.pop("payer_share_pct", None)
         if not cols and pct is None:
             raise ActionError("nothing to update")
+        # An inflow never carries splits (INCOME-DESIGN invariant 1) — the money
+        # derivations read direction='out' splits only, so a shared inflow is a
+        # latent invariant breach. create_transaction forces is_shared=0 for a
+        # money-in leg; edit must refuse the same here rather than writing split
+        # rows onto an inflow (CODE-REVIEW 2026-08-08, Tier 2 #7).
+        if existing["direction"] == "in" and cols.get("is_shared") == 1:
+            raise ActionError("an inflow cannot be shared")
         if pct is None:
             # Share not part of this edit: the current payer's share
             # travels, exactly as the old column did.
@@ -1246,7 +1253,11 @@ def _apply_single_rule(db, actor, rule):
 # ──────────────── two-phase agent writes (AGENT-DESIGN step 4) ───────────
 
 PROPOSABLE_ACTIONS = frozenset({"create_rule", "apply_rules"})
-PENDING_ACTION_TTL_SECONDS = 600   # ~10 minutes; a stale approval dies
+PENDING_ACTION_TTL_SECONDS = 86400   # 24h. Was 10 min, sized for the old flow
+# where the proposer confirmed in the same conversation. MIRAGE F-1 made approval
+# a separate human-in-the-app step, and the change-notification digest/alert
+# (NOTIFICATIONS-DESIGN) tells a person out-of-band — so a proposal must live
+# long enough to notice a notification and act. A stale approval still dies.
 
 # A rule is "broad" when the ONLY thing narrowing it is a short description
 # substring — no amount bounds, no account. Such a rule can read "0 matches

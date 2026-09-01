@@ -1686,3 +1686,46 @@ def calendar_events(db, as_of=None, months_ahead=3):
 
     events.sort(key=lambda e: (e["date"], e["kind"], e["name"]))
     return events
+
+
+def activity_digest(db, since=None, now=None):
+    """What changed — every executed write in [since, now) from audit_log,
+    grouped, plus the count of proposals awaiting human approval right now. The
+    data behind the change-notification digest and the approvals alert
+    (NOTIFICATIONS-DESIGN). Reads audit_log + pending_actions, NEVER
+    transactions, so it can't contaminate a money read (tripwire-safe) and moves
+    no number. Clock-free: the caller passes `since`/`now` (ISO-8601); both
+    default to None and return an empty digest purely so the derivation tripwire
+    can call it bare, the same convention as calendar_events. 'sync' rows (the
+    routine bank feed) are counted but split out from the human/assistant writes
+    the digest is really for; both actor and action are grouped for the renderer
+    (the Pi job) to phrase — the presentation stays at the edge, integer counts
+    here."""
+    if since is None or now is None:
+        return {"since": since, "until": now, "total": 0,
+                "assistant_and_human_writes": 0, "sync_writes": 0,
+                "by_actor": [], "by_action": [], "pending_approvals": 0}
+    rows = db.execute(
+        "SELECT actor, action FROM audit_log WHERE at >= ? AND at < ? ORDER BY at",
+        (since, now)).fetchall()
+    by_actor, by_action = {}, {}
+    sync_n = human_n = 0
+    for r in rows:
+        by_actor[r["actor"]] = by_actor.get(r["actor"], 0) + 1
+        by_action[r["action"]] = by_action.get(r["action"], 0) + 1
+        if r["actor"] == "sync":
+            sync_n += 1
+        else:
+            human_n += 1
+    pending = db.execute(
+        "SELECT COUNT(*) FROM pending_actions WHERE status = 'pending' "
+        "AND expires_at > ?", (now,)).fetchone()[0]
+    return {
+        "since": since, "until": now, "total": len(rows),
+        "assistant_and_human_writes": human_n, "sync_writes": sync_n,
+        "by_actor": [{"actor": a, "count": n} for a, n
+                     in sorted(by_actor.items(), key=lambda kv: (-kv[1], kv[0]))],
+        "by_action": [{"action": act, "count": n} for act, n
+                      in sorted(by_action.items(), key=lambda kv: (-kv[1], kv[0]))],
+        "pending_approvals": pending,
+    }

@@ -4163,3 +4163,88 @@ assumptions on a live app), and lowest value. 9 commits on `rework`; **awaits
 Alta's push + merge + Pi deploy** (the F-1 fix isn't live until then — MCP writes
 are currently enabled on the Pi; the `LEDGER_MCP_ENABLE_WRITES=0` stopgap remains
 available in the meantime).
+
+## Aug 31, 2026 — DEPLOYED the audit-remediation batch (f510987 → 57688af)
+
+Alta merged `rework` → `main` (`--no-ff`, `57688af`) and ran
+`deploy/deploy.sh origin/main f510987` on the Pi. **Pre-merge gate** (f510987 vs
+rework, on a real-data-shaped copy) PASS **zero-diff** (24 values); **live deploy
+gate** PASS **zero-diff** (balance + every monthly total unchanged, no structural
+diff); **no migration** (`nothing to apply` — schema stays **v15**); the
+`pip install` picked up **Flask-Compress**; `pifinance` + `ledger-mcp` restarted
+clean; `/api/status` smoke OK; local `main` healed to `57688af`. Backup
+`finance.db.bak-2026-08-31-160921` (pruned to 10). **Tailnet-verified LIVE**:
+`render.js` served with `Content-Encoding: gzip` + `Vary` (R1); `?v=` assets
+`Cache-Control: …immutable` (R2); served `render.js` carries `pendingApprovalsHTML`
++ `app.js` `approvePending`, and `/api/actions/pending` → 401 (F-1). One pre-deploy
+tidy: a stray `.env.bak-httpssetup` (the HTTPS-setup `.env` backup — a plaintext
+secrets copy NOT covered by `.gitignore`) was removed, and `.gitignore` now covers
+`.env.bak*` / `.env.*.bak` so a future `.env` backup can't be committed.
+`origin/main` == the deployed tree. **F-1 is now live**, so keeping MCP writes
+enabled is safe — the injection gap is closed.
+
+## Aug 31, 2026 — notifications increment 1: activity_digest derivation + route
+
+First of the NOTIFICATIONS-DESIGN build (after the design doc landed, `3aa5dad`).
+`derivations.activity_digest(db, since, now)` reads `audit_log` (executed writes)
+over [since, now) + `pending_actions` — **never `transactions`** — and returns
+grouped counts (`by_actor`, `by_action`), the human/assistant-vs-`sync` split, and
+the current pending-approvals count. `since`/`now` default to None (empty digest)
+purely so the derivation tripwire can call it bare, the same convention as
+`calendar_events`. `GET /api/activity/digest?since=` (`login_required` — a read
+bearer suffices, for the Pi job) is a thin caller. Tests: window/grouping/split,
+pending counts only unexpired-pending, empty window is money-neutral, the real
+`_write_audit` lands in it; route requires `since` (400), read-bearer 200, no-auth
+401. Suite **700** (+7), render **176**, tripwire clean. **GATE zero-diff by
+construction** (reads no transactions; only `activity_digest` added to
+`derivations.py`; snapshot $505.85 unchanged). On `rework`; **awaits merge + Pi
+deploy** (no migration, schema **v15**). Next: increment 2 (the daily
+`change_digest` Pi job) and increment 3 (approval alerts + the pending-TTL bump).
+
+## Aug 31, 2026 — notifications increment 2: the daily change_digest Pi job
+
+`deploy/change_digest.py` (self-contained, mirrors `pantry_pulse.py`): reads `GET
+/api/activity/digest` since a high-water-mark, renders **TERSE** markdown (counts
++ kinds + who, **never amounts** — the privacy rule), and posts a `change-digest`
+GitHub issue over the existing `OPS_ALERT_GH_*` bridge (which must be a **private**
+repo — it names who changed what). `sync` (the bank feed) is a one-line footnote,
+not a section; a quiet day (no human/assistant writes, nothing pending) posts
+nothing. The high-water-mark lives in a gitignored `.change-digest.state`
+(advanced after a successful post or on a quiet day; left alone on a post failure
+so the next run retries the window) — `*.state` added to `.gitignore` so it can't
+dirty the deploy tree (the `.env.bak` lesson). systemd service + timer (daily
+08:00, `Persistent`) + an install doc mirroring pantry-pulse; reuses
+`PANTRY_PULSE_TOKEN` if already set. Tests: the sync/human split, terse (no `$`),
+quiet detection, pending-only-is-not-quiet, singular grammar, state round-trip +
+first-run fallback. Suite **706** (+6), render **176**. **GATE zero-diff by
+construction** — a Pi-side script; no `app.py`/`derivations.py`/money code touched.
+On `rework`; **awaits merge + Alta installing the timer on the Pi** (like the
+pantry-pulse timer). Next: increment 3 (approval alerts + bump
+`PENDING_ACTION_TTL_SECONDS` 10 min → ~24h).
+
+## Aug 31, 2026 — notifications increment 3: approval alerts + TTL bump (feature complete)
+
+Completes NOTIFICATIONS-DESIGN. Two parts:
+- **TTL bump** — `PENDING_ACTION_TTL_SECONDS` 600 → 86400 (10 min → 24h). The 10
+  min was sized for the old same-conversation confirm; F-1 made approval a
+  separate human-in-the-app step and the alert tells a person out-of-band, so a
+  proposal must live long enough to notice a notification and act. A stale
+  approval still dies. Constant-only change; snapshot $505.85 unchanged.
+- **`deploy/notify_approvals.py`** (self-contained, mirrors `change_digest.py`):
+  every ~15 min reads `GET /api/actions/pending`, and for proposals it hasn't
+  announced (a gitignored `.notify-approvals.state` JSON token set, pruned each
+  run to those still pending — so nothing is announced twice and the file can't
+  grow), files a terse `approval-pending` GitHub issue — the **kind** (a new rule
+  / a backlog sweep), who, and expiry; **never** the match phrase or an amount
+  (privacy rule, verified in a test: a summary carrying a payee never reaches the
+  issue). systemd service + timer (`*:0/15`, `Persistent`); the install doc gained
+  an approvals section (shares the read token + `OPS_ALERT_GH_*` private repo).
+
+Tests: render terseness/kinds/grammar + match-phrase-never-leaks; announced
+round-trip + prune; missing-state-empty. Suite **711** (+5), render **176**.
+**GATE zero-diff by construction** (a TTL constant + a Pi-side script; no money
+computation touched). On `rework`; **awaits merge + Alta installing BOTH timers on
+the Pi** (`deploy/change-digest.md` covers both). **The change-notifications
+feature is complete** — inc 1 (`activity_digest` + route), inc 2 (daily digest),
+inc 3 (approval alerts + TTL) — closing the visibility gap the F-1 discussion
+surfaced.
