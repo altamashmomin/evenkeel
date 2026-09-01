@@ -14,6 +14,13 @@ on the Pi), the `v1.0` tag, and the gated migration walk via `deploy.sh`.
 Steps marked **[you]** touch a secret (SSH key, SECRET_KEY, SimpleFIN token,
 account passwords) and are yours to run — I never handle those.
 
+**Paths & service user.** This Pi installs under `/home/altamash/pifinance` and
+runs the services as `User=altamash`. The repo's systemd unit *templates* ship
+with the Raspberry Pi OS placeholder `pi` (`User=pi`, `/home/pi/pifinance`), so
+every unit install below **sed-rewrites the placeholder to the real user** rather
+than a plain `cp` — the same pattern `deploy/change-digest.md` uses. If your Pi
+user isn't `altamash`, substitute it in the paths and in the `sed` below.
+
 ---
 
 ## Phase 0 — Dev dress rehearsal — DONE ✅
@@ -76,8 +83,8 @@ Host github-ledger
   User git
   IdentityFile ~/.ssh/ledger_deploy
 EOF
-git clone git@github-ledger:altamashmomin/evenkeel.git /home/pi/pifinance
-cd /home/pi/pifinance
+git clone git@github-ledger:altamashmomin/evenkeel.git /home/altamash/pifinance
+cd /home/altamash/pifinance
 git checkout main            # pristine v1.0 to start
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
@@ -100,10 +107,14 @@ Open `http://<pi-tailnet-ip>:8080`. The one-time setup screen appears —
 **[you] create both real accounts** (names, usernames, 8+ char passwords).
 Confirm login works, then Ctrl-C.
 
-Install the service so it survives reboots (README §5):
+Install the service so it survives reboots (README §5). The unit template
+hardcodes the placeholder `pi` user/paths, so rewrite it to the real user on the
+way in (a plain `cp` would install `User=pi` / `/home/pi/...` and the service
+would fail to start):
 
 ```bash
-sudo cp deploy/pifinance.service /etc/systemd/system/
+sed 's#/home/pi/pifinance#/home/altamash/pifinance#g; s/^User=pi/User=altamash/' \
+  deploy/pifinance.service | sudo tee /etc/systemd/system/pifinance.service >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable --now pifinance
 systemctl status pifinance        # active (running)
@@ -147,7 +158,7 @@ moves, and only then stops the service, checks out `rework`, applies
 migrations `--live`, and restarts:
 
 ```bash
-cd /home/pi/pifinance
+cd /home/altamash/pifinance
 deploy/deploy.sh rework v1.0
 ```
 
@@ -169,7 +180,10 @@ Enable the twice-daily SimpleFIN timer (README §7). On `rework`, sync now also
 imports **income** (money in), classified by any rules you set up later:
 
 ```bash
-sudo cp deploy/pifinance-sync.service deploy/pifinance-sync.timer /etc/systemd/system/
+for u in pifinance-sync.service pifinance-sync.timer; do
+  sed 's#/home/pi/pifinance#/home/altamash/pifinance#g; s/^User=pi/User=altamash/' \
+    deploy/$u | sudo tee /etc/systemd/system/$u >/dev/null
+done
 sudo systemctl daemon-reload
 sudo systemctl enable --now pifinance-sync.timer
 systemctl list-timers pifinance-sync.timer
