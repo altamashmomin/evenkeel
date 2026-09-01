@@ -4248,3 +4248,47 @@ the Pi** (`deploy/change-digest.md` covers both). **The change-notifications
 feature is complete** — inc 1 (`activity_digest` + route), inc 2 (daily digest),
 inc 3 (approval alerts + TTL) — closing the visibility gap the F-1 discussion
 surfaced.
+
+---
+
+**Sep 1, 2026 — notifications lane + audit Tier-2 #7 DEPLOYED (`57688af`→`92264db`).**
+The change-notifications feature (inc 1–3) and audit **Tier-2 #7** shipped in one
+`--no-ff` merge (`92264db`). #7: `edit_transaction` now rejects `is_shared` on a
+`direction='in'` row (`"an inflow cannot be shared"`) — before, a `PUT
+{"is_shared":true}` on an inflow wrote two orphan split rows that nothing read
+(every money derivation filters `direction='out'`): a latent invariant breach,
+masked but real. Regression test proven-fails-first. Live gate PASS **zero-diff**,
+no migration (schema **v15**), `pifinance`+`ledger-mcp` restarted; the two Pi
+notification timers installed (`deploy/change-digest.md`). A process note: #7 had
+been swept into a concurrent session's "Notifications inc 3" commit by a broad
+`git add`; it was untangled into its own commit (`c061c09`) — identical final
+tree — before the merge.
+
+**Sep 1, 2026 — verify-and-close pass over the Aug 8 review; Tier-2 batch DEPLOYED
+(`92264db`→`bded3a2`).** Re-reading the Aug 8 review PDF found its "all findings
+closed" note optimistic: Tier 1 was genuinely closed, but Tier-2 **#6/#8/#12** and
+the **#9 deps** half were not. Remediated as four gate-clean increments, each with
+a regression test watched to fail first (mutation-proven where it's a real guard):
+- **#12** — `tests/test_setup_logout_routes.py` covers `/api/setup` (the one
+  raw-write exception — a direct `INSERT INTO members`; the first-run self-disable
+  gate is mutation-proven) and `/api/logout`.
+- **#8** — `simplefin_sync.py` skips `$0` feed lines (a pending auth no longer
+  aborts the whole import) and stamps `.last-sync` the moment any HTTP response
+  returns, so a 403/non-200 throttles the next run instead of hammering a
+  revoked/rate-limited token; a pure network failure still fast-retries.
+- **#6** — the two-phase `apply_rules` confirm now honors "execute exactly the
+  frozen payload": `propose_action` freezes the previewed `transaction_ids`;
+  `confirm_action` passes them through `apply_rules → _matching_pass(only_ids=…)`,
+  so confirm applies **at most** the previewed rows and can't sweep in inflows
+  that arrived during the (now ~24h) approval window. Legacy pre-fix tokens
+  (no `transaction_ids`) keep the old sweep-all.
+- **#9-deps** — `flask>=3.0,<4`, `gunicorn>=21.2,<27`, `anthropic>=0.40,<1`
+  upper bounds (ceilings above current latest — 3.1.3 / 26.0.0 / 0.120.2 — so a
+  deploy's `pip install` resolves the same today; they only block a future
+  breaking major from landing mid-deploy on the live Pi).
+Suite 712→**721**. Merged `--no-ff` (`bded3a2`); live gate PASS **zero-diff** (24
+values, balance + every monthly total byte-identical), no migration (schema
+**v15**), both services restarted, smoke OK. `origin/main` == the deployed tree.
+The review's action plan is now fully closed except the **optional Tier 3**
+mechanical cleanup (stale `.claude/worktrees/*`, dead CSS, docstring/count rot,
+MCP input-schema parity test).
