@@ -14,8 +14,8 @@
 #
 # Output: a human-readable report to stdout (captured by journald), a heartbeat
 # status file, and an exit code — 0 green, 1 amber (warnings), 2 red (critical).
-# On amber/red it can file a GitHub issue so the cloud Chief of Staff sees it
-# (best-effort; only if `gh` is installed+authed and OPS_ALERT_GH_REPO is set).
+# On amber/red it can file a GitHub issue so you see it out-of-band (best-effort;
+# only if `curl` is present and OPS_ALERT_GH_REPO/OPS_ALERT_GH_TOKEN are set).
 #
 # Config (all optional; put overrides in the app's .env, which the unit loads):
 #   APP_DIR             install dir            (default: script's parent dir)
@@ -31,7 +31,7 @@
 #   MAX_BACKUPS         amber if more deploy bak files than (default: 12)
 #   ASK_KEY_EXPIRES     YYYY-MM-DD; amber within 14d/past (default: unset)
 #   OPS_ALERT_GH_REPO   e.g. altamashmomin/evenkeel; with the token below, files
-#                       a GitHub issue on amber/red (the Chief-of-Staff bridge)
+#                       a GitHub issue on amber/red (the ops-alert bridge)
 #   OPS_ALERT_GH_TOKEN  a fine-grained PAT (that repo, issues:write) for the POST
 #   OPS_STATUS_FILE     heartbeat path         (default: $APP_DIR/ops-status.txt)
 set -uo pipefail
@@ -248,21 +248,25 @@ echo "$REPORT"
 # Heartbeat: last-run status, so 'was it even running?' is answerable.
 printf '%s\n' "$REPORT" > "$OPS_STATUS_FILE" 2>/dev/null || true
 
-# ── Best-effort bridge to the Chief of Staff (only on amber/red) ─────────────
+# ── Best-effort ops-alert bridge (only on amber/red) ─────────────────────────
 # Files a GitHub issue via the API with curl (no gh CLI needed) using a
 # fine-grained PAT (OPS_ALERT_GH_TOKEN, scoped to the repo with issues:write).
-# The daily timer means at most one issue per problem-day; the Friday
-# Chief-of-Staff reconciles them.
+# The token is fed through `curl -K -` (a config read from stdin) instead of an
+# `-H` flag, so it never lands in argv / `/proc/<pid>/cmdline` where another
+# local user could read it mid-POST (CODE-REVIEW 2026-08-08 §16). The daily
+# timer means at most one issue per problem-day; you reconcile them on review.
 if (( WORST >= 1 )) && [[ -n "${OPS_ALERT_GH_REPO:-}" && -n "${OPS_ALERT_GH_TOKEN:-}" ]] \
    && have curl && have python3; then
   title="Pi Ops ${BADGE} — $(date '+%Y-%m-%d')"
   payload="$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"body":sys.argv[2],"labels":["ops-alert"]}))' "$title" "$REPORT")"
-  if curl -fsS -X POST \
-        -H "Authorization: Bearer $OPS_ALERT_GH_TOKEN" \
-        -H "Accept: application/vnd.github+json" \
-        -H "X-GitHub-Api-Version: 2022-11-28" \
-        "https://api.github.com/repos/$OPS_ALERT_GH_REPO/issues" \
-        -d "$payload" >/dev/null 2>&1; then
+  # printf is a shell builtin, so the PAT never becomes a child process's argv;
+  # -K - reads the auth header from that pipe instead of the command line.
+  if printf 'header = "Authorization: Bearer %s"\n' "$OPS_ALERT_GH_TOKEN" \
+       | curl -fsS -X POST -K - \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          "https://api.github.com/repos/$OPS_ALERT_GH_REPO/issues" \
+          -d "$payload" >/dev/null 2>&1; then
     echo "  (filed GitHub issue: $title)"
   else
     echo "  (GitHub issue POST failed — check OPS_ALERT_GH_TOKEN / repo / network)"
