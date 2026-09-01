@@ -844,7 +844,8 @@ function renderAsk() {
                ${a.pending ? "disabled" : ""}>
         <button class="btn primary" type="submit" ${a.pending ? "disabled" : ""}>Ask</button>
       </form>
-      <p class="ask-note">It can answer questions, tag deposits, and keep your pantry list — other changes still happen in the app.</p>`;
+      <p class="ask-note">It can answer questions, tag deposits, and keep your pantry list — other changes still happen in the app.</p>
+    </div>`;
 }
 
 async function askSend(text) {

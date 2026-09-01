@@ -463,11 +463,28 @@ Pi-side script, no app/money code). On `rework` (unpushed, past the deployed
 announced-tokens state) + `PENDING_ACTION_TTL_SECONDS` 600→86400 (10min→24h, so a
 notification has time). Suite **711**, render **176**, GATE zero-diff by
 construction. **The change-notifications feature is complete** (inc 1 digest read
-+ route, inc 2 daily digest job, inc 3 approval alerts + TTL). **6 commits on
-`rework` unpushed** (audit F-1..H-2 are already deployed at `57688af`; these 6 =
-the notifications spec + 3 increments + this). Deploying = push → merge →
-`deploy.sh`, then Alta installs the **two** Pi timers (`deploy/change-digest.md`
-covers both; reuses the pantry-pulse read token + `OPS_ALERT_GH_*` PRIVATE repo).
++ route, inc 2 daily digest job, inc 3 approval alerts + TTL).
+
+**DEPLOYED (Sep 1, `main` `92264db`, tree `57688af`→`92264db`):** the
+notifications lane (inc 1–3) shipped alongside audit **Tier-2 #7**
+(`edit_transaction` refuses to share an inflow — a latent invariant breach masked
+by the `direction='out'` readers) — one `--no-ff` merge, live gate PASS
+**zero-diff**, no migration (schema stays **v15**), both services restarted; Alta
+then installed the **two** Pi timers (`deploy/change-digest.md`; pantry-pulse read
+token + `OPS_ALERT_GH_*` PRIVATE repo). Then a **verify-and-close pass over the
+Aug 8 code review** found its "all findings closed" note optimistic — the
+remaining Tier-2 items were remediated and **DEPLOYED (Sep 1, `main` `bded3a2`,
+tree `92264db`→`bded3a2`)**: **#12** (`/api/setup`+`/api/logout` coverage — the
+raw-write exception's self-disable gate), **#8** (sync skips `$0` lines instead of
+aborting + stamps `.last-sync` on any HTTP response so a 403/non-200 throttles),
+**#6** (two-phase `apply_rules` freezes the previewed id-set so confirm can't
+sweep in inflows that arrived after the preview), **#9-deps**
+(flask<4/gunicorn<27/anthropic<1 ceilings, above current latest). Each
+test-proven-fail-first; live gate PASS **zero-diff**, no migration (schema
+**v15**). Suite **721**. `origin/main` == the deployed tree; nothing
+merged-but-undeployed remains. **Only the review's optional Tier 3 mechanical
+cleanup is left** (stale `.claude/worktrees/*`, dead CSS, docstring/count rot,
+MCP input-schema parity test).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

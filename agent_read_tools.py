@@ -1,7 +1,7 @@
 """agent_read_tools — the ONE read-tool surface both assistant doors consume.
 
 Charlee's in-app Ask loop and Alta's `ledger_mcp` server answer the same
-money questions from the same 13 reads; their *descriptions* are the product
+money questions from the same 20 reads; their *descriptions* are the product
 (they're the only instructions the model reliably follows), so they must not
 drift between the two doors. This module is that single source: each tool's
 name, description, and input schema live here once.
@@ -19,6 +19,8 @@ Read-only by construction: there is no write tool here.
 """
 from typing import Callable
 
+import actions   # the single source for the income-type vocabulary
+
 # ── shared schema fragments ─────────────────────────────────────────────────
 _MONTH = {"type": "string", "pattern": r"^\d{4}-\d{2}$",
           "description": "ISO month 'YYYY-MM'. Omit for the current month."}
@@ -26,6 +28,11 @@ _ANCHOR = {"type": "string", "pattern": r"^\d{4}-\d{2}$",
            "description": "Last month of the window 'YYYY-MM'. Omit for current."}
 _MONTHS_BACK = {"type": "integer", "minimum": 1, "maximum": 24,
                 "description": "Number of months ending at the anchor."}
+# The income_type filter enum, sourced from the verb layer so a new type can't
+# leave it silently stale (CODE-REVIEW 2026-08-08 Tier 3) — search also filters
+# the unclassified backlog (which classify can't set), so + 'unclassified'.
+# Set-equals actions.INCOME_TYPES; ledger_mcp sources its own enum the same way.
+_INCOME_TYPE_ENUM = list(actions.REAL_INCOME_TYPE_ORDER) + ["unclassified"]
 
 
 def _obj(props=None, required=None):
@@ -267,9 +274,7 @@ READ_TOOLS = [
             "date_from": {"type": "string", "description": "Inclusive ISO date."},
             "date_to": {"type": "string", "description": "Inclusive ISO date."},
             "direction": {"type": "string", "enum": ["in", "out"]},
-            "income_type": {"type": "string",
-                            "enum": ["paycheck", "reimbursement", "refund",
-                                     "transfer", "gift", "other", "unclassified"]},
+            "income_type": {"type": "string", "enum": _INCOME_TYPE_ENUM},
             "category": {"type": "string"},
             "paid_by": {"type": "string",
                         "description": "Username. For inflows, the money's owner."},

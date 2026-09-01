@@ -64,7 +64,6 @@ body {
   font-size: 22px;
   margin: 0;
 }
-.wordmark.small { font-size: 14px; }
 .eyebrow {
   font-family: var(--mono);
   font-size: 11px;
@@ -813,7 +812,7 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .item-x:hover { color: var(--danger); background: var(--surface-2); }
 /* the 🔎 match-editor shares the faint control look but is not destructive, so
    it must not pick up .item-x's red hover */
-.item-match:hover { color: var(--ink); background: var(--surface-2); }
+.item-match:hover { color: var(--text); background: var(--surface-2); }
 .match-hint { font-style: italic; }
 /* the purchase-feed restock nudge — a soft green accent so it reads as a
    growth/confirm prompt, not another to-do */
@@ -842,7 +841,7 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 
 /* Bars, vessels, and the rings grow up from empty each time a screen renders
    (elements are rebuilt on render, so it replays and always feels alive). */
-.cat-bar i, .goal-bar i, .ves i {
+.cat-bar i, .goal-bar i {
   transform-origin: left;
   animation: grow-x 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
