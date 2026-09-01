@@ -69,6 +69,19 @@ class ActionSchemaTests(unittest.TestCase):
         self.assertNotIn("unclassified", enum)
         self.assertEqual(list(actions.REAL_INCOME_TYPE_ORDER), enum)
 
+    def test_numeric_bounds_surface_in_the_schema(self):
+        # A param with a numeric range carries it in the schema, not just prose,
+        # so the model sees the constraint (CODE-REVIEW 2026-08-08 §6). The verb
+        # still owns enforcement; this is the model-facing half.
+        due_day = actions.param_schema("create_bill")["properties"]["due_day"]
+        self.assertEqual((1, 31), (due_day["minimum"], due_day["maximum"]))
+        days = actions.param_schema("set_item_interval")["properties"]["days"]
+        self.assertEqual((1, 365), (days["minimum"], days["maximum"]))
+        # A param with no bound stays clean — no stray minimum/maximum keys.
+        cat = actions.param_schema("recategorize_transaction")["properties"]["category"]
+        self.assertNotIn("minimum", cat)
+        self.assertNotIn("maximum", cat)
+
 
 if __name__ == "__main__":
     unittest.main()

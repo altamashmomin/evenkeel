@@ -79,6 +79,13 @@ class OpsPanelTests(unittest.TestCase):
         self.assertEqual(sorted(ids, reverse=True), ids)  # newest first
         self.assertEqual(401, self.client(user_id=None).get("/api/ops/audit").status_code)
 
+    def test_audit_rejects_a_non_integer_limit_with_a_clean_400(self):
+        # ?limit=abc is a clean 400, not a generic 500 from int() blowing up
+        # (CODE-REVIEW 2026-08-08 §16) — consistent with the sibling routes.
+        r = self.client().get("/api/ops/audit?limit=abc")
+        self.assertEqual(400, r.status_code)
+        self.assertIn("integer", r.get_json()["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

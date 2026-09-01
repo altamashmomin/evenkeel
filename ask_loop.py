@@ -69,7 +69,8 @@ def _text(content):
 
 
 def run_ask(client, getter, user_message, *, model, system,
-            history=None, max_rounds=6, max_tokens=1024, caller=None):
+            history=None, max_rounds=6, max_tokens=1024, caller=None,
+            max_history_msgs=24):
     """Run one Ask turn.
 
     client   — an Anthropic client (or a mock) exposing messages.create(...).
@@ -78,6 +79,9 @@ def run_ask(client, getter, user_message, *, model, system,
     user_message — the person's question (a string).
     history  — prior [{role, content}] messages for multi-turn (client-held);
                not mutated.
+    max_history_msgs — keep only the most recent N history messages, so a long
+               chat can't grow the request unbounded (CODE-REVIEW 2026-08-08 §6);
+               the current question is always appended after the trim.
     max_rounds — hard cap on model↔tool round-trips, bounding cost/latency.
     caller   — caller(method, path, body) -> JSON of a Flask write route, under
                the same identity. When given, the write tools are offered and
@@ -92,7 +96,11 @@ def run_ask(client, getter, user_message, *, model, system,
         # the last tool of the whole (static) block.
         tools = tools + anthropic_write_tools()
         tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
-    messages = list(history or []) + [{"role": "user", "content": user_message}]
+    # Cap the client-held history to the most recent turns so a long chat can't
+    # grow the request unbounded (CODE-REVIEW 2026-08-08 §6). The trim keeps the
+    # tail (recent context matters most); the new question is appended after.
+    messages = list(history or [])[-max_history_msgs:] + \
+        [{"role": "user", "content": user_message}]
     used = []
     actions = []  # A1: tap-through chips for writes that actually landed
     # B2 human-in-the-loop gate (MIRAGE F1). The server two-phase guarantees a

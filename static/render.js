@@ -1255,9 +1255,9 @@
               ${it.restock_match ? `<div class="sub match-hint">🔎 matches “${esc(it.restock_match)}”</div>` : ""}
               ${it.store ? `<div class="sub match-hint">🏬 ${esc(it.store)}</div>` : ""}
             </div>
-            <button class="status-chip ${it.status}" data-item-cycle="${it.id}"
-                    data-status="${it.status}"
-                    aria-label="${esc(it.name)} is ${it.status}; tap to change">${esc(it.status)}</button>
+            <button class="status-chip ${esc(it.status)}" data-item-cycle="${it.id}"
+                    data-status="${esc(it.status)}"
+                    aria-label="${esc(it.name)} is ${esc(it.status)}; tap to change">${esc(it.status)}</button>
             <button class="item-x item-match" data-item-store="${it.id}"
                     aria-label="Set where ${esc(it.name)} is bought">🏬</button>
             <button class="item-x item-match" data-item-interval="${it.id}"
@@ -1810,7 +1810,7 @@
   // The what-if input appears only when a pace entry exists and the goal isn't
   // already complete. goalPaceLineHTML is render-local.
   function goalCardHTML(g, paceEntry, logOpen, logHTML) {
-    const eta = g.target_date ? ` · by ${g.target_date}` : "";
+    const eta = g.target_date ? ` · by ${esc(g.target_date)}` : "";
     const whatif = paceEntry && paceEntry.status !== "complete" ? `
         <div class="goal-whatif">
           <input type="number" min="0" step="10" inputmode="decimal"

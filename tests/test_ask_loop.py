@@ -103,6 +103,22 @@ class AskLoopTests(unittest.TestCase):
         # tools were passed and prompt-cache-marked
         self.assertEqual(20, len(mock.calls[0]["tools"]))
 
+    def test_history_is_capped_to_recent_turns(self):
+        # A long client-held history can't grow the request unbounded
+        # (CODE-REVIEW 2026-08-08 §6): run_ask keeps only the most recent
+        # max_history_msgs, then appends the new question. Before the cap the
+        # request carried the whole history verbatim.
+        mock = MockAnthropic([resp([text_block("ok")], "end_turn")])
+        long_history = [{"role": "user" if i % 2 == 0 else "assistant",
+                         "content": f"m{i}"} for i in range(100)]
+        self.ask(mock, msg="latest question", history=long_history,
+                 max_history_msgs=10)
+        sent = mock.calls[0]["messages"]
+        self.assertEqual(11, len(sent))                 # 10 kept + the new question
+        self.assertEqual("m90", sent[0]["content"])     # the tail, not the head
+        self.assertEqual("m99", sent[-2]["content"])
+        self.assertEqual("latest question", sent[-1]["content"])
+
     def test_round_cap_holds(self):
         # A model that never stops asking for tools must be bounded.
         always = MockAnthropic([
