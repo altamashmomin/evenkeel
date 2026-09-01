@@ -4311,3 +4311,30 @@ closes the entire Aug 8 code review — Tier 1, 2, and 3 — remediated and live
 The verify-and-close pass's headline: the review's own "all findings closed"
 note had been optimistic (Tier-2 #6/#8/#12 + #9-deps were never actually done);
 they are now.
+
+**Sep 1, 2026 — MIRAGE F2: bind two-phase `confirm_action` to the proposing
+identity (migration #016, schema v15→v16).** The last MIRAGE follow-up, the one
+branch spared in the workspace cleanup, now merged. The finding (Aug 23): `confirm_action` looked a `pending_actions` row up by token
+alone and never checked who was confirming, so in a multi-member household one
+person could confirm a proposal another parked — a pre-existing property of the
+shared two-phase tier (step 7), affecting both the in-app Ask surface and the
+MCP write tier, not the Ask B2 rule increment it was found under. `created_by`
+(#007) could not be the binding key: it REFERENCES `api_tokens(id)` (NULL for
+sessions, and a member id can't live there under the runtime's enforced FK).
+Migration #016 adds `pending_actions.proposed_by_user` (nullable, FK→members),
+recorded at propose time from the authenticated identity (`g.auth["user_id"]`,
+populated for a session AND a per-person bearer token); `confirm_action` rejects
+a token whose `proposed_by_user` differs from the confirming identity — refused
+as `NotFound`, indistinguishable from a bogus token (no existence oracle), with
+a NULL/legacy proposer or an unsupplied `confirming_user` (direct verb caller)
+left unbound. The key is read server-side only, never from the request body, and
+`param_schema` is `PARAM_SPECS`-driven so the new kwarg is not exposed to MCP
+callers. Regression tests proven to fail first (neutralizing the check made the
+route-level cross-member confirm return 200/executed). Suite 670, render 165,
+GATE PASS by enumeration (sole diff `schema_version 15→16`;
+balance/by-category/income/monthly totals byte-identical on a 125-txn synthetic
+dev.db). Merged into `rework` Sep 1 — auto-merged cleanly with the audit F-1
+confirm gate and the #6 apply_rules freeze (each edits a different region of
+`confirm_action`), only the append-only PROGRESS-LOG needing a hand-merge.
+Re-gated on current data (GATE PASS by enumeration, sole diff
+`schema_version 15→16`); the Pi deploy applies migration #016 → live schema **v16**.
