@@ -497,8 +497,19 @@ already live via a twin commit (its duplicate branch dropped), and MIRAGE **F2**
 `d028650`→`623aecf`) — migration #016 applied to the live DB, schema now v16**
 (the gate passed by enumeration, sole diff `schema_version 15→16`, money
 byte-identical; F2 layers cleanly beneath the audit F-1 mcp-gate and the #6
-id-freeze). `origin/main` == the deployed tree; nothing merged-but-undeployed, no
-loose threads remain.
+id-freeze). Then the review's PDF was swept a final time for anything the 12-item
+action plan hadn't enumerated: the four verified domain-section **P3s** were
+closed and **DEPLOYED (Sep 1, `main` `623aecf`→`41abbd9`, live gate zero-diff, no
+migration — schema **v16**)**: `esc()` on `it.status`/`g.target_date` (render
+defense-in-depth), `ops_audit` non-integer `limit` → clean 400, `Param` numeric
+bounds surfaced in `param_schema` (due_day 1–31, interval days 1–365), and a
+`run_ask` client-history cap (`max_history_msgs`). Each regression-tested (the
+esc one mutation-proven); suite **728**. `origin/main` == the deployed tree;
+nothing merged-but-undeployed. **The Aug 8 review is now exhaustively closed** —
+action plan, Tier 3, both MIRAGE offshoots, and every verified P3. The only
+remaining items are off-repo ops residuals (the live tailnet-ACL spot check, the
+`pi-deploy.md` bring-up-guide path/PAT tidy, the optional `pip-audit` toolchain
+bump).
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

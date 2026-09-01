@@ -4343,3 +4343,21 @@ gate PASS — balance + every monthly total byte-identical, sole structural diff
 schema now v16**), `pifinance`+`ledger-mcp` restarted, smoke OK. This closes the
 last MIRAGE follow-up; every thread from the Aug 8 review and its red-team
 offshoots is now remediated and live.
+
+**Sep 1, 2026 — audit P3 cleanup DEPLOYED (`623aecf`→`41abbd9`).** A final sweep
+of the PDF for domain-section findings the 12-item action plan hadn't enumerated
+turned up four verified P3s, all low-risk hardening, closed as one increment:
+(§7) `it.status` (class/data-status/aria-label) and `g.target_date` now go through
+`esc()` — the render no longer silently depends on server validation,
+mutation-proven (a hostile status broke out of the attribute pre-fix); (§16)
+`ops_audit`'s `int(limit)` returns a clean 400 on `?limit=abc` instead of a 500,
+matching the sibling routes; (§6) `Param` gained optional `minimum`/`maximum`,
+surfaced by `param_schema` so the two prose-only bounds (create_bill.due_day
+1–31, set_item_interval.days 1–365) are model-visible, the verb still enforcing
+them; (§6) `run_ask` caps client-held history to the most recent
+`max_history_msgs` (24) so a long chat can't grow the request unbounded. Each
+regression-tested; suite 725→**728**, render 176→**177**. Live gate PASS
+**zero-diff**, no migration (schema stays **v16** — 016 already live from F2).
+**The Aug 8 review is now exhaustively closed** (action plan, Tier 3, both MIRAGE
+offshoots, every verified P3); only off-repo ops residuals remain (live
+tailnet-ACL check, `pi-deploy.md` path/PAT tidy, optional `pip-audit` bump).
