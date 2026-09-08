@@ -1697,10 +1697,13 @@ def activity_digest(db, since=None, now=None):
     no number. Clock-free: the caller passes `since`/`now` (ISO-8601); both
     default to None and return an empty digest purely so the derivation tripwire
     can call it bare, the same convention as calendar_events. 'sync' rows (the
-    routine bank feed) are counted but split out from the human/assistant writes
-    the digest is really for; both actor and action are grouped for the renderer
-    (the Pi job) to phrase — the presentation stays at the edge, integer counts
-    here."""
+    routine bank feed) are counted only in `sync_writes`; `by_actor` and
+    `by_action` group the human/assistant writes the digest is really for — sync
+    is deliberately excluded from both, so a manual UI entry (a `ui:`
+    record_transaction) is itemized in the breakdown while the routine feed,
+    whose verb is always record_transaction, stays a single aggregate the
+    renderer footnotes. `total` still counts every row. Presentation stays at the
+    edge (the Pi job phrases the names); integer counts here."""
     if since is None or now is None:
         return {"since": since, "until": now, "total": 0,
                 "assistant_and_human_writes": 0, "sync_writes": 0,
@@ -1711,12 +1714,12 @@ def activity_digest(db, since=None, now=None):
     by_actor, by_action = {}, {}
     sync_n = human_n = 0
     for r in rows:
-        by_actor[r["actor"]] = by_actor.get(r["actor"], 0) + 1
-        by_action[r["action"]] = by_action.get(r["action"], 0) + 1
         if r["actor"] == "sync":
             sync_n += 1
-        else:
-            human_n += 1
+            continue   # counted only in sync_writes; kept out of the breakdowns
+        human_n += 1
+        by_actor[r["actor"]] = by_actor.get(r["actor"], 0) + 1
+        by_action[r["action"]] = by_action.get(r["action"], 0) + 1
     pending = db.execute(
         "SELECT COUNT(*) FROM pending_actions WHERE status = 'pending' "
         "AND expires_at > ?", (now,)).fetchone()[0]
