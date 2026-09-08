@@ -61,7 +61,7 @@ app.config.update(
 )
 
 # gzip the SPA shell + static JS/CSS + API JSON on the fly (audit R1) — cuts the
-# first-load critical path ~71% (211KB → ~61KB), no build step. gzip only (no
+# first-load critical path ~71% (218KB → ~64KB), no build step. gzip only (no
 # brotli dependency). MIMETYPES pinned explicitly so text/javascript — how
 # Python 3.11 serves .js — is covered, not just application/javascript; the
 # default list misses it. Flask-Compress owns the correctness edges (static
