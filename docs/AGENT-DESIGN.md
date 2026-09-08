@@ -133,7 +133,7 @@ CREATE TABLE pending_actions (
     preview_json TEXT NOT NULL,          -- what was shown to the human
     created_by   INTEGER REFERENCES api_tokens(id),
     created_at   TEXT NOT NULL,
-    expires_at   TEXT NOT NULL,          -- ~10 minutes; stale approvals die
+    expires_at   TEXT NOT NULL,          -- ~24 hours; stale approvals die
     status       TEXT NOT NULL DEFAULT 'pending'
                  -- pending | confirmed | expired | cancelled
 );
@@ -544,7 +544,7 @@ class ConfirmActionInput(BaseModel):
 async def ledger_confirm_action(params: ConfirmActionInput) -> str:
     """PHASE 2 of 2. Executes exactly the pending action the token points
     to — the frozen payload, not your current arguments. Single-use;
-    expires ~10 minutes after propose.
+    expires ~24 hours after propose.
 
     ONLY call this after the user has seen the preview and said yes in
     their own message. If the token expired, re-propose — never guess a
@@ -754,7 +754,7 @@ per-person tokens).
      read-only dry-run (`_rule_matches` over the unclassified queue for a
      rule; the existing `apply_rules(dry_run=True)` pass for apply), and
      parks a `pending_actions` row with the **frozen** payload + preview +
-     ~10-min `expires_at`. Returns `{confirmation_token, preview}`. Writes
+     ~24-hour `expires_at`. Returns `{confirmation_token, preview}`. Writes
      no audit row — nothing executed yet.
    - `confirm_action(db, actor, token)` — loads the row; rejects unknown /
      expired / non-`pending` tokens; dispatches on `action_type` to the real
