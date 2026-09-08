@@ -54,18 +54,23 @@ class ActivityDigestTests(unittest.TestCase):
         self._audit("mcp:cc", "set_rule_enabled", "2026-07-10T10:00:00+00:00")
         self._audit("mcp:cc", "set_budget", "2026-07-10T11:00:00+00:00")
         self._audit("sync", "record_transaction", "2026-07-10T12:00:00+00:00")
+        self._audit("ui:avery", "record_transaction", "2026-07-11T09:00:00+00:00")  # manual "+" add
         self._audit("ui:avery", "add_item", "2026-07-01T00:00:00+00:00")  # before window
         self._audit("ui:avery", "add_item", "2026-07-25T00:00:00+00:00")  # after window
         d = activity_digest(self.db, "2026-07-05T00:00:00+00:00",
                             "2026-07-20T00:00:00+00:00")
-        self.assertEqual(4, d["total"])                       # both out-of-window excluded
-        self.assertEqual(3, d["assistant_and_human_writes"])  # 1 ui + 2 mcp
+        self.assertEqual(5, d["total"])                       # both out-of-window excluded
+        self.assertEqual(4, d["assistant_and_human_writes"])  # 2 ui + 2 mcp
         self.assertEqual(1, d["sync_writes"])
-        # by_actor sorted by count desc: mcp:cc (2) leads
+        # by_actor sorted by count desc, ties by name: mcp:cc (2) leads ui:avery (2)
         self.assertEqual({"actor": "mcp:cc", "count": 2}, d["by_actor"][0])
         by_action = {x["action"]: x["count"] for x in d["by_action"]}
+        # The manual ui: record_transaction IS itemized; the sync feed's
+        # record_transaction is NOT (it lives only in sync_writes), so the count
+        # is 1, not 2 — the reconciliation gap the digest job had.
         self.assertEqual({"classify_inflow": 1, "set_rule_enabled": 1,
                           "set_budget": 1, "record_transaction": 1}, by_action)
+        self.assertNotIn("sync", {a["actor"] for a in d["by_actor"]})
 
     def test_pending_approvals_counts_only_unexpired_pending(self):
         self._pending("2026-07-20T00:00:00+00:00")                       # future → counts

@@ -46,6 +46,10 @@ STATE_DEFAULT = Path(__file__).resolve().parent.parent / ".change-digest.state"
 # to the name with underscores spaced out.
 _ACTION_LABEL = {
     "classify_inflow": "tagged a deposit",
+    # record_transaction reaches the breakdown only for a manual UI "+" entry;
+    # the sync feed's record_transaction rows are excluded upstream (they live
+    # in sync_writes), so a row here is always a person adding a transaction.
+    "record_transaction": "added a transaction",
     "recategorize_transaction": "recategorized a transaction",
     "create_income_rule": "created a rule",
     "confirm_action": "approved a proposal",
@@ -125,13 +129,13 @@ def render_markdown(digest):
     if human:
         s = "s" if human != 1 else ""
         lines.append(f"## {human} change{s} by you & the assistants")
+        # by_actor / by_action already exclude the sync feed (derivation splits
+        # it into sync_writes), so every bullet here is a person or an assistant
+        # — a manual "+" entry included, no longer dropped as if it were sync.
         for a in digest.get("by_actor", []):
-            if a["actor"] == "sync":
-                continue
             n = a["count"]
             lines.append(f"- **{a['actor']}** — {n} change{'s' if n != 1 else ''}")
-        kinds = [k for k in digest.get("by_action", [])
-                 if k["action"] != "record_transaction"]  # the sync feed's verb
+        kinds = digest.get("by_action", [])
         if kinds:
             lines.append("")
             lines.append("What kind:")
@@ -182,19 +186,26 @@ def main(argv=None):
     lookback = int(os.environ.get("CHANGE_DIGEST_LOOKBACK_HOURS", "24"))
 
     since = args.since or read_since(state, lookback)
-    now = _now_iso()
     try:
         digest = fetch_digest(base, token, since)
     except (urllib.error.URLError, OSError, ValueError) as e:
         print(f"change-digest: could not read {base}/api/activity/digest: {e}",
               file=sys.stderr)
         return 1
+    # The next window starts exactly where this one ended — the server's own
+    # `until` (the upper bound its `at < until` query used), NOT a client-side
+    # `now` captured before the request. The digest window is half-open
+    # [since, until), so using `until` as the next `since` leaves no gap and no
+    # overlap; a client `now` sampled before the round-trip sits earlier than
+    # `until` and would re-count the sliver of writes in between. Fall back to a
+    # fresh timestamp only if the server somehow omits it.
+    hwm = digest.get("until") or _now_iso()
 
     title, body, quiet = render_markdown(digest)
     if quiet:
         print("change-digest: quiet — nothing to report, nothing posted")
         if not args.dry_run and not args.since:
-            write_since(state, now)   # advance so the window stays bounded
+            write_since(state, hwm)   # advance so the window stays bounded
         return 0
     if args.dry_run:
         print(title); print(); print(body)
@@ -214,7 +225,7 @@ def main(argv=None):
         return 1   # do NOT advance state — next run retries this window
     print(f"change-digest: filed {url}")
     if not args.since:
-        write_since(state, now)
+        write_since(state, hwm)
     return 0
 
 
