@@ -1,12 +1,20 @@
-# Nightly backup routine — design (BUILT Aug 6, 2026; not yet deployed)
+# Nightly backup routine — design (BUILT Aug 6, 2026; INSTALLED LIVE Sep 16, 2026)
 
 **Status:** decisions ratified by Alta (Aug 6, 2026) — separate pool, N=14,
 golden-backup refresh scoped out — and **built as designed** (`deploy/
 nightly-backup.sh` + `pifinance-nightly-backup.{service,timer}` +
 `.gitignore` `*.db.nightly-*` + the guardian's new nightly block). Off-Pi
 tooling, no schema/verb/money path → balance gate N/A; dry-run-verified before
-trust (below). **Not yet installed on the Pi** — the units need the usual
-`pi`→`altamash` sed-on-copy + `systemctl enable --now`.
+trust (below). **INSTALLED ON THE PI (Sep 16, 2026)** — copied with the usual
+`pi`→`altamash` sed + `systemctl enable --now`, and the out-of-tree guardian
+(`/home/altamash/pifinance-ops/ops-health-check.sh`) refreshed to the two-pool
+version at the same time. It had still been the pre-Aug-6 build, whose retired
+`MAX_BACKUP_AGE_H=168` deploy-pool age check was firing amber ("newest backup is
+352h old — no fresh safety net") because the only backups were deploy-time
+`finance.db.bak-*`, and a `git pull` in `~/pifinance` never touched the
+out-of-tree copy. First snapshot `finance.db.nightly-2026-09-16-085234`;
+guardian now 🟢 GREEN (`✓ newest nightly snapshot 0h old`, integrity-ok, 3
+retained). Full record in PROGRESS-LOG (Sep 16, 2026).
 
 **Two things the build added beyond this doc (both flagged in review):**
 1. **Retired the guardian's deploy-pool AGE check** (`MAX_BACKUP_AGE_H`). Once

@@ -4361,3 +4361,34 @@ regression-tested; suite 725→**728**, render 176→**177**. Live gate PASS
 **The Aug 8 review is now exhaustively closed** (action plan, Tier 3, both MIRAGE
 offshoots, every verified P3); only off-repo ops residuals remain (live
 tailnet-ACL check, `pi-deploy.md` path/PAT tidy, optional `pip-audit` bump).
+
+**Sep 16, 2026 — nightly backup INSTALLED LIVE on the Pi + out-of-tree guardian
+refreshed (ops/config only; no schema/verb/money path, balance gate N/A).** The
+Ops guardian fired 🟡 AMBER — "newest backup is 352h old (> 168h) — no fresh
+safety net". Root cause was two-fold and unrelated to any code regression: (a)
+the nightly-backup increment built Aug 6 (`NIGHTLY-BACKUP-DESIGN.md`) had never
+been installed on the Pi, so the only backups were deploy-time
+`finance.db.bak-*`, whose newest the guardian read as ~352h old (a key rotation
+is not a deploy, so nothing had refreshed the pool); (b) the *live* guardian was
+still the pre-Aug-6 build, running out-of-tree from
+`/home/altamash/pifinance-ops/ops-health-check.sh`, so the redeploy's `git pull`
+in `~/pifinance` never updated it — and its retired `MAX_BACKUP_AGE_H=168`
+deploy-pool age check was (by its own old logic) correctly flagging the stale
+deploy pool. Both halves were required to clear the amber: installing the
+nightly timer alone would leave the old guardian still watching the deploy pool,
+and refreshing the guardian alone would report "no nightly snapshot found". Fix:
+(1) installed `pifinance-nightly-backup.{service,timer}` (sed `pi`→`altamash`,
+`enable --now`) + ran one immediate `deploy/nightly-backup.sh` →
+`finance.db.nightly-2026-09-16-085234`; (2) overwrote the out-of-tree guardian
+with the current two-pool version (`MAX_NIGHTLY_AGE_H=30`; deploy-pool age check
+retired, restorability + count checks kept). Re-run verdict **🟢 GREEN**:
+`✓ newest nightly snapshot 0h old (finance.db.nightly-2026-09-16-085234) …
+passes integrity_check … 3 nightly snapshot(s) retained`, deploy pool 10 files
+restorable, disk 2%, sync 2h. The `ANTHROPIC_API_KEY` rotation done earlier this
+session is confirmed live in the same run ("✓ ANTHROPIC_API_KEY has 30 day(s)
+left"; the earlier ~Sep 17 expiry is retired). **Follow-up surfaced, NOT fixed:**
+the guardian's ops-alert GitHub-issue bridge is failing on every amber/red
+("GitHub issue POST failed — check OPS_ALERT_GH_TOKEN / repo / network") —
+likely an expired/revoked `OPS_ALERT_GH_TOKEN` PAT; a green run does not exercise
+it, so it stays hidden until the next amber. Rotate that PAT or alerts will not
+reach GitHub. `NIGHTLY-BACKUP-DESIGN.md` status flipped BUILT→INSTALLED LIVE.
