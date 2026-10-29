@@ -511,6 +511,14 @@ remaining items are off-repo ops residuals (the live tailnet-ACL spot check, the
 `pi-deploy.md` bring-up-guide path/PAT tidy, the optional `pip-audit` toolchain
 bump).
 
+Then (Oct 29): **migration #017 + `set_bill_pay_details`** — each bill can carry
+where it's paid (an https link) and whether it's on autopay; the Calendar agenda
+shows "Pay at <host>" + an autopay mark, the bill dialog edits them, served by
+`GET /api/bills/pay-details` so `/api/bills` stays byte-frozen. Schema v16→**v17**,
+suite 743, render 180, GATE PASS by enumeration (sole diff `schema_version
+16→17`). On `claude/bill-pay-details`; **awaits Alta's merge + Pi deploy** (the
+Pi is offline after the move until Tailscale is reconnected).
+
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
 
