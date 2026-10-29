@@ -26,6 +26,7 @@ import hashlib
 from werkzeug.security import check_password_hash, generate_password_hash
 import json
 import secrets
+from urllib.parse import urlsplit
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -751,6 +752,81 @@ def delete_bill(db, actor, bill_id):
         db.execute("UPDATE bills SET active = 0 WHERE id = ?", (bill_id,))
         _write_audit(db, actor, "delete_bill", f"bill:{bill_id}",
                      {"bill": dict(bill)})
+
+
+_MAX_PAY_URL_LEN = 300
+
+
+def _clean_pay_url(raw):
+    """Normalize a bill's pay-at link: blank clears (None); a bare host like
+    'avalonaccess.com' gains https://; anything that isn't a plain https URL
+    with a real host is refused. Rendered as a link the household taps, so
+    http:, javascript:, userinfo ('me@host') and whitespace are all rejected
+    here, not just escaped at render time."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise ActionError("pay_url must be text")
+    value = raw.strip()
+    if not value:
+        return None
+    if "://" not in value:
+        value = "https://" + value
+    if len(value) > _MAX_PAY_URL_LEN:
+        raise ActionError(f"pay_url must be at most {_MAX_PAY_URL_LEN} characters")
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ActionError("pay_url must be a single https link")
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname or ""
+    except ValueError:
+        parts, host = None, ""
+    if (parts is None or parts.scheme.lower() != "https" or not host
+            or "." not in host or "@" in parts.netloc):
+        raise ActionError("pay_url must be an https link, e.g. https://example.com")
+    return value
+
+
+def _clean_autopay(raw):
+    if isinstance(raw, bool):
+        return 1 if raw else 0
+    if raw in (0, 1):
+        return int(raw)
+    raise ActionError("autopay must be true or false")
+
+
+def set_bill_pay_details(db, actor, bill_id, data):
+    """Record where a bill is paid and whether it's on autopay (migration
+    #017) — the Calendar tab's "pay at …" link and autopay mark.
+
+    validate — an active bill with this id exists (NotFound otherwise);
+    at least one of `pay_url` / `autopay` is present; pay_url is a plain
+    https link (a bare host gains https://; blank clears it); autopay is a
+    boolean. A key absent from the payload keeps its current value.
+    edit — one transaction: the two columns and the audit row with the
+    before/after pair. Definition metadata only: no transaction, split,
+    payment, or derivation reads these columns, so no money number moves.
+    side effects — none.
+    Returns the updated bill row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        if "pay_url" not in data and "autopay" not in data:
+            raise ActionError("nothing to change: send pay_url and/or autopay")
+        pay_url = (_clean_pay_url(data["pay_url"]) if "pay_url" in data
+                   else existing["pay_url"])
+        autopay = (_clean_autopay(data["autopay"]) if "autopay" in data
+                   else existing["autopay"])
+        db.execute("UPDATE bills SET pay_url = ?, autopay = ? WHERE id = ?",
+                   (pay_url, autopay, bill_id))
+        _write_audit(db, actor, "set_bill_pay_details", f"bill:{bill_id}",
+                     {"before": {"pay_url": existing["pay_url"],
+                                 "autopay": existing["autopay"]},
+                      "after": {"pay_url": pay_url, "autopay": autopay}})
+    return db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
 
 
 def create_goal(db, actor, data):

@@ -35,6 +35,7 @@ const state = {
 
   editingTxn: null,
   editingBill: null,
+  editingBillDetails: null,
   payingBill: null,
   contribGoal: null,
   openLogs: new Set(),
@@ -590,8 +591,13 @@ async function renderActivity() {
 // agenda is new presentation — the lower list and its [data-bill-*] wiring
 // (wireMain) are the proven money-touching surface, unchanged.
 async function renderCalendar() {
-  const bills = await api("/api/bills");
+  // Pay details (migration #017) ride beside the byte-frozen /api/bills rows,
+  // joined by bill id here — never merged into the money-touching rows.
+  const [bills, payRows] = await Promise.all([
+    api("/api/bills"), api("/api/bills/pay-details")]);
   window._bills = bills;
+  const details = Object.fromEntries(payRows.map((d) => [d.id, d]));
+  window._billDetails = details;
   const manageRows = bills.length
     ? `<ul class="list">${bills.map(billRowHTML).join("")}</ul>`
     : `<p class="empty">No recurring bills yet.</p>`;
@@ -600,7 +606,7 @@ async function renderCalendar() {
       <p class="eyebrow" style="margin:0">Calendar — ${monthName(thisMonthISO())}</p>
       <button class="btn small" id="btn-add-bill">Add bill</button>
     </div>
-    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO())}
+    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details)}
     <p class="eyebrow cal-manage-head">Your bills</p>
     <div class="card">${manageRows}</div>`;
 }
@@ -1331,6 +1337,10 @@ function openBillDialog(bill) {
   formBill.amount.value = bill ? bill.amount : "";
   formBill.due_day.value = bill ? bill.due_day : "";
   formBill.category.value = bill ? bill.category : "";
+  const d = bill && window._billDetails ? window._billDetails[bill.id] : null;
+  state.editingBillDetails = d || null;
+  formBill.pay_url.value = d && d.pay_url ? d.pay_url : "";
+  formBill.autopay.checked = !!(d && d.autopay);
   dlgBill.showModal();
 }
 
@@ -1343,11 +1353,25 @@ formBill.addEventListener("submit", async (ev) => {
     due_day: +formBill.due_day.value,
     category: formBill.category.value || "Bills",
   };
+  const payUrl = formBill.pay_url.value.trim();
+  const autopay = formBill.autopay.checked;
+  const prev = state.editingBillDetails;
   try {
+    let saved;
     if (state.editingBill) {
-      await api(`/api/bills/${state.editingBill.id}`, { method: "PUT", body });
+      saved = await api(`/api/bills/${state.editingBill.id}`, { method: "PUT", body });
     } else {
-      await api("/api/bills", { method: "POST", body });
+      saved = await api("/api/bills", { method: "POST", body });
+    }
+    // Where-to-pay + autopay are their own verb (set_bill_pay_details); only
+    // call it when they changed, so an ordinary edit stays one write.
+    const changed = prev
+      ? payUrl !== (prev.pay_url || "") || autopay !== !!prev.autopay
+      : !!payUrl || autopay;
+    if (changed) {
+      state.editingBill = saved;   // a retry after a bad link edits, not re-creates
+      await api(`/api/bills/${saved.id}/pay-details`, {
+        method: "PUT", body: { pay_url: payUrl, autopay } });
     }
     dlgBill.close();
     render();

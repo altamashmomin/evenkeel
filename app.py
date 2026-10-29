@@ -2024,6 +2024,46 @@ def unpay_bill(bill_id):
     return jsonify({"ok": True})
 
 
+def bill_pay_details_to_json(r):
+    """Where a bill is paid + whether it's on autopay (migration #017). Its own
+    shape, served beside — never inside — the byte-frozen bill_to_json. The
+    host is derived on read (nothing derived is stored) so the UI can say
+    "pay at avalonaccess.com" without parsing URLs in the browser."""
+    url = r["pay_url"]
+    host = urlsplit(url).hostname if url else None
+    if host and host.startswith("www."):
+        host = host[4:]
+    return {"id": r["id"], "pay_url": url, "pay_host": host,
+            "autopay": bool(r["autopay"])}
+
+
+@app.get("/api/bills/pay-details")
+@login_required
+def list_bill_pay_details():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, pay_url, autopay FROM bills WHERE active = 1 "
+        "ORDER BY due_day, name").fetchall()
+    return jsonify([bill_pay_details_to_json(r) for r in rows])
+
+
+@app.put("/api/bills/<int:bill_id>/pay-details")
+@login_required
+def set_bill_pay_details(bill_id):
+    """Thin caller: the set_bill_pay_details verb owns validation and the
+    edit (two definition columns + audit, one transaction)."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.set_bill_pay_details(
+            db, actor=ui_actor(db), bill_id=bill_id, data=data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(bill_pay_details_to_json(row))
+
+
 # ---------------------------------------------------------------- goals
 
 def goal_to_json(db, r):
