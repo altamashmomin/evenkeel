@@ -1507,6 +1507,36 @@ check("calendarAgendaHTML escapes a hostile bill name (no breakout)", () => {
   assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
 });
 
+// ---- calendarAgendaHTML + payDetailHTML: where to pay / autopay (#017) ----
+check("calendarAgendaHTML without details renders exactly as before", () => {
+  const bills = [{ id: 1, name: "Rent", category: "Housing", due_day: 1, amount: 2400, paid_this_period: false }];
+  assert.strictEqual(R.calendarAgendaHTML(bills, "2026-11-15", "2026-11"),
+                     R.calendarAgendaHTML(bills, "2026-11-15", "2026-11", undefined));
+  assert.ok(!R.calendarAgendaHTML(bills, "2026-11-15", "2026-11").includes("cal-paywhere"));
+});
+check("calendarAgendaHTML shows Pay at <host> and autopay from details", () => {
+  const h = R.calendarAgendaHTML([
+    { id: 1, name: "Rent",     category: "Housing",   due_day: 1,  amount: 2400, paid_this_period: false },
+    { id: 2, name: "Electric", category: "Utilities", due_day: 19, amount: 22.63, paid_this_period: false },
+    { id: 3, name: "Internet", category: "Utilities", due_day: 8,  amount: 10,   paid_this_period: false },
+  ], "2026-11-02", "2026-11", {
+    1: { id: 1, pay_url: "https://www.avalonaccess.com", pay_host: "avalonaccess.com", autopay: false },
+    2: { id: 2, pay_url: "https://onepublicgrid.com", pay_host: "onepublicgrid.com", autopay: true },
+  });
+  assert.ok(h.includes('href="https://www.avalonaccess.com"') && h.includes("Pay at avalonaccess.com"));
+  assert.ok(h.includes('rel="noopener noreferrer"') && h.includes('target="_blank"'));
+  assert.ok(h.includes('class="cal-autopay">autopay'), "the autopay bill says so");
+  assert.ok(h.includes("0 of 3 paid · 1 on autopay"), "summary counts autopay bills");
+  assert.strictEqual((h.match(/cal-paywhere/g) || []).length, 2, "the bill with no details gets no line");
+});
+check("payDetailHTML refuses a non-https link and escapes hostile text", () => {
+  assert.strictEqual(R.payDetailHTML(null), "");
+  assert.strictEqual(R.payDetailHTML({ pay_url: "javascript:alert(1)", pay_host: "x", autopay: false }), "");
+  const h = R.payDetailHTML({ pay_url: 'https://a.com/"><script>', pay_host: '<b>x</b>', autopay: false });
+  assert.ok(!h.includes("<script>") && !h.includes("<b>x"), "no markup breakout");
+  assert.ok(h.includes("&quot;&gt;&lt;script&gt;") && h.includes("&lt;b&gt;x"));
+});
+
 // ---- pendingApprovalsHTML: the Home approvals card (F-1 human-confirm) ----
 check("pendingApprovalsHTML: empty -> '' (card hidden when nothing waits)", () => {
   assert.strictEqual(R.pendingApprovalsHTML([]), "");

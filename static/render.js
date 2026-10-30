@@ -1700,7 +1700,21 @@
   // JSON edge): the summary is a COUNT, honoring the integer-cents invariant.
   // A "$ still due" figure would have to come from the server's
   // cash_flow_forecast, never JS addition.
-  function calendarAgendaHTML(bills, todayISO, monthISO) {
+  // `details` (optional, migration #017) maps bill id -> the
+  // /api/bills/pay-details row: an autopay bill says so, a bill with a pay link
+  // gets "Pay at <host>" opening that page. The link is server-validated https;
+  // it's re-checked and esc()-ed here anyway (defense in depth).
+  function payDetailHTML(d) {
+    if (!d) return "";
+    const parts = [];
+    if (d.autopay) parts.push(`<span class="cal-autopay">autopay</span>`);
+    if (d.pay_url && /^https:\/\//i.test(d.pay_url))
+      parts.push(`<a class="cal-pay" href="${esc(d.pay_url)}" target="_blank" ` +
+        `rel="noopener noreferrer">Pay at ${esc(d.pay_host || d.pay_url)}</a>`);
+    return parts.join(" · ");
+  }
+
+  function calendarAgendaHTML(bills, todayISO, monthISO, details) {
     if (!bills || !bills.length)
       return `<div class="card cal-agenda"><p class="empty">No bills this month.</p></div>`;
     const [y, mo] = monthISO.split("-").map(Number);
@@ -1716,21 +1730,26 @@
       const overdue = !paid && dISO < todayISO;
       const state = paid ? "paid" : overdue ? "overdue" : "due";
       const today = dISO === todayISO ? " cal-today" : "";
+      const pay = payDetailHTML(details && details[b.id]);
       return `
         <li class="cal-row${today}">
           <span class="cal-day"><b>${day}</b><span>${wd}</span></span>
           <div class="grow">
             <div class="title">${esc(b.name)}</div>
             <div class="sub">${esc(b.category || "")}</div>
+            ${pay ? `<div class="sub cal-paywhere">${pay}</div>` : ""}
           </div>
           <span class="amt amount">${fmt(b.amount)}</span>
           <span class="badge ${state}">${state}</span>
         </li>`;
     });
     const paidCount = bills.filter((b) => b.paid_this_period).length;
-    const sum = paidCount === bills.length
+    const autoCount = details
+      ? bills.filter((b) => details[b.id] && details[b.id].autopay).length : 0;
+    const sum = (paidCount === bills.length
       ? `All ${bills.length} paid 🎉`
-      : `${paidCount} of ${bills.length} paid`;
+      : `${paidCount} of ${bills.length} paid`)
+      + (autoCount ? ` · ${autoCount} on autopay` : "");
     return `
       <div class="card cal-agenda">
         <p class="cal-sum">${sum}</p>
@@ -1842,7 +1861,7 @@
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            ruleBreadthWarning,
-           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, billRowHTML,
+           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, payDetailHTML, billRowHTML,
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,

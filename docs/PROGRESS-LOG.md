@@ -4361,3 +4361,29 @@ regression-tested; suite 725→**728**, render 176→**177**. Live gate PASS
 **The Aug 8 review is now exhaustively closed** (action plan, Tier 3, both MIRAGE
 offshoots, every verified P3); only off-repo ops residuals remain (live
 tailnet-ACL check, `pi-deploy.md` path/PAT tidy, optional `pip-audit` bump).
+
+**Oct 29, 2026 — migration #017 + `set_bill_pay_details`: where each bill is
+paid, and whether it's on autopay (on `claude/bill-pay-details`, NOT deployed).**
+After the move to the new apartment the household's bills live on several sites
+(the landlord's resident portal, the utility's billing service, the internet
+provider), and the Calendar tab could say *when* each is due but not *where* to
+pay it or whether it already pays itself. Migration #017 adds `bills.pay_url`
+(TEXT, NULL = not recorded) and `bills.autopay` (INTEGER NOT NULL DEFAULT 0,
+CHECK 0/1), guarded-idempotent; schema v16→**v17**. The verb
+`set_bill_pay_details(db, actor, bill_id, data)` (registered in CORE-DESIGN)
+sets either or both: the link must be a plain https URL with a real host (a bare
+`avalonaccess.com` gains `https://`; blank clears; http:, javascript:, userinfo,
+whitespace and >300 chars refused — proven-fail-first by re-allowing http), a
+key absent from the payload keeps its value, audit carries before/after.
+`bill_to_json` is untouched so the byte-frozen `/api/bills` (API parity) can't
+move; the new fields ride `GET /api/bills/pay-details` (host derived on read)
++ `PUT /api/bills/<id>/pay-details` (thin caller). Frontend: the agenda shows
+"Pay at <host>" (new tab, `noopener noreferrer`, re-checked https + `esc()`)
+and an autopay mark per bill, the summary adds "· N on autopay" (a COUNT, no JS
+money math), and the bill dialog gains "Pay at" + "On autopay" fields (a second
+write only when they changed). No derivation reads the columns. Suite 728→**743**,
+render 177→**180**. GATE PASS by enumeration (sole diff `schema_version 16→17`;
+balance + every monthly total byte-identical, synthetic seed-42 dev.db with
+income). **Awaits Alta's merge + Pi deploy** — the Pi is offline after the
+move (Tailscale to be reconnected); after deploy the household's bills are
+entered in the app (rent, electric+gas, internet) with their pay links.

@@ -391,6 +391,10 @@ main {
 }
 .cal-row.cal-today .cal-day b { color: var(--brass-dim); }
 .cal-manage-head { margin: 18px 0 8px; }
+/* where a bill is paid + autopay (migration #017) */
+.cal-row .cal-paywhere { margin-top: 2px; }
+.cal-row .cal-autopay { color: var(--ok); }
+.cal-row .cal-pay { color: var(--brass-dim); text-decoration: underline; }
 
 /* ---------- Pending approvals (F-1 human-confirm) ---------- */
 .card.approvals {
