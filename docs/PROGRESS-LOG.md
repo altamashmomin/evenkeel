@@ -4387,3 +4387,35 @@ balance + every monthly total byte-identical, synthetic seed-42 dev.db with
 income). **Awaits Alta's merge + Pi deploy** — the Pi is offline after the
 move (Tailscale to be reconnected); after deploy the household's bills are
 entered in the app (rent, electric+gas, internet) with their pay links.
+
+**Nov 1, 2026 — rent & bills Phase 1: `link_bill_payment`, a bill paid by the
+bank charge that paid it (on `claude/bill-link-charge`, NOT deployed).** The
+household's rent and utilities are now real bills, and some are paid from a
+SimpleFIN-synced account. Mark paid always logged a NEW transaction at the bill's
+amount, so a bill paid from a synced account appeared twice — once as the
+imported debit, once as the logged payment — in spend AND in who-owes-whom. The
+new verb `link_bill_payment(db, actor, bill_id, {period, txn_id})` (registered in
+CORE-DESIGN) records that an existing transaction is the payment: it writes only
+the `bill_payments` row (`txn_id` was always a nullable FK, so **no migration**),
+with `paid_on` = the charge's own date, plus the audit row. It refuses an inflow,
+a settlement, a transfer, a charge already linked to any bill (one charge pays
+one bill for one month), and a period already paid. `unmark_bill_paid` now
+deletes only a transaction it logged itself (`source='bill'`); a linked charge is
+kept and the audit records `kept_transaction` (the logged-payment path and its
+audit shape are unchanged — proven-fail-first by forcing the old delete).
+`bill_variance` needed nothing: it already reads the actual amount through
+`bill_payments.txn_id`, so a linked charge reports "over/under its usual" for
+free, and `cash_flow_forecast` stops counting the bill as remaining. Read side:
+`bill_link_options(db, bill_id, period)` (outflows from 10 days before the month
+to 10 days after, unlinked, not settlement/transfer/`source='bill'`; ranked by
+amount closeness, then distance from the due day) + `GET
+/api/bills/<id>/link-options`; `POST /api/bills/<id>/link` is a thin caller;
+`DELETE /api/bills/<id>/pay` adds `kept_transaction` only when a charge was kept
+(v1 `{"ok": true}` otherwise). Frontend: the Mark paid dialog lists those charges
+("Paid from the bank? Pick the charge") with a Link button and a confirm; the
+existing "log it as paid" path stays below for payments Ledger can't see; the
+Undo confirm now says a linked charge stays. Suite **760** (+17 in
+`test_bill_link.py`), render **183** (+3). GATE PASS **zero-diff** (synthetic
+seed-42 dev.db with income; nothing on existing data calls the verb). Not
+browser-smoked (cloud session, no browser on the app). Awaits Alta's review,
+merge and Pi deploy.

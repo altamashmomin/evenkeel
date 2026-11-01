@@ -519,6 +519,12 @@ suite 743, render 180, GATE PASS by enumeration (sole diff `schema_version
 16→17`). On `claude/bill-pay-details`; **awaits Alta's merge + Pi deploy** (the
 Pi is offline after the move until Tailscale is reconnected).
 
+Then (Nov 1): **rent & bills Phase 1 — `link_bill_payment`** — mark a bill paid
+by the synced bank charge that paid it instead of logging a second transaction
+(the rent double-count fix); unmark keeps a linked charge. No schema change,
+suite 760, render 183, GATE PASS zero-diff. On `claude/bill-link-charge`;
+**awaits Alta's merge + Pi deploy.**
+
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
 
