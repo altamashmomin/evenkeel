@@ -59,6 +59,7 @@ _ACTION_LABEL = {
     "delete_bill": "removed a bill",
     "mark_bill_paid": "marked a bill paid",
     "unmark_bill_paid": "un-marked a bill",
+    "link_bill_payment": "linked a bill to its bank charge",
     "create_goal": "added a goal",
     "delete_goal": "removed a goal",
     "add_item": "added a pantry item",
