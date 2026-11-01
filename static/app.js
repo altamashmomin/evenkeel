@@ -14,7 +14,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
-        beamHTML, txnRow, calendarAgendaHTML, billRowHTML, contribLogHTML, goalCardHTML,
+        beamHTML, txnRow, calendarAgendaHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
         pendingApprovalsHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
@@ -1398,7 +1398,32 @@ function openPayDialog(billId) {
     `${bill.name} — ${fmt(bill.amount)} for ${monthName(bill.period)}. This also logs a transaction.`;
   formPay.is_shared.checked = true;
   buildSeg($("#pay-paidby"), state.meId);
+  const linkBox = $("#pay-link");
+  linkBox.innerHTML = "";
   dlgPay.showModal();
+  // The charges SimpleFIN already imported near this bill's due date. Linking
+  // one records the payment without logging a second transaction.
+  api(`/api/bills/${bill.id}/link-options?period=${bill.period}`)
+    .then((res) => {
+      if (state.payingBill !== bill) return;   // dialog moved on meanwhile
+      linkBox.innerHTML = payLinkOptionsHTML(res.options);
+      $$("#pay-link [data-link-txn]").forEach((el) =>
+        el.addEventListener("click", () => linkBillCharge(bill, +el.dataset.linkTxn)));
+    })
+    .catch(() => { linkBox.innerHTML = ""; });
+}
+
+async function linkBillCharge(bill, txnId) {
+  if (!confirm(`Link this charge as ${bill.name} for ${monthName(bill.period)}? ` +
+               "Nothing new is logged.")) return;
+  try {
+    await api(`/api/bills/${bill.id}/link`, {
+      method: "POST", body: { period: bill.period, txn_id: txnId } });
+    dlgPay.close();
+    render();
+  } catch (e) {
+    $("#pay-error").textContent = e.message;
+  }
 }
 
 formPay.addEventListener("submit", async (ev) => {
@@ -1421,7 +1446,8 @@ formPay.addEventListener("submit", async (ev) => {
 });
 
 async function unpayBill(billId) {
-  if (!confirm("Undo this payment? The logged transaction is removed too.")) return;
+  if (!confirm("Undo this payment? A transaction Ledger logged for it is removed; " +
+               "a linked bank charge stays in Activity.")) return;
   await api(`/api/bills/${billId}/pay`, { method: "DELETE" });
   render();
 }

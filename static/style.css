@@ -675,6 +675,10 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .dlg-actions { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
 .dlg-actions .spacer { flex: 1; }
 .pay-summary { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
+.pay-link { margin: 10px 0 4px; }
+.pay-link .pay-link-why, .pay-link .pay-link-none { margin: 2px 0 6px; }
+.pay-link-list { max-height: 220px; overflow-y: auto; }
+.pay-or { margin-top: 12px; }
 
 /* Settle-up breakdown: why the amount is what it is */
 #settle-breakdown { margin: 10px 0 4px; }

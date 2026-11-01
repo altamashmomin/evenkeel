@@ -433,6 +433,67 @@ def bill_variance(db, period=None):
     return out
 
 
+LINK_WINDOW_DAYS = 10
+
+
+def _period_bounds(period):
+    """First and last calendar date of a YYYY-MM period. Pure date math."""
+    first = _clamped_due_date(period, 1)
+    return first, _clamped_due_date(period, 31)
+
+
+def bill_link_options(db, bill_id=None, period=None, limit=20):
+    """The charges a person could link to a bill for a period (the Mark paid
+    dialog's "Paid from the bank? Pick the charge" list): outflows dated from
+    LINK_WINDOW_DAYS before the period's first day to LINK_WINDOW_DAYS after
+    its last (rent for November is often paid in late October), that are not
+    a settlement, not marked as a transfer, not a bill transaction Ledger
+    logged itself, and not already linked to any bill.
+
+    Ranked closest amount first (to the bill's usual amount), then closest to
+    the bill's due date, then newest. Each row carries its distance on both
+    axes so a caller can say "exact amount" without redoing the math.
+
+    Reads OUTFLOWS only (direction = 'out'), so it is not tripwire-exempt.
+    Both arguments default to None (which returns []) purely so the tripwire
+    can call it with just `db`; real callers always pass them. Integer cents
+    throughout; stores nothing."""
+    if bill_id is None or period is None:
+        return []
+    bill = db.execute(
+        "SELECT id, amount_cents, due_day FROM bills WHERE id = ? AND active = 1",
+        (bill_id,)).fetchone()
+    if bill is None:
+        return []
+    first, last = _period_bounds(period)
+    start = first - timedelta(days=LINK_WINDOW_DAYS)
+    end = last + timedelta(days=LINK_WINDOW_DAYS)
+    due = _clamped_due_date(period, bill["due_day"])
+    rows = db.execute(
+        """SELECT t.id, t.txn_date, t.amount_cents, t.description, t.category,
+                  t.source
+           FROM transactions t
+           WHERE t.direction = 'out' AND t.is_transfer = 0
+             AND t.source NOT IN ('settlement', 'bill')
+             AND t.txn_date BETWEEN ? AND ?
+             AND NOT EXISTS (SELECT 1 FROM bill_payments bp
+                             WHERE bp.txn_id = t.id)""",
+        (start.isoformat(), end.isoformat())).fetchall()
+    out = []
+    for r in rows:
+        days = (date.fromisoformat(r["txn_date"]) - due).days
+        out.append({
+            "txn_id": r["id"], "txn_date": r["txn_date"],
+            "amount_cents": r["amount_cents"], "description": r["description"],
+            "category": r["category"], "source": r["source"],
+            "amount_diff_cents": r["amount_cents"] - bill["amount_cents"],
+            "days_from_due": days,
+        })
+    out.sort(key=lambda o: (abs(o["amount_diff_cents"]), abs(o["days_from_due"]),
+                            -o["txn_id"]))
+    return out[:limit]
+
+
 def cash_flow_forecast(db, period=None):
     """Projected month-end NET CASH FLOW for `period` — a conservative floor
     (analytics Tier B #14): where this month lands if the only thing left to

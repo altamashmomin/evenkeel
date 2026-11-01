@@ -1688,4 +1688,30 @@ check("askThreadHTML empty state offers the help link", () => {
   assert.ok(!busy.includes("data-help"), "not on a live thread");
 });
 
+// ---- payLinkOptionsHTML: the Mark paid dialog's "pick the charge" list ----
+check("payLinkOptionsHTML renders nothing while loading, an honest empty state", () => {
+  assert.strictEqual(R.payLinkOptionsHTML(null), "");
+  assert.ok(R.payLinkOptionsHTML([]).includes("No unlinked bank charges"));
+});
+check("payLinkOptionsHTML lists charges with a Link button and flags an exact amount", () => {
+  const h = R.payLinkOptionsHTML([
+    { txn_id: 41, date: "2026-10-30", description: "AVALON PISCATAWAY", category: "Rent",
+      amount: { cents: 240000, display: "$2,400.00" }, amount_diff: { cents: 0, display: "$0.00" } },
+    { txn_id: 42, date: "2026-11-02", description: "Coffee", category: "Dining",
+      amount: { cents: 510, display: "$5.10" }, amount_diff: { cents: -239490, display: "-$2,394.90" } },
+  ]);
+  assert.ok(h.includes('data-link-txn="41"') && h.includes('data-link-txn="42"'));
+  assert.ok(h.includes("$2,400.00"));
+  assert.strictEqual((h.match(/exact amount/g) || []).length, 1, "only the exact match is flagged");
+  assert.ok(h.includes("without logging it twice"));
+});
+check("payLinkOptionsHTML escapes bank text and coerces the id", () => {
+  const h = R.payLinkOptionsHTML([{ txn_id: '7" onclick="x', date: "2026-10-30",
+    description: "<img src=x onerror=alert(1)>", category: "<b>",
+    amount: { cents: 1, display: "$0.01" }, amount_diff: { cents: 1, display: "$0.01" } }]);
+  assert.ok(!h.includes("<img"), "description escaped");
+  assert.ok(!h.includes("<b>"), "category escaped");
+  assert.ok(h.includes('data-link-txn="NaN"'), "a non-numeric id can't inject an attribute");
+});
+
 console.log(`render tests passed (${passed} checks)`);

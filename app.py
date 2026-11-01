@@ -25,7 +25,8 @@ import ask_loop
 import ontology
 from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
-from derivations import (activity_digest, anomaly_flags, bill_variance, budget_status,
+from derivations import (activity_digest, anomaly_flags, bill_link_options, bill_variance,
+                         budget_status,
                          calendar_events, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
                          settle_breakdown,
@@ -2017,11 +2018,59 @@ def unpay_bill(bill_id):
     db = get_db()
     period = request.args.get("period") or current_period()
     try:
-        actions.unmark_bill_paid(db, actor=ui_actor(db), bill_id=bill_id,
-                                 period=period)
+        result = actions.unmark_bill_paid(db, actor=ui_actor(db), bill_id=bill_id,
+                                          period=period)
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
-    return jsonify({"ok": True})
+    body = {"ok": True}
+    # Only present when the payment was a linked charge that stays in
+    # Activity, so the v1 shape {"ok": true} is unchanged for a logged one.
+    if result and result.get("kept_transaction") is not None:
+        body["kept_transaction"] = result["kept_transaction"]
+    return jsonify(body)
+
+
+@app.post("/api/bills/<int:bill_id>/link")
+@login_required
+def link_bill(bill_id):
+    """Thin caller: the link_bill_payment verb owns validation and the edit
+    (one bill_payments row + audit; no transaction is created)."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        bill, period = actions.link_bill_payment(
+            db, actor=ui_actor(db), bill_id=bill_id, data=data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(bill_to_json(db, bill, period)), 201
+
+
+@app.get("/api/bills/<int:bill_id>/link-options")
+@login_required
+def bill_link_options_view(bill_id):
+    """The charges that could be linked to this bill for a period, closest
+    amount and date first, from the bill_link_options derivation. Pure read."""
+    db = get_db()
+    period = request.args.get("period") or current_period()
+    if len(period) != 7 or period[4] != "-":
+        return bad_request("period must be YYYY-MM")
+    try:
+        options = bill_link_options(db, bill_id, period)
+    except ValueError:
+        return bad_request("period must be YYYY-MM")
+    return jsonify({
+        "bill_id": bill_id,
+        "period": period,
+        "options": [{
+            "txn_id": o["txn_id"], "date": o["txn_date"],
+            "description": o["description"], "category": o["category"],
+            "source": o["source"], "amount": money(o["amount_cents"]),
+            "amount_diff": money(o["amount_diff_cents"]),
+            "days_from_due": o["days_from_due"],
+        } for o in options],
+    })
 
 
 def bill_pay_details_to_json(r):
