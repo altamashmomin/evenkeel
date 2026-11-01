@@ -25,7 +25,8 @@ import ask_loop
 import ontology
 from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
-from derivations import (activity_digest, anomaly_flags, bill_link_options, bill_variance,
+from derivations import (activity_digest, anomaly_flags, bill_link_options,
+                         bill_payment_candidates, bill_variance,
                          budget_status,
                          calendar_events, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
@@ -2045,6 +2046,30 @@ def link_bill(bill_id):
     except ValueError as e:
         return bad_request(str(e))
     return jsonify(bill_to_json(db, bill, period)), 201
+
+
+@app.get("/api/bills/candidates")
+@login_required
+def bill_candidates_view():
+    """Per unpaid bill, the synced charge that looks like it paid it (the
+    Calendar's "Looks paid … Link it?" chip), from bill_payment_candidates.
+    Pure read: linking still goes through POST /api/bills/<id>/link."""
+    db = get_db()
+    period = request.args.get("period") or current_period()
+    if len(period) != 7 or period[4] != "-":
+        return bad_request("period must be YYYY-MM")
+    try:
+        found = bill_payment_candidates(db, period)
+    except ValueError:
+        return bad_request("period must be YYYY-MM")
+    return jsonify({
+        "period": period,
+        "candidates": [{
+            "bill_id": c["bill_id"], "txn_id": c["txn_id"], "date": c["txn_date"],
+            "description": c["description"], "amount": money(c["amount_cents"]),
+            "reason": c["reason"],
+        } for c in found],
+    })
 
 
 @app.get("/api/bills/<int:bill_id>/link-options")

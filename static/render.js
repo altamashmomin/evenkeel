@@ -1741,11 +1741,21 @@
       <ul class="list pay-link-list">${rows}</ul>`;
   }
 
+  function looksPaidChipHTML(b, c) {
+    if (!c) return "";
+    return `<button class="btn small ghost cal-looks-paid" type="button" ` +
+      `data-looks-paid="${Number(b.id)}">Looks paid: ${esc(shortDate(c.date))}, ` +
+      `${esc(c.amount.display)}. Link it?</button>`;
+  }
+
   // `actuals` (optional): bill id -> the /api/analytics/bill-variance row, so a
   // paid bill shows what was actually paid (a utility that varies) and, when it
   // differs, the usual amount beside it. Absent -> the bill's usual amount, as
   // before. Display strings come from the server; no money math here.
-  function calendarAgendaHTML(bills, todayISO, monthISO, details, actuals) {
+  // `candidates` (optional): bill id -> the /api/bills/candidates row, the
+  // synced charge that looks like it paid an unpaid bill. Renders a one-tap
+  // "Looks paid … Link it?" chip; app.js confirms, then links. Never auto-links.
+  function calendarAgendaHTML(bills, todayISO, monthISO, details, actuals, candidates) {
     if (!bills || !bills.length)
       return `<div class="card cal-agenda"><p class="empty">No bills this month.</p></div>`;
     const [y, mo] = monthISO.split("-").map(Number);
@@ -1773,6 +1783,7 @@
             <div class="sub">${esc(b.category || "")}</div>
             ${differs ? `<div class="sub cal-usual">usual ${esc(usual.display)}</div>` : ""}
             ${pay ? `<div class="sub cal-paywhere">${pay}</div>` : ""}
+            ${looksPaidChipHTML(b, !paid && candidates && candidates[b.id])}
           </div>
           <span class="amt amount">${act ? esc(act.display) : fmt(b.amount)}</span>
           <span class="badge ${state}">${state}</span>

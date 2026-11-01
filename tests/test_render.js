@@ -1740,4 +1740,25 @@ check("calendarAgendaHTML escapes the server's display strings", () => {
   assert.ok(!h.includes("<i>"));
 });
 
+// ---- calendarAgendaHTML candidates: the "Looks paid … Link it?" chip ----
+check("calendarAgendaHTML shows a looks-paid chip only on an unpaid bill with a candidate", () => {
+  const bills = [
+    { id: 1, name: "Rent", amount: 2400, due_day: 1, category: "Rent", paid_this_period: false },
+    { id: 2, name: "Electric", amount: 140, due_day: 15, category: "Utilities", paid_this_period: true },
+    { id: 3, name: "Internet", amount: 60, due_day: 20, category: "Utilities", paid_this_period: false },
+  ];
+  const cands = {
+    1: { bill_id: 1, txn_id: 9, date: "2026-10-30", description: "AVALON",
+         amount: { cents: 240000, display: "$2,400.00" }, reason: "exact amount" },
+    2: { bill_id: 2, txn_id: 10, date: "2026-11-15", description: "X",
+         amount: { cents: 1, display: "$0.01" }, reason: "exact amount" },
+  };
+  const h = R.calendarAgendaHTML(bills, "2026-11-02", "2026-11", null, null, cands);
+  assert.ok(h.includes('data-looks-paid="1"'), "unpaid bill with a candidate gets the chip");
+  assert.ok(!h.includes('data-looks-paid="2"'), "a paid bill never does");
+  assert.ok(!h.includes('data-looks-paid="3"'), "no candidate, no chip");
+  assert.ok(h.includes("Looks paid:") && h.includes("$2,400.00") && h.includes("Link it?"));
+  assert.ok(!R.calendarAgendaHTML(bills, "2026-11-02", "2026-11").includes("data-looks-paid"));
+});
+
 console.log(`render tests passed (${passed} checks)`);

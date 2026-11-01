@@ -491,7 +491,90 @@ def bill_link_options(db, bill_id=None, period=None, limit=20):
         })
     out.sort(key=lambda o: (abs(o["amount_diff_cents"]), abs(o["days_from_due"]),
                             -o["txn_id"]))
-    return out[:limit]
+    return out if limit is None else out[:limit]
+
+
+LOOKS_PAID_DAYS = 10
+LOOKS_PAID_TOLERANCE_BP = 5000   # ±50% of the usual amount, on a merchant/name match
+
+
+def _name_overlap(bill_name, merchant_key):
+    """True when the bill's normalized name and a charge's merchant key share
+    a meaningful word (≥ 4 letters) — 'Electric & gas (Public Grid)' vs
+    'PUBLIC GRID ENERGY'. Conservative: short words never match."""
+    bill_words = {w for w in _normalize_merchant(bill_name).split() if len(w) >= 4}
+    return bool(bill_words & {w for w in merchant_key.split() if len(w) >= 4})
+
+
+def bill_payment_candidates(db, period=None):
+    """For each active bill NOT yet paid for `period`, the one synced charge
+    that most likely paid it — the Calendar's "Looks paid: Oct 30, $2,400.
+    Link it?" chip. A SUGGESTION only: nothing here writes, and the chip's
+    tap goes through link_bill_payment's own checks and a confirm.
+
+    The pool is bill_link_options (unlinked outflows, never a settlement,
+    transfer or Ledger-logged bill transaction) narrowed to within
+    LOOKS_PAID_DAYS of the bill's due date. A charge qualifies when:
+      - its amount equals the bill's usual amount to the cent ("exact
+        amount"), or
+      - its merchant matches the charge linked to this bill last time
+        ("same as last time") or shares a word with the bill's name ("name
+        match"), AND its amount is within ±50% of the usual (utilities vary).
+    Ranked: same-as-last-time, then name match, then exact amount; ties by
+    amount closeness, then distance from the due date. Each charge is offered
+    to at most one bill (best pairs first), so two bills never claim the same
+    debit.
+
+    Reads OUTFLOWS only. `period` defaults to None (returns []) purely so the
+    tripwire can call it bare; real callers pass a month. Stores nothing."""
+    if period is None:
+        return []
+    bills = db.execute(
+        """SELECT b.id, b.name, b.amount_cents, b.due_day FROM bills b
+           WHERE b.active = 1 AND NOT EXISTS (
+               SELECT 1 FROM bill_payments bp
+               WHERE bp.bill_id = b.id AND bp.period = ?)
+           ORDER BY b.due_day, b.name""", (period,)).fetchall()
+    pairs = []
+    for bill in bills:
+        last = db.execute(
+            """SELECT t.description FROM bill_payments bp
+               JOIN transactions t ON t.id = bp.txn_id
+               WHERE bp.bill_id = ? AND bp.period < ? AND t.source != 'bill'
+                 AND t.direction = 'out'
+               ORDER BY bp.period DESC LIMIT 1""", (bill["id"], period)).fetchone()
+        last_key = _normalize_merchant(last["description"]) if last else ""
+        usual = bill["amount_cents"]
+        for o in bill_link_options(db, bill["id"], period, limit=None):
+            if abs(o["days_from_due"]) > LOOKS_PAID_DAYS:
+                continue
+            key = _normalize_merchant(o["description"])
+            same = bool(last_key) and key == last_key
+            named = bool(key) and _name_overlap(bill["name"], key)
+            exact = o["amount_diff_cents"] == 0
+            near = abs(o["amount_diff_cents"]) * 10000 <= usual * LOOKS_PAID_TOLERANCE_BP
+            if not (exact or ((same or named) and near)):
+                continue
+            reason = ("same as last time" if same else
+                      "name match" if named else "exact amount")
+            rank = 0 if same else 1 if named else 2
+            pairs.append(((rank, abs(o["amount_diff_cents"]), abs(o["days_from_due"]),
+                           -o["txn_id"], bill["id"]), bill, o, reason))
+    pairs.sort(key=lambda p: p[0])
+    taken_bills, taken_txns, out = set(), set(), []
+    for _, bill, o, reason in pairs:
+        if bill["id"] in taken_bills or o["txn_id"] in taken_txns:
+            continue
+        taken_bills.add(bill["id"])
+        taken_txns.add(o["txn_id"])
+        out.append({
+            "bill_id": bill["id"], "name": bill["name"],
+            "txn_id": o["txn_id"], "txn_date": o["txn_date"],
+            "amount_cents": o["amount_cents"], "description": o["description"],
+            "amount_diff_cents": o["amount_diff_cents"], "reason": reason,
+        })
+    out.sort(key=lambda c: (c["bill_id"]))
+    return out
 
 
 def cash_flow_forecast(db, period=None):

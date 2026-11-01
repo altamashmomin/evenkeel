@@ -595,14 +595,19 @@ async function renderCalendar() {
   // joined by bill id here — never merged into the money-touching rows.
   // What each paid bill actually cost comes from the bill-variance read (the
   // same derivation as the Analytics card), so /api/bills stays byte-frozen.
-  const [bills, payRows, variance] = await Promise.all([
+  const [bills, payRows, variance, cands] = await Promise.all([
     api("/api/bills"), api("/api/bills/pay-details"),
-    api("/api/analytics/bill-variance").catch(() => null)]);
+    api("/api/analytics/bill-variance").catch(() => null),
+    api("/api/bills/candidates").catch(() => null)]);
   window._bills = bills;
   const details = Object.fromEntries(payRows.map((d) => [d.id, d]));
   window._billDetails = details;
   const actuals = variance
     ? Object.fromEntries(variance.bills.map((v) => [v.bill_id, v])) : null;
+  // Suggestions only: a chip per unpaid bill whose charge looks like it landed.
+  const candidates = cands
+    ? Object.fromEntries(cands.candidates.map((c) => [c.bill_id, c])) : null;
+  window._billCandidates = candidates || {};
   const manageRows = bills.length
     ? `<ul class="list">${bills.map(billRowHTML).join("")}</ul>`
     : `<p class="empty">No recurring bills yet.</p>`;
@@ -611,7 +616,7 @@ async function renderCalendar() {
       <p class="eyebrow" style="margin:0">Calendar — ${monthName(thisMonthISO())}</p>
       <button class="btn small" id="btn-add-bill">Add bill</button>
     </div>
-    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details, actuals)}
+    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details, actuals, candidates)}
     <p class="eyebrow cal-manage-head">Your bills</p>
     <div class="card">${manageRows}</div>`;
 }
@@ -938,6 +943,13 @@ function wireMain() {
       // income and could write stray split rows.
       if (t.direction === "in") openClassifyDialog(t);
       else openTxnDialog(t);
+    }));
+  $$("[data-looks-paid]").forEach((el) =>
+    el.addEventListener("click", () => {
+      const id = +el.dataset.looksPaid;
+      const bill = window._bills.find((b) => b.id === id);
+      const c = (window._billCandidates || {})[id];
+      if (bill && c) linkBillCharge(bill, c.txn_id);
     }));
   $$("[data-bill-pay]").forEach((el) =>
     el.addEventListener("click", () => openPayDialog(+el.dataset.billPay)));
@@ -1433,10 +1445,11 @@ async function linkBillCharge(bill, txnId) {
   try {
     await api(`/api/bills/${bill.id}/link`, {
       method: "POST", body: { period: bill.period, txn_id: txnId } });
-    dlgPay.close();
+    if (dlgPay.open) dlgPay.close();
     render();
   } catch (e) {
-    $("#pay-error").textContent = e.message;
+    if (dlgPay.open) $("#pay-error").textContent = e.message;
+    else alert(e.message);
   }
 }
 
