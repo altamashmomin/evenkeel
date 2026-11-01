@@ -4419,3 +4419,21 @@ Undo confirm now says a linked charge stays. Suite **760** (+17 in
 seed-42 dev.db with income; nothing on existing data calls the verb). Not
 browser-smoked (cloud session, no browser on the app). Awaits Alta's review,
 merge and Pi deploy.
+
+**Nov 1, 2026 — rent & bills Phase 2: the actual amount and the split in Mark
+paid (on `claude/bill-pay-amount-split`, stacked on Phase 1, NOT deployed).**
+Electric & gas varies every month, and the Mark paid dialog hard-coded both the
+bill's defined amount and a 50/50 split. `mark_bill_paid` now takes an optional
+`amount` (what was actually paid): absent or blank keeps the frozen behaviour,
+text / bool / Infinity / NaN / ≤ 0 / over the money cap are refused with nothing
+written. The logged transaction, its audit `amount_cents` and `bill_variance`'s
+actual all carry the sent figure; the bill definition is untouched, so next
+month's usual is unchanged. The dialog gains "Amount paid" (prefilled with the
+usual) and a "Payer's share (%)" field (default 50, hidden when not shared) in
+place of the "Shared 50/50" checkbox; the bill dialog's "Amount" reads "Usual
+amount". The Calendar agenda shows a paid bill's actual amount, with "usual $X"
+beside it only when they differ, from the existing
+`/api/analytics/bill-variance` read (no new endpoint; `/api/bills` stays
+byte-frozen). No schema change. Suite **765** (+5 in `test_bill_pay_amount.py`),
+render **185** (+2). GATE PASS **zero-diff** (synthetic seed-42 dev.db with
+income). Not browser-smoked. Awaits Alta's review, merge and deploy (after #57).
