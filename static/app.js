@@ -593,11 +593,16 @@ async function renderActivity() {
 async function renderCalendar() {
   // Pay details (migration #017) ride beside the byte-frozen /api/bills rows,
   // joined by bill id here — never merged into the money-touching rows.
-  const [bills, payRows] = await Promise.all([
-    api("/api/bills"), api("/api/bills/pay-details")]);
+  // What each paid bill actually cost comes from the bill-variance read (the
+  // same derivation as the Analytics card), so /api/bills stays byte-frozen.
+  const [bills, payRows, variance] = await Promise.all([
+    api("/api/bills"), api("/api/bills/pay-details"),
+    api("/api/analytics/bill-variance").catch(() => null)]);
   window._bills = bills;
   const details = Object.fromEntries(payRows.map((d) => [d.id, d]));
   window._billDetails = details;
+  const actuals = variance
+    ? Object.fromEntries(variance.bills.map((v) => [v.bill_id, v])) : null;
   const manageRows = bills.length
     ? `<ul class="list">${bills.map(billRowHTML).join("")}</ul>`
     : `<p class="empty">No recurring bills yet.</p>`;
@@ -606,7 +611,7 @@ async function renderCalendar() {
       <p class="eyebrow" style="margin:0">Calendar — ${monthName(thisMonthISO())}</p>
       <button class="btn small" id="btn-add-bill">Add bill</button>
     </div>
-    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details)}
+    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details, actuals)}
     <p class="eyebrow cal-manage-head">Your bills</p>
     <div class="card">${manageRows}</div>`;
 }
@@ -1395,8 +1400,11 @@ function openPayDialog(billId) {
   state.payingBill = bill;
   $("#pay-error").textContent = "";
   $("#pay-summary").textContent =
-    `${bill.name} — ${fmt(bill.amount)} for ${monthName(bill.period)}. This also logs a transaction.`;
+    `${bill.name} for ${monthName(bill.period)} — usually ${fmt(bill.amount)}.`;
+  formPay.amount.value = bill.amount;
   formPay.is_shared.checked = true;
+  formPay.payer_share_pct.value = 50;
+  syncPayShare();
   buildSeg($("#pay-paidby"), state.meId);
   const linkBox = $("#pay-link");
   linkBox.innerHTML = "";
@@ -1412,6 +1420,12 @@ function openPayDialog(billId) {
     })
     .catch(() => { linkBox.innerHTML = ""; });
 }
+
+// The payer's share only means something on a shared payment.
+function syncPayShare() {
+  $("#pay-share-row").classList.toggle("hidden", !formPay.is_shared.checked);
+}
+formPay.is_shared.addEventListener("change", syncPayShare);
 
 async function linkBillCharge(bill, txnId) {
   if (!confirm(`Link this charge as ${bill.name} for ${monthName(bill.period)}? ` +
@@ -1435,7 +1449,8 @@ formPay.addEventListener("submit", async (ev) => {
       body: {
         paid_by: +$("#pay-paidby").dataset.value,
         is_shared: formPay.is_shared.checked,
-        payer_share_pct: 50,
+        payer_share_pct: formPay.is_shared.checked ? formPay.payer_share_pct.value : 50,
+        amount: formPay.amount.value,
       },
     });
     dlgPay.close();

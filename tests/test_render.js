@@ -1714,4 +1714,30 @@ check("payLinkOptionsHTML escapes bank text and coerces the id", () => {
   assert.ok(h.includes('data-link-txn="NaN"'), "a non-numeric id can't inject an attribute");
 });
 
+// ---- calendarAgendaHTML actuals: a paid bill shows what was actually paid ----
+check("calendarAgendaHTML shows the actual paid amount and the usual when they differ", () => {
+  const bills = [
+    { id: 1, name: "Electric & gas", amount: 140, due_day: 15, category: "Utilities", paid_this_period: true },
+    { id: 2, name: "Rent", amount: 2400, due_day: 1, category: "Rent", paid_this_period: true },
+    { id: 3, name: "Internet", amount: 60, due_day: 20, category: "Utilities", paid_this_period: false },
+  ];
+  const actuals = {
+    1: { actual: { cents: 15137, display: "$151.37" }, defined: { cents: 14000, display: "$140.00" } },
+    2: { actual: { cents: 240000, display: "$2,400.00" }, defined: { cents: 240000, display: "$2,400.00" } },
+    3: { actual: null, defined: { cents: 6000, display: "$60.00" } },
+  };
+  const h = R.calendarAgendaHTML(bills, "2026-11-10", "2026-11", null, actuals);
+  assert.ok(h.includes("$151.37"), "actual shown for the varying bill");
+  assert.strictEqual((h.match(/cal-usual/g) || []).length, 1, "usual shown only where it differs");
+  assert.ok(h.includes("usual $140.00"));
+  const noActuals = R.calendarAgendaHTML(bills, "2026-11-10", "2026-11", null);
+  assert.ok(!noActuals.includes("cal-usual"), "without actuals the old row is unchanged");
+});
+check("calendarAgendaHTML escapes the server's display strings", () => {
+  const bills = [{ id: 1, name: "X", amount: 1, due_day: 1, category: "", paid_this_period: true }];
+  const h = R.calendarAgendaHTML(bills, "2026-11-10", "2026-11", null,
+    { 1: { actual: { cents: 2, display: "<i>2</i>" }, defined: { cents: 1, display: "<i>1</i>" } } });
+  assert.ok(!h.includes("<i>"));
+});
+
 console.log(`render tests passed (${passed} checks)`);
