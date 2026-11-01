@@ -527,6 +527,8 @@ suite 760, render 183, GATE PASS zero-diff. On `claude/bill-link-charge`;
 actual amount and the split; the Calendar shows actual vs usual. Suite 765, render 185, GATE PASS zero-diff.
 Phase 3 (`claude/bill-looks-paid`): `bill_payment_candidates` + the Calendar's "Looks paid … Link
 it?" chip, and "Track as bill" on the Subscriptions card. Suite 776, render 191, GATE PASS zero-diff.
+Phase 4 (`claude/bill-feed-alarms`): the .ics feed reminds 2 days before each unpaid, non-autopay
+bill. Suite 780, render 191, GATE PASS zero-diff. Merge order: #57 → #58 → #59 → #60.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

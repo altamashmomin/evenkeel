@@ -4463,3 +4463,17 @@ that opens the Add-bill dialog in add mode, pre-filled; the write is `create_bil
 on Save. `_cadence_label(30) == "monthly"` pinned as the literal the button keys
 on. Suite **776** (+10 candidates, +1 cadence pin), render **191** (+6). GATE PASS
 **zero-diff**. Not browser-smoked. Awaits Alta's review, merge and deploy.
+
+**Nov 1, 2026 — rent & bills Phase 4: bill reminders in the calendar feed (on
+`claude/bill-feed-alarms`, stacked on Phase 3, NOT deployed).** The subscribed
+`.ics` feed already put each bill on its due date; now an occurrence that still
+needs someone to act carries a `VALARM` (ACTION:DISPLAY, "<bill> due in 2
+days", `TRIGGER:-P1DT15H` = 9:00 AM two days before, floating in the phone's
+own zone — one constant, `BILL_REMINDER_TRIGGER`). Paid occurrences (logged or
+linked — both are a `bill_payments` row) and autopay bills get none; goals and
+shopping items get none. `calendar_events` adds `autopay` to bill rows (the #017
+column; still no transactions read). The Help sheet's calendar paragraph says
+so, plus the iPhone "Remove Alerts" caveat for subscribed calendars. Read-only
+feed, no migration. The plan's optional Ask/MCP "mark rent paid / link it" tool
+is NOT built (it needs its own two-phase design pass). Suite **780** (+4),
+render **191**. GATE PASS **zero-diff**. Awaits Alta's review, merge and deploy.
