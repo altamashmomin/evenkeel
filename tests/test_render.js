@@ -1761,4 +1761,37 @@ check("calendarAgendaHTML shows a looks-paid chip only on an unpaid bill with a 
   assert.ok(!R.calendarAgendaHTML(bills, "2026-11-02", "2026-11").includes("data-looks-paid"));
 });
 
+// ---- Track as bill on the Subscriptions card ----
+const recData = (rows) => ({ recurring: rows });
+const rec = (merchant, cents, cadence) => ({ merchant, cadence, predicted_next: "2026-11-07",
+  amount: { cents, display: `$${(cents / 100).toFixed(2)}` } });
+check("Track as bill: a monthly detection with no covering bill gets the button", () => {
+  const h = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]), []);
+  assert.ok(h.includes('data-bill-from-recurring="0"'));
+});
+check("Track as bill: weekly and 'every ~9 days' rows stay informational", () => {
+  const h = R.recurringChargesHTML(recData([rec("A", 100, "weekly"), rec("B", 200, "every ~9 days")]), []);
+  assert.ok(!h.includes("data-bill-from-recurring"));
+});
+check("Track as bill: suppressed by a name match or an exact-cents match", () => {
+  const byName = R.recurringChargesHTML(recData([rec("SPOTIFY", 1199, "monthly")]),
+    [{ name: "Spotify family", defined: { cents: 1799 } }]);
+  assert.ok(!byName.includes("data-bill-from-recurring"));
+  const byCents = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]),
+    [{ name: "Streaming", defined: { cents: 1599 } }]);
+  assert.ok(!byCents.includes("data-bill-from-recurring"));
+});
+check("billCoversCharge unit rows", () => {
+  const r = rec("Netflix", 1599, "monthly");
+  assert.strictEqual(R.billCoversCharge({ name: "netflix premium", defined: { cents: 1 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "flix", defined: { cents: 1 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "TV", defined: { cents: 1599 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "Hulu", defined: { cents: 1598 } }, r), false);
+});
+check("Track as bill: no bills arg renders exactly as before (no buttons)", () => {
+  const h = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]));
+  assert.ok(!h.includes("data-bill-from-recurring"));
+  assert.ok(h.includes("NETFLIX") && h.includes("monthly"));
+});
+
 console.log(`render tests passed (${passed} checks)`);

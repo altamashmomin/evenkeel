@@ -73,6 +73,11 @@ class RecurringDerivationTests(unittest.TestCase):
         self.assertEqual("2026-03-06", got["last_charge"])
         self.assertEqual("2026-04-05", got["predicted_next"])   # last + 30 days
 
+    def test_monthly_label_is_the_literal_the_frontend_keys_on(self):
+        # static/render.js recurringChargesHTML shows "Track as bill" only when
+        # cadence === "monthly"; renaming this label would silently kill it.
+        self.assertEqual("monthly", derivations._cadence_label(30))
+
     def test_labels_weekly_and_yearly_cadences(self):
         for d in ("2026-01-01", "2026-01-08", "2026-01-15", "2026-01-22"):  # 7d
             self._charge("ZORPFIT GYM", d, 2000)

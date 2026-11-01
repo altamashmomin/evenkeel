@@ -518,16 +518,41 @@
 
   // Recurring / subscriptions (#13): detected repeat charges (same merchant +
   // amount on a regular cadence). Sparse until a few months of history.
-  function recurringChargesHTML(data) {
+  // With `bills` (the bill-variance rows: every ACTIVE bill with its usual
+  // amount as integer `defined.cents`), each MONTHLY detection not already
+  // covered by a bill gets a "Track as bill" action, index-addressed
+  // (data-bill-from-recurring = the row's index in data.recurring; app.js
+  // stashes the same array as window._recurring). Suppression is deliberately
+  // conservative: name-contains either way (case-insensitive) or exact cents.
+  function billCoversCharge(bill, r) {
+    const bn = (bill.name || "").toLowerCase();
+    const mn = (r.merchant || "").toLowerCase();
+    const nameHit = !!(bn && mn && (bn.includes(mn) || mn.includes(bn)));
+    const centsHit = !!(r.amount && r.amount.cents != null && bill.defined &&
+      bill.defined.cents === r.amount.cents);
+    return nameHit || centsHit;
+  }
+
+  function recurringChargesHTML(data, bills) {
     const rec = data.recurring || [];
     if (!rec.length) {
       return `<div class="card"><p class="eyebrow">Recurring & subscriptions</p>
         <p class="empty">None detected yet — needs a few months of history.</p></div>`;
     }
-    const rows = rec.map((r) => `
+    const rows = rec.map((r, i) => {
+      // `monthly` is derivations._cadence_label's literal (pinned in
+      // test_recurring_charges): bills.due_day is monthly-shaped, so only a
+      // monthly rhythm can become a bill.
+      const track = bills && r.cadence === "monthly" &&
+                    !bills.some((b) => billCoversCharge(b, r))
+        ? `<button class="btn ghost small" data-bill-from-recurring="${i}">Track as bill</button>`
+        : "";
+      return `
       <li><div class="grow"><div class="title">${esc(r.merchant)}</div>
         <div class="sub">${esc(r.cadence)} · next ~${esc(shortDate(r.predicted_next))}</div></div>
-        <span class="amt amount">${amt(r.amount)}</span></li>`).join("");
+        ${track}
+        <span class="amt amount">${amt(r.amount)}</span></li>`;
+    }).join("");
     return `<div class="card"><p class="eyebrow">Recurring & subscriptions</p>
       <ul class="list">${rows}</ul></div>`;
   }
@@ -1922,7 +1947,7 @@
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            budgetStatusHTML,
            savingsRateTrendHTML, categoryTrendHTML,
-           cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
+           cashFlowForecastHTML, anomaliesHTML, billCoversCharge, recurringChargesHTML, goalPaceHTML,
            goalWhatIf, addMonths, goalWhatIfText, goalPaceLineHTML,
            askThreadHTML, askFollowups, agentsHTML, opsPanelHTML };
 });

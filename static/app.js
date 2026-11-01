@@ -678,6 +678,8 @@ async function renderAnalytics() {
   // the id-carrying list (category→id for remove). Same pattern as window._inv.
   window._budgetStatus = budgetStatus.budgets || [];
   window._budgets = budgetList || [];
+  // The Subscriptions card's "Track as bill" rows, index-addressed.
+  window._recurring = recurring.recurring || [];
   // Drill into the biggest category this month — a trend without a picker.
   let catCard = "";
   const top = (comp.by_category || [])[0];
@@ -700,7 +702,7 @@ async function renderAnalytics() {
     ${budgetStatusHTML(budgetStatus, categories)}
     ${anomaliesHTML(anomalies)}
     ${catCard}
-    ${recurringChargesHTML(recurring)}
+    ${recurringChargesHTML(recurring, bills.bills || [])}
     ${memberBreakdownHTML(members)}
     ${billVarianceHTML(bills)}
     ${goalPaceHTML(goals)}`;
@@ -925,6 +927,10 @@ function wireMain() {
     el.addEventListener("click", () => askFrom(el.dataset.ask)));
   $$("[data-help]").forEach((el) => el.addEventListener("click", openHelpSheet));
   // Budgets (Analytics Tier C): edit/remove by row index; add via the small form.
+  // Subscriptions card: "Track as bill" pre-fills the Add-bill dialog.
+  $$("[data-bill-from-recurring]").forEach((el) =>
+    el.addEventListener("click", () =>
+      billFromRecurring(+el.dataset.billFromRecurring)));
   $$("[data-budget-edit]").forEach((el) =>
     el.addEventListener("click", () => editBudget(+el.dataset.budgetEdit)));
   $$("[data-budget-remove]").forEach((el) =>
@@ -1340,6 +1346,21 @@ formRule.addEventListener("submit", async (ev) => {
     $("#rule-error").textContent = e.message;
   }
 });
+
+// Subscriptions → bill: pre-fill the Add-bill dialog from a monthly detection.
+// The person reviews/edits and taps Save; the write is the normal
+// POST /api/bills path (create_bill verb). Nothing happens without the Save.
+function billFromRecurring(idx) {
+  const r = (window._recurring || [])[idx];
+  if (!r) return;
+  openBillDialog(null);                          // add mode: submit will POST
+  formBill.name.value = r.merchant || "";
+  if (r.amount && r.amount.cents != null)
+    formBill.amount.value = (r.amount.cents / 100).toFixed(2);   // display layer only
+  if (r.predicted_next)                          // ISO date → day of month
+    formBill.due_day.value = +r.predicted_next.slice(8, 10) || "";
+  // category left blank: submit defaults it to "Bills", same as a manual add
+}
 
 /* ---------- bill dialogs ---------- */
 const dlgBill = $("#dlg-bill");
