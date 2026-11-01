@@ -525,6 +525,8 @@ by the synced bank charge that paid it instead of logging a second transaction
 suite 760, render 183, GATE PASS zero-diff. On `claude/bill-link-charge`;
 **awaits Alta's merge + Pi deploy.** Phase 2 (`claude/bill-pay-amount-split`): Mark paid takes the
 actual amount and the split; the Calendar shows actual vs usual. Suite 765, render 185, GATE PASS zero-diff.
+Phase 3 (`claude/bill-looks-paid`): `bill_payment_candidates` + the Calendar's "Looks paid … Link
+it?" chip, and "Track as bill" on the Subscriptions card. Suite 776, render 191, GATE PASS zero-diff.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

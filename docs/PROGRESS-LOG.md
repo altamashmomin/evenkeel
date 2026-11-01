@@ -4437,3 +4437,29 @@ beside it only when they differ, from the existing
 byte-frozen). No schema change. Suite **765** (+5 in `test_bill_pay_amount.py`),
 render **185** (+2). GATE PASS **zero-diff** (synthetic seed-42 dev.db with
 income). Not browser-smoked. Awaits Alta's review, merge and deploy (after #57).
+
+**Nov 1, 2026 — rent & bills Phase 3: "Looks paid … Link it?" + "Track as bill"
+(on `claude/bill-looks-paid`, stacked on Phase 2, NOT deployed).** Two commits,
+both reads plus UI, no verb, no schema change.
+(a) `bill_payment_candidates(db, period)`: for each active bill not yet paid for
+the period, the one charge from `bill_link_options` within 10 days of the due
+date that most likely paid it. It qualifies on the exact usual amount, or on a
+merchant match with last month's linked charge (or a ≥4-letter word shared with
+the bill's name — "Public Grid") within ±50% of the usual, since utilities vary.
+Ranked same-as-last-time → name match → exact amount, then amount and date
+closeness; each charge is offered to one bill at most and each bill gets one
+charge. `GET /api/bills/candidates`; the Calendar agenda renders a "Looks paid:
+Oct 30, $2,400.00. Link it?" chip on that unpaid bill, and the tap confirms then
+calls the Phase 1 link route (never auto-links). Bare-callable (None → []) for
+the tripwire; inflow/transfer/settlement/`source='bill'` exclusion and
+reads-only (`total_changes` unchanged) pinned by hand in
+`test_bill_candidates.py`.
+(b) **Track as bill** — the Oct 30 prompt, built as written with one adaptation:
+coverage is checked against the bill-variance rows renderAnalytics already
+fetches (every active bill with its usual amount as integer `defined.cents`), so
+there is no second fetch and no `Math.round` float bridge. Each MONTHLY detection
+not covered by a bill (name-contains either way, or exact cents) gets a button
+that opens the Add-bill dialog in add mode, pre-filled; the write is `create_bill`
+on Save. `_cadence_label(30) == "monthly"` pinned as the literal the button keys
+on. Suite **776** (+10 candidates, +1 cadence pin), render **191** (+6). GATE PASS
+**zero-diff**. Not browser-smoked. Awaits Alta's review, merge and deploy.
