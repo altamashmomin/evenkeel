@@ -8,6 +8,7 @@ text/calendar with no-store on a right one, and hand each member their own
 URL only over a browser session (bearer tokens must not mint feed URLs).
 Also covers the pure ICS renderer: RFC 5545 escaping, folding, CRLF."""
 import importlib.util
+import sqlite3
 import os
 import sys
 import tempfile
@@ -168,6 +169,47 @@ class CalendarRouteTests(unittest.TestCase):
         self.assertIn(r"Rent\; special\, edition", body)
         self.assertIn("$1\\,234.56 ✓ paid", body)
         self.assertIn("TRANSP:TRANSPARENT", body)
+
+
+    def test_unpaid_manual_bill_gets_a_reminder_two_days_before(self):
+        events = [{"kind": "bill", "uid": "ledger-bill-1-2026-11", "date": "2026-11-01",
+                   "name": "Rent, Avalon", "amount_cents": 240000, "paid": False,
+                   "autopay": False}]
+        body = self.app_module._render_ics(events, "2026-10-20")
+        self.assertIn("BEGIN:VALARM", body)
+        self.assertIn("ACTION:DISPLAY", body)
+        self.assertIn("TRIGGER:-P1DT15H", body)   # 9:00 AM two days before
+        self.assertIn(r"DESCRIPTION:Rent\, Avalon due in 2 days", body)
+        self.assertLess(body.index("END:VALARM"), body.index("END:VEVENT"))
+
+    def test_paid_autopay_and_non_bill_events_get_no_reminder(self):
+        events = [
+            {"kind": "bill", "uid": "a", "date": "2026-11-01", "name": "Rent",
+             "amount_cents": 1, "paid": True, "autopay": False},
+            {"kind": "bill", "uid": "b", "date": "2026-11-15", "name": "Electric",
+             "amount_cents": 1, "paid": False, "autopay": True},
+            {"kind": "goal", "uid": "c", "date": "2026-12-01", "name": "Trip",
+             "target_cents": 1},
+            {"kind": "item", "uid": "d", "date": "2026-11-03", "name": "Milk",
+             "status": "low", "store": None},
+        ]
+        self.assertNotIn("VALARM", self.app_module._render_ics(events, "2026-10-20"))
+
+    def test_the_feed_skips_the_reminder_for_an_autopay_bill(self):
+        import actions
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            for b in conn.execute("SELECT id FROM bills WHERE active = 1").fetchall():
+                actions.set_bill_pay_details(conn, "ui:avery", b["id"], {"autopay": True})
+            conn.commit()
+        finally:
+            conn.close()
+        c = self.app_module.app.test_client()
+        token = self.app_module._calendar_token(1)
+        body = c.get(f"/calendar/{token}.ics").get_data(as_text=True)
+        self.assertIn("BEGIN:VEVENT", body)
+        self.assertNotIn("VALARM", body)
 
 
 if __name__ == "__main__":

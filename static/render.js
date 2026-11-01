@@ -1521,7 +1521,7 @@
         </div>
 
         <h3 class="help-h">See it on your calendar.</h3>
-        <p>Bills, savings-goal dates, and shopping deadlines can show up right in your phone's calendar app — and they keep themselves up to date. Tap once, subscribe, done.</p>
+        <p>Bills, savings-goal dates, and shopping deadlines can show up right in your phone's calendar app — and they keep themselves up to date. Tap once, subscribe, done. A bill that isn't paid yet reminds you at 9 AM two days before it's due (autopay bills stay quiet). If they don't show on an iPhone, turn off &ldquo;Remove Alerts&rdquo; in that subscribed calendar's settings.</p>
         <div class="help-cal" id="help-cal"><button class="btn" id="help-cal-btn" type="button">📅 Get my calendar link</button></div>
 
         <h3 class="help-h">The tabs, at a glance.</h3>

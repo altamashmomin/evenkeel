@@ -1837,13 +1837,36 @@ def _ics_summary(e):
     return base + (" — on the way" if e.get("status") == "ordered" else " — need by")
 
 
+# A bill's reminder: 9:00 AM two days before the due date. For an all-day
+# event the trigger counts back from the due day's midnight, so -P1DT15H is
+# day-2 at 09:00 (floating, the phone's own time zone). Change it here.
+BILL_REMINDER_TRIGGER = "-P1DT15H"
+BILL_REMINDER_TEXT = "due in 2 days"
+
+
+def _bill_alarm(e):
+    """A VALARM for a bill occurrence that still needs someone to act: not
+    already paid, and not on autopay (an autopay bill pays itself; a nudge
+    would be noise). Every other event gets none."""
+    if e["kind"] != "bill" or e.get("paid") or e.get("autopay"):
+        return []
+    return [
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        "DESCRIPTION:" + _ics_escape(f"{e['name']} {BILL_REMINDER_TEXT}"),
+        f"TRIGGER:{BILL_REMINDER_TRIGGER}",
+        "END:VALARM",
+    ]
+
+
 def _render_ics(events, as_of):
     """calendar_events rows → an iCalendar document (presentation at the edge,
     like money()/dollars() — the derivation stays pure data). All-day events
     (DATE values, DTEND exclusive next day), stable UIDs so calendar apps
     update in place across refreshes, DTSTAMP pinned to as_of midnight so the
     same day's feed is byte-identical (deterministic, testable). TRANSP:
-    TRANSPARENT — a bill due date must never make anyone 'busy'."""
+    TRANSPARENT — a bill due date must never make anyone 'busy'. An unpaid,
+    non-autopay bill carries a VALARM (BILL_REMINDER_TRIGGER)."""
     stamp = as_of.replace("-", "") + "T000000Z"
     lines = [
         "BEGIN:VCALENDAR", "VERSION:2.0",
@@ -1863,6 +1886,7 @@ def _render_ics(events, as_of):
             f"DTEND;VALUE=DATE:{(day + timedelta(days=1)).strftime('%Y%m%d')}",
             "SUMMARY:" + _ics_escape(_ics_summary(e)),
             "TRANSP:TRANSPARENT",
+            *_bill_alarm(e),
             "END:VEVENT",
         ]
     lines.append("END:VCALENDAR")

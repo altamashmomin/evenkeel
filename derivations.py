@@ -1772,7 +1772,8 @@ def calendar_events(db, as_of=None, months_ahead=3):
       `months_ahead` months starting at as_of's month (current month included
       even when the due day has passed — a paid bill shows its ✓). `paid` is
       the existence of the (bill, period) row in bill_payments; amounts are
-      the bill's DEFINED cents (no transactions read).
+      the bill's DEFINED cents (no transactions read). `autopay` (#017) lets
+      the feed skip the reminder for a bill that pays itself.
     - goal: each goal with a target_date on/after as_of.
     - item: every shopping_list / on_the_way row carrying a need_by, kept
       while need_by is no more than 14 days past as_of (recent misses still
@@ -1795,7 +1796,7 @@ def calendar_events(db, as_of=None, months_ahead=3):
     paid = {(r["bill_id"], r["period"]) for r in db.execute(
         f"SELECT bill_id, period FROM bill_payments WHERE period IN ({marks})",
         periods)}
-    for b in db.execute("SELECT id, name, amount_cents, due_day FROM bills "
+    for b in db.execute("SELECT id, name, amount_cents, due_day, autopay FROM bills "
                         "WHERE active = 1 ORDER BY due_day, name"):
         for period in periods:
             events.append({
@@ -1803,6 +1804,7 @@ def calendar_events(db, as_of=None, months_ahead=3):
                 "date": _clamped_due_date(period, b["due_day"]).isoformat(),
                 "name": b["name"], "amount_cents": b["amount_cents"],
                 "paid": (b["id"], period) in paid,
+                "autopay": bool(b["autopay"]),
             })
 
     for g in db.execute("SELECT id, name, target_cents, target_date FROM goals "
