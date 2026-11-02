@@ -34,7 +34,6 @@ Environment (.env), the same as the app and the sync:
 import argparse
 import json
 import os
-import shutil
 import sqlite3
 import sys
 import tempfile
@@ -75,6 +74,10 @@ def load_specs(path):
         name = (s.get("name") or "").strip() if isinstance(s.get("name"), str) else ""
         if not name:
             raise ImportError_(f"entry {i} has no name")
+        if len(name) > 100:
+            # create_bill stores name[:100]; refuse rather than let the stored
+            # name differ from the one the re-run skip check compares.
+            raise ImportError_(f"entry {i}: name is over 100 characters")
         key = name.casefold()
         if key in seen:
             raise ImportError_(f"'{name}' is listed twice (entries {seen[key]} and {i})")
@@ -215,8 +218,12 @@ def main(argv=None):
             print("\nTo add them for real, run the same command with --apply.")
         return 0 if ok else 1
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     backup = f"{args.db}.bak-import-{stamp}"
+    if os.path.exists(backup):
+        # Never overwrite an earlier rollback point.
+        print(f"error: backup {backup} already exists; try again", file=sys.stderr)
+        return 2
     src = connect_existing(args.db)
     dst = sqlite3.connect(backup)
     try:

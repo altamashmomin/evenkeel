@@ -142,6 +142,18 @@ class ImportBillsTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("due day", err)
 
+    def test_overlong_name_refused(self):
+        code, _, err = self.run_cli(self.write_file(
+            [{"name": "x" * 101, "amount": 5, "due_day": 3}]))
+        self.assertEqual(code, 2)
+        self.assertIn("over 100", err)
+
+    def test_two_applies_keep_separate_backups(self):
+        f = self.write_file(self.bills)
+        self.run_cli(f, "--apply")
+        self.run_cli(f, "--apply")
+        self.assertEqual(len(list(self.dir.glob("test.db.bak-import-*"))), 2)
+
     def test_unknown_key_refused(self):
         code, _, err = self.run_cli(self.write_file(
             [{"name": "Y", "amount": 5, "due_day": 3, "shared": True}]))
