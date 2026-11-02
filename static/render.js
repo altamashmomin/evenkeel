@@ -1714,6 +1714,33 @@
     return parts.join(" · ");
   }
 
+  // The Mark paid dialog's "Paid from the bank? Pick the charge" list. Pure:
+  // app.js fetches /api/bills/<id>/link-options and passes the rows. Linking an
+  // imported charge records the payment WITHOUT logging a second transaction —
+  // the whole point (rent counted once). Descriptions are bank text: esc() them.
+  // A null list (still loading / fetch failed) renders nothing.
+  function payLinkOptionsHTML(options) {
+    if (!options) return "";
+    if (!options.length)
+      return `<p class="sub pay-link-none">No unlinked bank charges near this bill's due date.</p>`;
+    const rows = options.map((o) => {
+      const exact = o.amount_diff && o.amount_diff.cents === 0;
+      return `
+        <li>
+          <div class="grow">
+            <div class="title">${esc(o.description)}</div>
+            <div class="sub">${esc(shortDate(o.date))} · ${esc(o.category || "")}${exact ? " · exact amount" : ""}</div>
+          </div>
+          <span class="amt amount">${esc(o.amount.display)}</span>
+          <button class="btn small" type="button" data-link-txn="${Number(o.txn_id)}">Link</button>
+        </li>`;
+    }).join("");
+    return `
+      <p class="lbl">Paid from the bank? Pick the charge</p>
+      <p class="sub pay-link-why">Linking it marks the bill paid without logging it twice.</p>
+      <ul class="list pay-link-list">${rows}</ul>`;
+  }
+
   function calendarAgendaHTML(bills, todayISO, monthISO, details) {
     if (!bills || !bills.length)
       return `<div class="card cal-agenda"><p class="empty">No bills this month.</p></div>`;
@@ -1861,7 +1888,7 @@
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            ruleBreadthWarning,
-           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, payDetailHTML, billRowHTML,
+           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, payDetailHTML, payLinkOptionsHTML, billRowHTML,
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,

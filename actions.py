@@ -631,11 +631,14 @@ def unmark_bill_paid(db, actor, bill_id, period):
     """Undo a bill payment for a period.
 
     validate — a payment for (bill, period) exists (NotFound otherwise).
-    edit — one transaction: remove any links referencing the payment's
-    transaction (invariant 5: links are metadata and revert with it),
-    its split rows, the transaction itself, the bill_payments row, and
-    the audit row.
+    edit — one transaction. When the payment's transaction is the one
+    mark_bill_paid logged (source 'bill'): remove any links referencing it
+    (invariant 5: links are metadata and revert with it), its split rows,
+    the transaction itself, the bill_payments row, and the audit row. When
+    it is a charge link_bill_payment attached (any other source): remove
+    only the bill_payments row and the audit row — the charge stays, untouched.
     side effects — none yet.
+    Returns {"kept_transaction": id or None}.
     """
     with action_transaction(db):
         payment = db.execute(
@@ -645,12 +648,82 @@ def unmark_bill_paid(db, actor, bill_id, period):
             raise NotFound("no payment for this period")
         txn_id = payment["txn_id"]
         bill = db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
-        deleted = delete_transaction_graph(db, txn_id) if txn_id else None
+        txn = (db.execute("SELECT id, source FROM transactions WHERE id = ?",
+                          (txn_id,)).fetchone() if txn_id else None)
+        # Only the transaction mark_bill_paid itself logged (source 'bill') is
+        # the payment's own and goes with it. A charge that link_bill_payment
+        # attached (a synced bank debit, a manual entry) is real spending that
+        # existed before the link and must outlive the unlink — never delete it.
+        kept = None
+        if txn is not None and txn["source"] != "bill":
+            deleted, kept = None, txn["id"]
+        else:
+            deleted = delete_transaction_graph(db, txn_id) if txn_id else None
         db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
+        detail = {"period": period, "bill": dict(bill) if bill else None,
+                  "payment": dict(payment), "deleted": deleted}
+        if kept is not None:
+            detail["kept_transaction"] = kept
+        _write_audit(db, actor, "unmark_bill_paid", f"bill:{bill_id}", detail)
+    return {"kept_transaction": kept}
+
+
+def link_bill_payment(db, actor, bill_id, data):
+    """Record that an EXISTING transaction is what paid a bill for a period —
+    "this bank charge is the rent" — instead of logging a second one.
+
+    mark_bill_paid logs a new transaction; when SimpleFIN has already imported
+    the real debit, that counts the bill twice (in spend and in who-owes-whom).
+    This verb links the bill to the charge that's already there and creates no
+    transaction, split, or link — the money numbers are exactly what they were
+    before the call.
+
+    validate — an active bill with this id exists (NotFound otherwise); period
+    shape (YYYY-MM); txn_id is an integer id; no payment exists for the period;
+    the transaction exists (NotFound otherwise); it is money going out
+    (direction 'out'), not a settlement and not marked as a transfer; and it
+    doesn't already pay a bill (one charge pays one bill for one month).
+    edit — one transaction: the bill_payments row (paid_on = the charge's own
+    date) and the audit row.
+    side effects — none.
+    Returns (bill_row, period) for the route's bill_to_json response.
+    """
+    with action_transaction(db):
+        bill = db.execute(
+            "SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
+        if bill is None:
+            raise NotFound("not found")
+        period = data.get("period") or current_period()
+        if not isinstance(period, str) or len(period) != 7 or period[4] != "-":
+            raise ActionError("period must be YYYY-MM")
+        txn_id = data.get("txn_id")
+        if isinstance(txn_id, bool) or not isinstance(txn_id, int) or txn_id <= 0:
+            raise ActionError("txn_id must be a transaction id")
+        if db.execute("SELECT id FROM bill_payments WHERE bill_id = ? AND period = ?",
+                      (bill_id, period)).fetchone():
+            raise ActionError("already marked paid for this period")
+        txn = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        if txn is None:
+            raise NotFound("transaction not found")
+        if txn["direction"] != "out":
+            raise ActionError("only money going out can pay a bill")
+        if txn["source"] == "settlement":
+            raise ActionError("a settlement can't pay a bill")
+        if txn["is_transfer"]:
+            raise ActionError("a transfer can't pay a bill")
+        if db.execute("SELECT id FROM bill_payments WHERE txn_id = ?",
+                      (txn_id,)).fetchone():
+            raise ActionError("that charge already pays a bill")
+        db.execute(
+            "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) "
+            "VALUES (?, ?, ?, ?)",
+            (bill_id, period, txn["txn_date"], txn_id))
         _write_audit(
-            db, actor, "unmark_bill_paid", f"bill:{bill_id}",
-            {"period": period, "bill": dict(bill) if bill else None,
-             "payment": dict(payment), "deleted": deleted})
+            db, actor, "link_bill_payment", f"bill:{bill_id}",
+            {"period": period, "transaction": txn_id,
+             "amount_cents": txn["amount_cents"], "txn_date": txn["txn_date"]})
+    return bill, period
 
 
 def create_bill(db, actor, data):

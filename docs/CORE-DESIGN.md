@@ -218,7 +218,8 @@ is shared with AGENT-DESIGN: `ui:<member>` | `sync` | `mcp:<token-label>`.
 | `set_splits` | UI | shared rows only; shares sum to 10000 | Replaces direct split edits |
 | `settle_up` | UI only | **requires exactly 2 active members during the bounded transition**; outstanding balance as of date | Server derives amount, ower, and zero-share split; client values are stale-state assertions; writes `settles` links to covered rows |
 | `mark_bill_paid` | UI | — | Creates the transaction and its `bill_payments` row in one edit |
-| `unmark_bill_paid` | UI | — | Removes the payment, its transaction, splits, and any links to it |
+| `unmark_bill_paid` | UI | — | Removes the payment. If its transaction is the one `mark_bill_paid` logged (`source='bill'`), that transaction, its splits, and any links to it go too; a charge `link_bill_payment` attached stays untouched (a synced transaction is never deleted by an unmark) |
+| `link_bill_payment` | UI | active bill exists; period YYYY-MM; `txn_id` an integer; no payment for the period; the transaction exists, is `direction='out'`, not a settlement, not `is_transfer`, and isn't already linked to any bill | "This bank charge is that bill." Writes only the `bill_payments` row (`paid_on` = the charge's date) + audit, creating no transaction, so the balance and every month total are unchanged by construction — the fix for a bill counted twice when SimpleFIN also imported its debit. Choices come from the read-only `bill_link_options` derivation |
 | `create_bill` | UI, Ask | — | Creates the recurring-bill definition row; audit carries the created shape |
 | `update_bill` | UI | — | Edits name/amount/due day/category; audit records the before-image and changed fields |
 | `delete_bill` | UI | — | Soft delete (`active=0`) during the bounded transition, matching `delete_goal`'s posture; history (past payments) is untouched |
