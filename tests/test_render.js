@@ -1740,4 +1740,58 @@ check("calendarAgendaHTML escapes the server's display strings", () => {
   assert.ok(!h.includes("<i>"));
 });
 
+// ---- calendarAgendaHTML candidates: the "Looks paid … Link it?" chip ----
+check("calendarAgendaHTML shows a looks-paid chip only on an unpaid bill with a candidate", () => {
+  const bills = [
+    { id: 1, name: "Rent", amount: 2400, due_day: 1, category: "Rent", paid_this_period: false },
+    { id: 2, name: "Electric", amount: 140, due_day: 15, category: "Utilities", paid_this_period: true },
+    { id: 3, name: "Internet", amount: 60, due_day: 20, category: "Utilities", paid_this_period: false },
+  ];
+  const cands = {
+    1: { bill_id: 1, txn_id: 9, date: "2026-10-30", description: "AVALON",
+         amount: { cents: 240000, display: "$2,400.00" }, reason: "exact amount" },
+    2: { bill_id: 2, txn_id: 10, date: "2026-11-15", description: "X",
+         amount: { cents: 1, display: "$0.01" }, reason: "exact amount" },
+  };
+  const h = R.calendarAgendaHTML(bills, "2026-11-02", "2026-11", null, null, cands);
+  assert.ok(h.includes('data-looks-paid="1"'), "unpaid bill with a candidate gets the chip");
+  assert.ok(!h.includes('data-looks-paid="2"'), "a paid bill never does");
+  assert.ok(!h.includes('data-looks-paid="3"'), "no candidate, no chip");
+  assert.ok(h.includes("Looks paid:") && h.includes("$2,400.00") && h.includes("Link it?"));
+  assert.ok(!R.calendarAgendaHTML(bills, "2026-11-02", "2026-11").includes("data-looks-paid"));
+});
+
+// ---- Track as bill on the Subscriptions card ----
+const recData = (rows) => ({ recurring: rows });
+const rec = (merchant, cents, cadence) => ({ merchant, cadence, predicted_next: "2026-11-07",
+  amount: { cents, display: `$${(cents / 100).toFixed(2)}` } });
+check("Track as bill: a monthly detection with no covering bill gets the button", () => {
+  const h = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]), []);
+  assert.ok(h.includes('data-bill-from-recurring="0"'));
+});
+check("Track as bill: weekly and 'every ~9 days' rows stay informational", () => {
+  const h = R.recurringChargesHTML(recData([rec("A", 100, "weekly"), rec("B", 200, "every ~9 days")]), []);
+  assert.ok(!h.includes("data-bill-from-recurring"));
+});
+check("Track as bill: suppressed by a name match or an exact-cents match", () => {
+  const byName = R.recurringChargesHTML(recData([rec("SPOTIFY", 1199, "monthly")]),
+    [{ name: "Spotify family", defined: { cents: 1799 } }]);
+  assert.ok(!byName.includes("data-bill-from-recurring"));
+  const byCents = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]),
+    [{ name: "Streaming", defined: { cents: 1599 } }]);
+  assert.ok(!byCents.includes("data-bill-from-recurring"));
+});
+check("billCoversCharge unit rows", () => {
+  const r = rec("Netflix", 1599, "monthly");
+  assert.strictEqual(R.billCoversCharge({ name: "netflix premium", defined: { cents: 1 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "flix", defined: { cents: 1 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "TV", defined: { cents: 1599 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "Hulu", defined: { cents: 1598 } }, r), false);
+});
+check("Track as bill: no bills arg renders exactly as before (no buttons)", () => {
+  const h = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]));
+  assert.ok(!h.includes("data-bill-from-recurring"));
+  assert.ok(h.includes("NETFLIX") && h.includes("monthly"));
+});
+
 console.log(`render tests passed (${passed} checks)`);

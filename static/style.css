@@ -680,6 +680,7 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .pay-link-list { max-height: 220px; overflow-y: auto; }
 .pay-or { margin-top: 12px; }
 .cal-usual { font-size: 12px; }
+.cal-looks-paid { margin-top: 6px; white-space: normal; text-align: left; }
 
 /* Settle-up breakdown: why the amount is what it is */
 #settle-breakdown { margin: 10px 0 4px; }
