@@ -140,6 +140,43 @@ class FindDoublesTests(unittest.TestCase):
         self.assertIn("utility charge: 1", out)
         self.assertIn("if one is a copy, delete that one", out)
 
+    def test_venmo_linked_as_the_rent_payment_is_not_a_double(self):
+        venmo = self.charge("2030-02-01", "2655.00", "VENMO PAYMENT landlord rent")
+        actions.link_bill_payment(self.db, "ui:test", self.rent["id"],
+                                  {"period": "2030-02", "txn_id": venmo["id"]})
+        code, out, _ = self.run_cli()
+        self.assertIn("still count as money: 0", out)
+        self.assertIn(f"linked bank charge #{venmo['id']}", out)
+
+    def test_one_charge_is_offered_to_one_bill_only(self):
+        internet = actions.create_bill(self.db, "ui:test", {
+            "name": "Internet", "amount": "60.00", "due_day": 14,
+            "category": "Utilities"})
+        bank = self.charge("2030-02-15", "60.00", "PUBLIC GRID ENERGY", "Utilities")
+        actions.mark_bill_paid(self.db, "ui:test", self.power["id"],
+                               {"period": "2030-02"}, 1)
+        actions.mark_bill_paid(self.db, "ui:test", internet["id"],
+                               {"period": "2030-02"}, 1)
+        code, out, _ = self.run_cli()
+        self.assertIn("imported: 1", out)
+        # The name match wins the charge over the amount-only bill.
+        self.assertIn("Electric & gas (Public Grid), 2030-02", out)
+        self.assertEqual(out.count(f"link #{bank['id']}"), 1)
+
+    def test_known_merchant_beats_an_unrelated_exact_amount(self):
+        jan = self.charge("2030-01-15", "131.00", "COTTAGE ENERGY AIRWALLEX", "Utilities")
+        actions.link_bill_payment(self.db, "ui:test", self.power["id"],
+                                  {"period": "2030-01", "txn_id": jan["id"]})
+        actions.update_bill(self.db, "ui:test", self.power["id"], {"amount": "140.00"})
+        self.assertEqual(self.db.execute("SELECT amount_cents FROM bills WHERE id = ?",
+                                         (self.power["id"],)).fetchone()[0], 14000)
+        energy = self.charge("2030-02-15", "88.40", "COTTAGE ENERGY AIRWALLEX", "Utilities")
+        self.charge("2030-02-14", "140.00", "GYM MEMBERSHIP", "Health")
+        actions.mark_bill_paid(self.db, "ui:test", self.power["id"],
+                               {"period": "2030-02"}, 1)
+        code, out, _ = self.run_cli()
+        self.assertIn(f"Bank charge (same merchant as last time): #{energy['id']}", out)
+
     def test_bad_window_is_refused(self):
         code, _, err = self.run_cli(start="2030-03-01", end="2030-02-01")
         self.assertEqual(code, 2)

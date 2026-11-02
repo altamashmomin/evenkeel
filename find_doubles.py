@@ -103,8 +103,12 @@ def bill_doubles(db, periods):
     matching imported charge. The match rules are the "Looks paid" chip's
     (derivations.bill_payment_candidates), plus an exact match to what Mark
     paid logged and a ±LOOKS_PAID_DAYS window around the logged date as well
-    as the due date (Mark paid dates its transaction the day it's tapped)."""
-    out = []
+    as the due date (Mark paid dates its transaction the day it's tapped).
+
+    Ranked like the chip: same merchant as last time, then name match, then
+    amount only. Each bank charge is offered to at most one payment (best
+    pairs first), so following every fix never links one charge twice."""
+    payments, pairs = {}, []
     for period in periods:
         rows = db.execute(
             """SELECT bp.bill_id, bp.period, b.name, b.amount_cents AS usual_cents,
@@ -126,7 +130,6 @@ def bill_doubles(db, periods):
                    ORDER BY bp.period DESC LIMIT 1""",
                 (p["bill_id"], period)).fetchone()
             last_key = derivations._normalize_merchant(last["description"]) if last else ""
-            matches = []
             for o in derivations.bill_link_options(db, p["bill_id"], period, limit=None):
                 if P2P.search(o["description"]):
                     continue  # a Venmo to a person is check 2, never the bill's charge
@@ -142,16 +145,28 @@ def bill_doubles(db, periods):
                         <= p["amount_cents"] * derivations.LOOKS_PAID_TOLERANCE_BP)
                 if not (exact or ((same or named) and near)):
                     continue
-                reason = ("same amount" if exact else
-                          "same merchant as last time" if same else "name match")
-                rank = (0 if exact else 1 if same else 2,
+                reason = ("same merchant as last time" if same else
+                          "name match" if named else "same amount")
+                rank = (0 if same else 1 if named else 2,
                         abs(o["amount_cents"] - p["amount_cents"]),
                         abs((day - logged_day).days), -o["txn_id"])
-                matches.append((rank, o, reason))
-            if matches:
-                matches.sort(key=lambda m: m[0])
-                out.append({"payment": dict(p),
-                            "charges": [(o, r) for _, o, r in matches]})
+                key_p = (p["bill_id"], period)
+                payments[key_p] = dict(p)
+                pairs.append((rank, key_p, o, reason))
+    pairs.sort(key=lambda x: (x[0], x[1]))
+    chosen, taken = {}, set()
+    for _, key_p, o, reason in pairs:
+        if key_p in chosen or o["txn_id"] in taken:
+            continue
+        chosen[key_p] = (o, reason)
+        taken.add(o["txn_id"])
+    out = []
+    for key_p in sorted(chosen, key=lambda k: (k[1], payments[k]["due_day"],
+                                               payments[k]["name"])):
+        best = chosen[key_p]
+        others = [(o, r) for _, k, o, r in pairs
+                  if k == key_p and o["txn_id"] not in taken]
+        out.append({"payment": payments[key_p], "charges": [best] + others})
     return out
 
 
@@ -180,6 +195,8 @@ def p2p_rent(db, start, end, members):
     targets = [a for r in rent_amounts for a in (r, r // 2)]
     names = {w.casefold() for m in members
              for w in re.findall(r"[A-Za-z]{3,}", m["display_name"] or "")}
+    paid_ids = {r[0] for r in db.execute(
+        "SELECT txn_id FROM bill_payments WHERE txn_id IS NOT NULL")}
     rows = db.execute(
         """SELECT * FROM transactions
            WHERE txn_date BETWEEN ? AND ? AND is_transfer = 0
@@ -189,6 +206,8 @@ def p2p_rent(db, start, end, members):
     for t in rows:
         if not P2P.search(t["description"]):
             continue
+        if t["id"] in paid_ids:
+            continue  # it IS how a bill was paid (linked), so it counts once
         words = {w.casefold() for w in re.findall(r"[A-Za-z]{3,}", t["description"])}
         why = []
         if RENT_WORDS.search(t["description"]):
