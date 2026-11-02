@@ -16,9 +16,11 @@ a per-person bearer token). `confirm_action` rejects a token whose
 unchanged as the token-level audit trail.
 
 Nullable by design: legacy/pre-migration pending rows keep NULL, and a NULL
-proposer is treated as unbound — it never blocks a confirm (there are no
-long-lived pending rows across a deploy; the TTL is ~10 minutes). The FK to
-members(id) matches the runtime's `PRAGMA foreign_keys = ON`.
+proposer is treated as unbound — it never blocks a confirm. Only rows parked
+before this migration can be NULL, and the pending TTL (~24h; see
+PENDING_ACTION_TTL_SECONDS) ages them out within a day of the deploy, so the
+unbound window is bounded. The FK to members(id) matches the runtime's
+`PRAGMA foreign_keys = ON`.
 
 Schema only, and gated ZERO-DIFF by enumeration: no money path reads or writes
 pending_actions, no existing row changes, the column defaults to NULL. The

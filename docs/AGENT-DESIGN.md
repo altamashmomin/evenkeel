@@ -133,7 +133,7 @@ CREATE TABLE pending_actions (
     preview_json TEXT NOT NULL,          -- what was shown to the human
     created_by   INTEGER REFERENCES api_tokens(id),
     created_at   TEXT NOT NULL,
-    expires_at   TEXT NOT NULL,          -- ~10 minutes; stale approvals die
+    expires_at   TEXT NOT NULL,          -- ~24 hours; stale approvals die
     status       TEXT NOT NULL DEFAULT 'pending'
                  -- pending | confirmed | expired | cancelled
 );
@@ -508,11 +508,11 @@ async def ledger_propose_income_rule(params: ProposeIncomeRuleInput) -> str:
                  future_effect: "every future inflow matching X → type Y"}}
 
     REQUIRED next step: show the user the preview — the count, a sample,
-    any conflicts — and ask explicitly. Only after the user approves IN
-    THEIR OWN REPLY may you call ledger_confirm_action with the token.
-    Never propose and confirm in the same turn. If would_match_now
-    includes rows that look wrong (a transfer caught by a paycheck rule),
-    tighten the matcher and propose again instead of confirming.
+    any conflicts — then tell them to open the Ledger app and approve it
+    under 'Pending approvals'. You CANNOT confirm it here: confirming is a
+    human act in the app, refused for automations (MIRAGE F-1). If
+    would_match_now includes rows that look wrong (a transfer caught by a
+    paycheck rule), tighten the matcher and propose again.
     """
 
 
@@ -526,8 +526,9 @@ async def ledger_apply_rules() -> str:
     """PHASE 1 of 2. Dry-runs all enabled rules against the current
     unclassified queue. Returns {confirmation_token, preview:
     {rows_affected, by_rule: [{rule_id, desc, count}]}}.
-    Same contract as propose: show the preview, get the user's yes,
-    then ledger_confirm_action."""
+    Same contract as propose: show the preview, then tell the person to
+    approve it in the Ledger app under 'Pending approvals' (you cannot
+    confirm it here)."""
 
 
 class ConfirmActionInput(BaseModel):
@@ -537,19 +538,17 @@ class ConfirmActionInput(BaseModel):
 
 @mcp.tool(
     name="ledger_confirm_action",
-    annotations={"title": "Execute an approved action",
+    annotations={"title": "(refused) confirm is a human step",
                  "readOnlyHint": False, "destructiveHint": False,
                  "idempotentHint": True, "openWorldHint": False},
 )
 async def ledger_confirm_action(params: ConfirmActionInput) -> str:
-    """PHASE 2 of 2. Executes exactly the pending action the token points
-    to — the frozen payload, not your current arguments. Single-use;
-    expires ~10 minutes after propose.
-
-    ONLY call this after the user has seen the preview and said yes in
-    their own message. If the token expired, re-propose — never guess a
-    token, never retry a consumed one. Returns what was executed + the
-    audit_log id.
+    """DO NOT call this — confirming a two-phase proposal is refused for
+    automations (MIRAGE F-1). After you PROPOSE, a signed-in person
+    approves it in the Ledger app under 'Pending approvals'; that is the
+    only way a rule/sweep executes. The tool remains only so a stray call
+    returns a clear refusal instead of a confusing error — it never
+    executes anything from here. Tell the user to approve in the app.
     """
 ```
 
@@ -566,6 +565,19 @@ you: a frozen payload (what you approve is what runs), a computed preview
 replayed approvals), one generic confirm tool for N proposal tools, and a
 pattern that works identically in every MCP client — which is the whole
 Era thesis. The client is fungible; the guarantees live in the server.
+
+**Hardened later (MIRAGE F-1, deployed Aug 31, 2026):** the human approval
+no longer happens *through* the MCP/bearer client at all. A prompt-injected
+automation that both proposes AND confirms would defeat the whole point, so
+`confirm` is now refused for a token/`mcp:` caller — at the route (403 on
+`via=='token'`) and again at the verb (an `mcp:` actor is rejected). An
+automation may PROPOSE (park a preview); a signed-in person then CONFIRMS in
+the app under **Home → Pending approvals** (`GET /api/actions/pending`). So
+the two-phase choreography above stays exactly as designed, but its second
+phase is a human in the app, never the agent — the docstrings say "tell the
+user to approve in the app," and `ledger_confirm_action` exists only to
+return a clear refusal. (F2, migration #016, additionally binds a confirm to
+the proposing identity.)
 
 ### Docstring conventions (applied above, worth naming)
 
@@ -754,7 +766,7 @@ per-person tokens).
      read-only dry-run (`_rule_matches` over the unclassified queue for a
      rule; the existing `apply_rules(dry_run=True)` pass for apply), and
      parks a `pending_actions` row with the **frozen** payload + preview +
-     ~10-min `expires_at`. Returns `{confirmation_token, preview}`. Writes
+     ~24-hour `expires_at`. Returns `{confirmation_token, preview}`. Writes
      no audit row — nothing executed yet.
    - `confirm_action(db, actor, token)` — loads the row; rejects unknown /
      expired / non-`pending` tokens; dispatches on `action_type` to the real

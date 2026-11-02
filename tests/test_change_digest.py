@@ -20,11 +20,11 @@ def digest(**over):
     d = {
         "since": "2026-08-30T08:00:00+00:00", "until": "2026-08-31T08:00:00+00:00",
         "total": 8, "assistant_and_human_writes": 3, "sync_writes": 5,
+        # by_actor / by_action exclude the sync feed by contract (it lives only
+        # in sync_writes); every entry here is a person or an assistant.
         "by_actor": [{"actor": "mcp:cc", "count": 2},
-                     {"actor": "ui:avery", "count": 1},
-                     {"actor": "sync", "count": 5}],
-        "by_action": [{"action": "record_transaction", "count": 5},
-                      {"action": "set_budget", "count": 1},
+                     {"actor": "ui:avery", "count": 1}],
+        "by_action": [{"action": "set_budget", "count": 1},
                       {"action": "classify_inflow", "count": 1},
                       {"action": "set_rule_enabled", "count": 1}],
         "pending_approvals": 1,
@@ -53,12 +53,26 @@ class ChangeDigestRenderTests(unittest.TestCase):
         self.assertNotIn("$", body)
 
     def test_quiet_when_only_the_bank_feed_moved(self):
+        # A sync-only day: no human/assistant writes reach the breakdowns, so
+        # by_actor/by_action are empty and only sync_writes moved → quiet.
         _, _, quiet = cd.render_markdown(
             digest(assistant_and_human_writes=0, pending_approvals=0,
-                   by_actor=[{"actor": "sync", "count": 3}],
-                   by_action=[{"action": "record_transaction", "count": 3}],
-                   sync_writes=3))
+                   by_actor=[], by_action=[], sync_writes=3))
         self.assertTrue(quiet)
+
+    def test_manual_add_is_itemized_not_hidden(self):
+        # A manual "+" entry is a ui: record_transaction — it belongs in the
+        # human breakdown with a friendly label, not dropped as the sync verb.
+        _, body, quiet = cd.render_markdown(
+            digest(assistant_and_human_writes=1, pending_approvals=0,
+                   by_actor=[{"actor": "ui:avery", "count": 1}],
+                   by_action=[{"action": "record_transaction", "count": 1}],
+                   sync_writes=2))
+        self.assertFalse(quiet)
+        self.assertIn("added a transaction", body)
+        self.assertIn("**ui:avery**", body)
+        self.assertNotIn("record_transaction", body)   # the raw verb never leaks
+        self.assertIn("2 routine bank-feed updates", body)  # sync still footnoted
 
     def test_pending_only_is_not_quiet(self):
         title, body, quiet = cd.render_markdown(
