@@ -151,7 +151,7 @@
     <h2 id="bill-title">Add bill</h2>
     <label>Name <input name="name" required maxlength="100" placeholder="Internet"></label>
     <div class="row2">
-      <label>Amount <input name="amount" type="number" step="0.01" min="0.01" inputmode="decimal" required></label>
+      <label>Usual amount <input name="amount" type="number" step="0.01" min="0.01" inputmode="decimal" required></label>
       <label>Due day <input name="due_day" type="number" min="1" max="31" required placeholder="1–31"></label>
     </div>
     <label>Category <input name="category" list="category-list" placeholder="Utilities"></label>
@@ -173,9 +173,11 @@
     <p class="pay-summary" id="pay-summary"></p>
     <div class="pay-link" id="pay-link"></div>
     <p class="lbl pay-or">Not in the bank feed? Log it as paid</p>
+    <label>Amount paid <input name="amount" type="number" step="0.01" min="0.01" inputmode="decimal" required></label>
     <label class="lbl">Paid by</label>
     <div class="seg" id="pay-paidby"></div>
-    <label class="check"><input name="is_shared" type="checkbox" checked> Shared 50/50</label>
+    <label class="check"><input name="is_shared" type="checkbox" checked> Shared</label>
+    <label id="pay-share-row">Payer's share (%) <input name="payer_share_pct" type="number" step="0.01" min="0" max="100" inputmode="decimal" value="50"></label>
     <p class="form-error" id="pay-error"></p>
     <div class="dlg-actions">
       <span class="spacer"></span>

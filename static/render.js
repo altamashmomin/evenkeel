@@ -1741,7 +1741,11 @@
       <ul class="list pay-link-list">${rows}</ul>`;
   }
 
-  function calendarAgendaHTML(bills, todayISO, monthISO, details) {
+  // `actuals` (optional): bill id -> the /api/analytics/bill-variance row, so a
+  // paid bill shows what was actually paid (a utility that varies) and, when it
+  // differs, the usual amount beside it. Absent -> the bill's usual amount, as
+  // before. Display strings come from the server; no money math here.
+  function calendarAgendaHTML(bills, todayISO, monthISO, details, actuals) {
     if (!bills || !bills.length)
       return `<div class="card cal-agenda"><p class="empty">No bills this month.</p></div>`;
     const [y, mo] = monthISO.split("-").map(Number);
@@ -1758,15 +1762,19 @@
       const state = paid ? "paid" : overdue ? "overdue" : "due";
       const today = dISO === todayISO ? " cal-today" : "";
       const pay = payDetailHTML(details && details[b.id]);
+      const act = paid && actuals && actuals[b.id] && actuals[b.id].actual;
+      const usual = act && actuals[b.id].defined;
+      const differs = act && usual && act.cents !== usual.cents;
       return `
         <li class="cal-row${today}">
           <span class="cal-day"><b>${day}</b><span>${wd}</span></span>
           <div class="grow">
             <div class="title">${esc(b.name)}</div>
             <div class="sub">${esc(b.category || "")}</div>
+            ${differs ? `<div class="sub cal-usual">usual ${esc(usual.display)}</div>` : ""}
             ${pay ? `<div class="sub cal-paywhere">${pay}</div>` : ""}
           </div>
-          <span class="amt amount">${fmt(b.amount)}</span>
+          <span class="amt amount">${act ? esc(act.display) : fmt(b.amount)}</span>
           <span class="badge ${state}">${state}</span>
         </li>`;
     });

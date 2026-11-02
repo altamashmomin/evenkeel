@@ -523,7 +523,8 @@ Then (Nov 1): **rent & bills Phase 1 — `link_bill_payment`** — mark a bill p
 by the synced bank charge that paid it instead of logging a second transaction
 (the rent double-count fix); unmark keeps a linked charge. No schema change,
 suite 760, render 183, GATE PASS zero-diff. On `claude/bill-link-charge`;
-**awaits Alta's merge + Pi deploy.**
+**awaits Alta's merge + Pi deploy.** Phase 2 (`claude/bill-pay-amount-split`): Mark paid takes the
+actual amount and the split; the Calendar shows actual vs usual. Suite 765, render 185, GATE PASS zero-diff.
 
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.

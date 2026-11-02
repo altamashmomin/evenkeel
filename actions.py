@@ -576,8 +576,10 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
     share fields well-formed. Messages and check order are the deployed
     route's, frozen.
     edit — one transaction: the bill's transaction row (source 'bill',
-    dated today, amount and category from the bill), its split rows, the
-    bill_payments row, and the audit row.
+    dated today, category from the bill; amount = the optional `amount` the
+    caller sends — what was actually paid — else the bill's usual amount),
+    its split rows (payer_share_pct, default 50), the bill_payments row, and
+    the audit row.
     side effects — none yet.
     Returns (bill_row, period) for the route's bill_to_json response.
     """
@@ -600,6 +602,24 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
         pct = parse_share_bp(data.get("payer_share_pct", 50)) / 100
         if is_shared and len(members) != 2:
             raise ActionError("shared transactions require exactly two active members")
+        # What was actually paid this time. Absent/blank = the bill's usual
+        # amount (the pre-existing behaviour, frozen); utilities vary month to
+        # month, so the dialog can send the real figure. bill_variance then
+        # reports it against the usual amount with no further change.
+        raw_amount = data.get("amount")
+        if raw_amount is None or (isinstance(raw_amount, str) and not raw_amount.strip()):
+            cents = bill["amount_cents"]
+        else:
+            if isinstance(raw_amount, bool):
+                raise ActionError("invalid amount")
+            try:
+                cents = to_cents(raw_amount)
+            except (ValueError, OverflowError):
+                raise ActionError("invalid amount")
+            if cents <= 0:
+                raise ActionError("amount must be positive")
+            if cents > _MAX_MONEY_CENTS:
+                raise ActionError("amount is too large")
 
         today = date.today().isoformat()
         # direction='out' explicit, not by column default: compute_balance
@@ -611,7 +631,7 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
                (txn_date, amount_cents, description, category, paid_by,
                 is_shared, source, direction)
                VALUES (?, ?, ?, ?, ?, ?, 'bill', 'out')""",
-            (today, bill["amount_cents"], f"{bill['name']} ({period})",
+            (today, cents, f"{bill['name']} ({period})",
              bill["category"], paid_by, is_shared))
         txn_id = cur.lastrowid
         write_legacy_two_member_splits(
@@ -623,7 +643,7 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
         _write_audit(
             db, actor, "mark_bill_paid", f"bill:{bill_id}",
             {"period": period, "transaction": txn_id,
-             "amount_cents": bill["amount_cents"], "paid_by": paid_by})
+             "amount_cents": cents, "paid_by": paid_by})
     return bill, period
 
 

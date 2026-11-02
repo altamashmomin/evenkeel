@@ -679,6 +679,7 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .pay-link .pay-link-why, .pay-link .pay-link-none { margin: 2px 0 6px; }
 .pay-link-list { max-height: 220px; overflow-y: auto; }
 .pay-or { margin-top: 12px; }
+.cal-usual { font-size: 12px; }
 
 /* Settle-up breakdown: why the amount is what it is */
 #settle-breakdown { margin: 10px 0 4px; }
