@@ -1875,3 +1875,219 @@ def activity_digest(db, since=None, now=None):
                       in sorted(by_action.items(), key=lambda kv: (-kv[1], kv[0]))],
         "pending_approvals": pending,
     }
+
+
+# ─────────────── receipts (INVENTORY-DESIGN, receipt-scan amendment) ───────
+# Read-time helpers for the receipt review sheet. Nothing here is stored: the
+# "memory" of how a printed line maps to a pantry item is just the newest
+# confirmed receipt_lines row with the same printed text, found on read.
+
+RECEIPT_CHARGE_WINDOW_DAYS = 3
+
+
+def receipt_text_key(text):
+    """A printed receipt line reduced to what identifies it: case-folded,
+    punctuation to spaces, whitespace collapsed ("GV 2% MLK  GAL." →
+    "gv 2% mlk gal"). Digits and % are kept — "2%" vs "1%" milk, a SKU."""
+    return " ".join(re.sub(r"[^0-9a-z%]+", " ", (text or "").casefold()).split())
+
+
+def receipt_store_key(store):
+    """A store name reduced for comparison: letters and digits only
+    ("Trader Joe's" and "TRADER JOES" → "traderjoes")."""
+    return re.sub(r"[^0-9a-z]+", "", (store or "").casefold())
+
+
+def _name_words(text):
+    return set(re.findall(r"[0-9a-z]+", (text or "").casefold()))
+
+
+def receipt_store_names(db):
+    """Every store name the household already uses — on pantry items (#014)
+    and on saved receipts — one spelling per store (the most common, then the
+    newest), A→Z. Feeds the review sheet's store suggestions so "SHOPRITE #312"
+    becomes the "ShopRite" the shopping list already groups by."""
+    counts = {}
+    for r in db.execute(
+            "SELECT store FROM items WHERE active = 1 AND store IS NOT NULL "
+            "UNION ALL SELECT store FROM receipts WHERE active = 1"):
+        counts[r[0]] = counts.get(r[0], 0) + 1
+    best = {}
+    for name, n in counts.items():
+        key = receipt_store_key(name)
+        if not key:
+            continue
+        if key not in best or n > counts[best[key]]:
+            best[key] = name
+    return sorted(best.values(), key=str.casefold)
+
+
+def receipt_canonical_store(db, store=None):
+    """The household's own spelling of a store, when the receipt's name is
+    the same store (equal keys, or one key starting the other — "shoprite"
+    vs "shopriteofpiscataway"); otherwise the name as read."""
+    key = receipt_store_key(store)
+    if not key:
+        return store
+    for name in receipt_store_names(db):
+        other = receipt_store_key(name)
+        if other == key or (len(other) >= 4 and key.startswith(other)) \
+                or (len(key) >= 4 and other.startswith(key)):
+            return name
+    return store
+
+
+def receipt_line_suggestions(db, store=None, lines=None):
+    """What the review sheet should pre-select for each receipt line.
+
+    lines — [{raw_text, name, kind, item_hint}] as the reader returned them
+    (name = a cleaned-up product name, kind ∈ product|fee|discount|other,
+    item_hint = the reader's guess at an existing item id, or None).
+
+    For each line, in order, the first rule that fires:
+      1. remembered — the newest saved line with the same printed text at this
+         store says what it was: that item (if still active), or skip;
+      2. remembered — the same, at any store;
+      3. guess — the reader's item_hint, if it names an active item;
+      4. name — an active item whose name is the cleaned name, or whose every
+         word appears in it ("Milk" in "2% milk, gallon");
+      5. new — a product line becomes a new staple under its cleaned name;
+         anything else (a fee, tax, a discount) is skipped.
+    Returns one {action, item_id, name, source} per line, same order. Reads
+    items and receipt tables only — no transaction is read, so no inflow can
+    reach it. Bare call (no lines) → []."""
+    if not lines:
+        return []
+    items = {r["id"]: r for r in db.execute(
+        "SELECT id, name, kind FROM items WHERE active = 1")}
+    store_key = receipt_store_key(store)
+    at_store, anywhere = {}, {}
+    for r in db.execute(
+            "SELECT l.raw_text, l.item_id, rc.store FROM receipt_lines l "
+            "JOIN receipts rc ON rc.id = l.receipt_id WHERE rc.active = 1 "
+            "ORDER BY rc.id DESC, l.position"):
+        key = receipt_text_key(r["raw_text"])
+        if not key:
+            continue
+        anywhere.setdefault(key, r["item_id"])
+        if receipt_store_key(r["store"]) == store_key:
+            at_store.setdefault(key, r["item_id"])
+
+    by_name = {}
+    for r in sorted(items.values(), key=lambda r: r["id"]):
+        by_name.setdefault(r["name"].casefold(), r)
+
+    def remembered(memory, key):
+        if key not in memory:
+            return None
+        item_id = memory[key]
+        if item_id is None:
+            return {"action": "skip", "item_id": None, "name": None,
+                    "source": "remembered"}
+        if item_id in items:
+            return {"action": "item", "item_id": item_id,
+                    "name": items[item_id]["name"], "source": "remembered"}
+        return None   # the remembered item is gone — decide afresh
+
+    out = []
+    for line in lines:
+        key = receipt_text_key(line.get("raw_text"))
+        clean = (line.get("name") or "").strip()
+        pick = remembered(at_store, key) or remembered(anywhere, key)
+        hint = line.get("item_hint")
+        if pick is None and isinstance(hint, int) and hint in items:
+            pick = {"action": "item", "item_id": hint,
+                    "name": items[hint]["name"], "source": "guess"}
+        if pick is None and clean:
+            row = by_name.get(clean.casefold())
+            if row is None:
+                words = _name_words(clean) | _name_words(line.get("raw_text"))
+                fits = [r for r in items.values()
+                        if _name_words(r["name"]) and _name_words(r["name"]) <= words]
+                # The most specific fit wins ("Oat milk" over "Milk"); ties → oldest.
+                fits.sort(key=lambda r: (-len(_name_words(r["name"])), r["id"]))
+                row = fits[0] if fits else None
+            if row is not None:
+                pick = {"action": "item", "item_id": row["id"],
+                        "name": row["name"], "source": "name"}
+        if pick is None:
+            if line.get("kind") == "product" and clean:
+                pick = {"action": "new", "item_id": None, "name": clean,
+                        "source": "new"}
+            else:
+                pick = {"action": "skip", "item_id": None, "name": clean or None,
+                        "source": "not an item"}
+        out.append(pick)
+    return out
+
+
+def receipt_charge_candidates(db, store=None, purchased_on=None,
+                              total_cents=None, limit=5):
+    """The bank charges a receipt most likely IS: outflows dated within 3 days
+    of the receipt that are not a settlement, not marked as a transfer, not a
+    bill Ledger logged itself, and not already on another saved receipt —
+    qualifying on the exact printed total, or on a store word (≥ 4 letters)
+    in the charge's description.
+
+    Ranked exact total AND store name first, then exact total, then store
+    name; then closest date, then newest. Reads OUTFLOWS only (direction =
+    'out'), so it is not tripwire-exempt. Bare call (no date) → [], so the
+    tripwire can call it with just `db`. Integer cents; stores nothing."""
+    if purchased_on is None:
+        return []
+    try:
+        day = date.fromisoformat(purchased_on)
+    except (TypeError, ValueError):
+        return []
+    start = (day - timedelta(days=RECEIPT_CHARGE_WINDOW_DAYS)).isoformat()
+    end = (day + timedelta(days=RECEIPT_CHARGE_WINDOW_DAYS)).isoformat()
+    store_words = {w for w in _name_words(store) if len(w) >= 4}
+    rows = db.execute(
+        """SELECT t.id, t.txn_date, t.amount_cents, t.description
+           FROM transactions t
+           WHERE t.direction = 'out' AND t.is_transfer = 0
+             AND t.source NOT IN ('settlement', 'bill')
+             AND t.txn_date BETWEEN ? AND ?
+             AND NOT EXISTS (SELECT 1 FROM receipts r
+                             WHERE r.txn_id = t.id AND r.active = 1)""",
+        (start, end)).fetchall()
+    out = []
+    for r in rows:
+        desc_words = _name_words(r["description"])
+        squashed = receipt_store_key(r["description"])
+        name_match = bool(store_words and (
+            store_words & desc_words
+            or any(w in squashed for w in store_words)))
+        exact = total_cents is not None and r["amount_cents"] == total_cents
+        if not (exact or name_match):
+            continue
+        out.append({
+            "txn_id": r["id"], "txn_date": r["txn_date"],
+            "amount_cents": r["amount_cents"], "description": r["description"],
+            "exact_total": exact, "store_match": name_match,
+            "days_from_receipt": (date.fromisoformat(r["txn_date"]) - day).days,
+        })
+    out.sort(key=lambda c: (not (c["exact_total"] and c["store_match"]),
+                            not c["exact_total"], not c["store_match"],
+                            abs(c["days_from_receipt"]), -c["txn_id"]))
+    return out[:limit]
+
+
+def receipt_totals_check(lines, tax_cents=None, total_cents=None):
+    """Do the read lines add up to the printed total? A pure check on the
+    reader's draft (no db): the sum of every line price (discounts negative,
+    fees included) plus tax, against the total. Returns
+    {lines_total_cents, missing_prices, expected_cents, difference_cents,
+    adds_up} — adds_up is None when it can't be judged (no total, or a line
+    whose price couldn't be read). Integer cents throughout."""
+    prices = [l.get("price_cents") for l in lines or []]
+    missing = sum(1 for p in prices if p is None)
+    lines_total = sum(p for p in prices if p is not None)
+    computed = lines_total + (tax_cents or 0)
+    adds_up = difference = None
+    if total_cents is not None and not missing:
+        difference = total_cents - computed
+        adds_up = difference == 0
+    return {"lines_total_cents": lines_total, "missing_prices": missing,
+            "expected_cents": computed, "difference_cents": difference,
+            "adds_up": adds_up}

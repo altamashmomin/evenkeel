@@ -1152,7 +1152,8 @@ check("app.js: every bare call resolves — no call to a name that exists nowher
     "confirm", "prompt", "alert", "matchMedia", "JSON", "Object", "Array",
     "Number", "String", "Math", "parseInt", "parseFloat", "isNaN", "setTimeout",
     "setInterval", "requestAnimationFrame", "structuredClone", "Boolean",
-    "RegExp", "Symbol", "WeakMap", "console", "document", "window", "localStorage"]);
+    "RegExp", "Symbol", "WeakMap", "console", "document", "window", "localStorage",
+    "FormData", "createImageBitmap"]);
   const defined = new Set();
   for (const m of app.matchAll(/function\s+([a-zA-Z_$][\w$]*)/g)) defined.add(m[1]);
   for (const m of app.matchAll(/(?:const|let|var)\s+([a-zA-Z_$][\w$]*)/g)) defined.add(m[1]);
@@ -1792,6 +1793,94 @@ check("Track as bill: no bills arg renders exactly as before (no buttons)", () =
   const h = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]));
   assert.ok(!h.includes("data-bill-from-recurring"));
   assert.ok(h.includes("NETFLIX") && h.includes("monthly"));
+});
+
+
+// ---- receipt scan review sheet ----
+const rMoney = (cents) => ({ cents, display: R.fmt(cents / 100) });
+const receiptDraft = (over = {}) => ({
+  store: "ShopRite", store_as_read: "SHOPRITE #312", purchased_on: "2026-11-01",
+  subtotal: rMoney(898), tax: rMoney(0), total: rMoney(898),
+  lines: [
+    { raw_text: "GV 2% MLK GAL", name: "2% milk, gallon", kind: "product",
+      quantity: 1, price: rMoney(399),
+      suggestion: { action: "item", item_id: 7, name: "Milk", source: "remembered" } },
+    { raw_text: "BANANAS <b>", name: "Bananas", kind: "product", quantity: 2,
+      price: rMoney(499),
+      suggestion: { action: "new", item_id: null, name: "Bananas", source: "new" } },
+    { raw_text: "BAG FEE", name: "Bag fee", kind: "fee", quantity: 1, price: null,
+      suggestion: { action: "skip", item_id: null, name: "Bag fee", source: "not an item" } },
+  ],
+  check: { lines_total: rMoney(898), expected: rMoney(898), difference: rMoney(0),
+           missing_prices: 0, adds_up: true },
+  charges: [{ txn_id: 41, txn_date: "2026-11-01", amount: rMoney(898),
+              description: "SHOPRITE 312", exact_total: true, store_match: true }],
+  stores: ["ShopRite", "Trader Joe's"],
+  items: [{ id: 7, name: "Milk", kind: "staple", status: "low" },
+          { id: 9, name: "Eggs", kind: "staple", status: "stocked" }],
+  ...over,
+});
+
+check("receiptReviewHTML pre-selects each line's suggestion", () => {
+  const html = R.receiptReviewHTML(receiptDraft());
+  assert.ok(/value="item:7" selected/.test(html), "remembered restock picked");
+  assert.ok(/data-rcpt-action="1"[\s\S]*?value="new" selected/.test(html), "new picked");
+  assert.ok(/data-rcpt-action="2"[\s\S]*?value="skip" selected/.test(html), "skip picked");
+  assert.ok(html.includes("Milk (low)"), "status shown in picker");
+  assert.ok(html.includes("Remembered") && html.includes("Not an item"));
+});
+
+check("receiptReviewHTML shows the name field only for a new line", () => {
+  const html = R.receiptReviewHTML(receiptDraft());
+  const field = (i) => html.match(new RegExp(`data-rcpt-name="${i}"[^>]*>`))[0];
+  assert.ok(!/hidden/.test(field(1)), "new line's name is visible");
+  assert.ok(/hidden/.test(field(0)) && /hidden/.test(field(2)));
+  assert.ok(/value="Bananas"/.test(field(1)));
+});
+
+check("receiptReviewHTML escapes receipt text (it came off a photo)", () => {
+  const html = R.receiptReviewHTML(receiptDraft());
+  assert.ok(html.includes("BANANAS &lt;b&gt;") && !html.includes("BANANAS <b>"));
+});
+
+check("receiptReviewHTML pre-checks only a charge matching total AND store", () => {
+  const strong = R.receiptReviewHTML(receiptDraft());
+  assert.ok(/value="41" checked/.test(strong));
+  const weak = R.receiptReviewHTML(receiptDraft({ charges: [
+    { txn_id: 41, txn_date: "2026-11-02", amount: rMoney(898), description: "POS 1",
+      exact_total: true, store_match: false }] }));
+  assert.ok(!/value="41" checked/.test(weak));
+  assert.ok(/value="" checked/.test(weak), "None of these is the default");
+  const none = R.receiptReviewHTML(receiptDraft({ charges: [] }));
+  assert.ok(!none.includes("rcpt-txn"), "no charge block without candidates");
+});
+
+check("receiptReviewHTML says nothing changes money", () => {
+  assert.ok(R.receiptReviewHTML(receiptDraft()).includes("No transaction, balance or split changes"));
+});
+
+check("receiptCheckText covers adds-up, mismatch, missing price, no total", () => {
+  assert.strictEqual(R.receiptCheckText(receiptDraft()), "The lines add up to the total, $8.98.");
+  assert.ok(R.receiptCheckText(receiptDraft({ check: { expected: rMoney(798),
+    missing_prices: 0, adds_up: false } })).includes("come to $7.98, but the receipt says $8.98"));
+  assert.ok(R.receiptCheckText(receiptDraft({ check: { missing_prices: 1, adds_up: null } }))
+    .startsWith("1 line had no readable price"));
+  assert.strictEqual(R.receiptCheckText(receiptDraft({ total: null })),
+    "No total was read from the receipt.");
+});
+
+check("receiptTallyText and receiptSavedText read plainly", () => {
+  assert.strictEqual(R.receiptTallyText({ item: 2, new: 1, skip: 3 }),
+    "2 restocked · 1 new · 3 skipped");
+  assert.strictEqual(R.receiptTallyText({ item: 0, new: 0, skip: 0 }), "Nothing to save");
+  assert.strictEqual(R.receiptSavedText({ receipt: { store: "ShopRite" },
+    restocked: [{ id: 7 }], added: [{ id: 10 }, { id: 11 }], skipped: 1 }),
+    "Saved the receipt from ShopRite: restocked 1, added 2 new, skipped 1.");
+});
+
+check("inventoryHTML offers the receipt scan button", () => {
+  const html = R.inventoryHTML({ items: [], shopping: [], low_count: 0 }, "2026-11-03");
+  assert.ok(html.includes('id="inv-scan"'));
 });
 
 console.log(`render tests passed (${passed} checks)`);

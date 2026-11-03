@@ -16,13 +16,14 @@ from urllib.parse import urlsplit
 from dotenv import load_dotenv
 from flask import Flask, Response, g, jsonify, redirect, request, session
 from flask_compress import Compress
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 import agent_catalog
 import ask_loop
 import ontology
+import receipt_reader
 from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
 from derivations import (activity_digest, anomaly_flags, bill_link_options,
@@ -37,7 +38,10 @@ from derivations import (activity_digest, anomaly_flags, bill_link_options,
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
                          spending_summary, stale_shopping_items, staple_spend, list_estimate, trip_plan, trip_closure, stale_staples, pantry_pulse, on_the_way,
-                         top_merchants, unmatched_staples)
+                         top_merchants, unmatched_staples,
+                         receipt_canonical_store, receipt_charge_candidates,
+                         receipt_line_suggestions, receipt_store_names,
+                         receipt_totals_check)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -1696,6 +1700,144 @@ def search_transactions_view():
             "paid_by": usernames.get(r["paid_by"]),
         } for r in rows],
     })
+
+
+# ------------------------------- receipt scan (INVENTORY-DESIGN amendment)
+# Photo → draft → the person reviews every line → record_receipt saves it.
+# Reading is a paid model call, so it is session-only (a bearer token can't
+# spend money) and rate-limited like Ask. Photos live in memory for the one
+# call and are never written anywhere.
+
+RECEIPT_READ_MAX, RECEIPT_READ_WINDOW_S = 20, 3600   # 20 reads / hour
+# The app-wide 64KB body cap stays for every other route; this one route lifts
+# it to fit up to 3 photos (Flask ≥ 3.1: per-request max_content_length).
+RECEIPT_UPLOAD_LIMIT = (receipt_reader.MAX_IMAGES * receipt_reader.MAX_IMAGE_BYTES
+                        + 64 * 1024)
+
+
+def _money_or_none(cents):
+    return money(cents) if cents is not None else None
+
+
+def _receipt_draft_json(db, draft):
+    """The reader's draft plus everything the review sheet pre-fills: the
+    household's spelling of the store, a suggestion per line, the totals
+    check, likely bank charges, and the pickers' choices."""
+    store_read = draft["store"]
+    store = receipt_canonical_store(db, store_read) or store_read
+    suggestions = receipt_line_suggestions(db, store, draft["lines"])
+    check = receipt_totals_check(draft["lines"], draft["tax_cents"],
+                                 draft["total_cents"])
+    charges = receipt_charge_candidates(db, store, draft["purchased_on"],
+                                        draft["total_cents"])
+    items = db.execute(
+        "SELECT id, name, kind, status FROM items WHERE active = 1 "
+        "ORDER BY name COLLATE NOCASE").fetchall()
+    return {
+        "store": store,
+        "store_as_read": store_read,
+        "purchased_on": draft["purchased_on"],
+        "subtotal": _money_or_none(draft["subtotal_cents"]),
+        "tax": _money_or_none(draft["tax_cents"]),
+        "total": _money_or_none(draft["total_cents"]),
+        "lines": [{
+            "raw_text": line["raw_text"], "name": line["name"],
+            "kind": line["kind"], "quantity": line["quantity"],
+            "price": _money_or_none(line["price_cents"]),
+            "suggestion": s,
+        } for line, s in zip(draft["lines"], suggestions)],
+        "check": {
+            "lines_total": money(check["lines_total_cents"]),
+            "expected": money(check["expected_cents"]),
+            "difference": _money_or_none(check["difference_cents"]),
+            "missing_prices": check["missing_prices"],
+            "adds_up": check["adds_up"],
+        },
+        "charges": [{
+            "txn_id": c["txn_id"], "txn_date": c["txn_date"],
+            "amount": money(c["amount_cents"]), "description": c["description"],
+            "exact_total": c["exact_total"], "store_match": c["store_match"],
+        } for c in charges],
+        "stores": receipt_store_names(db),
+        "items": [{"id": r["id"], "name": r["name"], "kind": r["kind"],
+                   "status": r["status"]} for r in items],
+    }
+
+
+@app.post("/api/receipts/read")
+@session_required
+def read_receipt_photos():
+    """Read 1–3 receipt photos (multipart, field 'photo') into a draft for the
+    review sheet. Saves nothing. 503 with no API key, 502 if the read fails,
+    429 past the hourly cap."""
+    request.max_content_length = RECEIPT_UPLOAD_LIMIT
+    try:
+        photos = request.files.getlist("photo")
+    except RequestEntityTooLarge:
+        return jsonify({"error": "those photos are too large — "
+                                 "try fewer or smaller ones"}), 413
+    photos = [p for p in photos if p and p.filename is not None]
+    if not photos:
+        return bad_request("add a photo of the receipt")
+    if len(photos) > receipt_reader.MAX_IMAGES:
+        return bad_request(f"up to {receipt_reader.MAX_IMAGES} photos per receipt")
+    images = []
+    for p in photos:
+        data = p.read(receipt_reader.MAX_IMAGE_BYTES + 1)
+        if len(data) > receipt_reader.MAX_IMAGE_BYTES:
+            return jsonify({"error": "each photo must be under 5 MB"}), 413
+        media_type = receipt_reader.sniff_media_type(data)
+        if media_type is None:
+            return bad_request("that file isn't a photo (JPEG, PNG, WebP or GIF)")
+        images.append((data, media_type))
+    rl_key = f"receipt:{session['user_id']}"
+    if _rate_over(rl_key, RECEIPT_READ_MAX, RECEIPT_READ_WINDOW_S):
+        return jsonify({"error": "that's a lot of receipts in a short time — "
+                                 "give it a few minutes"}), 429
+    _rate_hit(rl_key, RECEIPT_READ_WINDOW_S)
+    db = get_db()
+    pantry = [{"id": r["id"], "name": r["name"]} for r in db.execute(
+        "SELECT id, name FROM items WHERE active = 1 ORDER BY id")]
+    try:
+        draft = receipt_reader.read_receipt(images, pantry)
+    except receipt_reader.NotConfigured:
+        return jsonify({"error": "Receipt reading isn't set up yet — no API key "
+                                 "is configured on the server."}), 503
+    except receipt_reader.ReadFailed as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify(_receipt_draft_json(db, draft))
+
+
+@app.post("/api/receipts")
+@session_required
+def save_receipt():
+    """Thin caller: the record_receipt verb owns validation and the edit.
+    Session-only, like the read — the review sheet is a person's screen."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        result = actions.record_receipt(db, ui_actor(db), data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    receipt = result["receipt"]
+    ids = result["restocked"] + result["added"]
+    names = {r["id"]: r["name"] for r in db.execute(
+        f"SELECT id, name FROM items WHERE id IN ({','.join('?' * len(ids))})",
+        ids)} if ids else {}
+
+    def named(id_list):
+        return [{"id": i, "name": names.get(i)} for i in id_list]
+
+    return jsonify({
+        "receipt": {"id": receipt["id"], "store": receipt["store"],
+                    "purchased_on": receipt["purchased_on"],
+                    "total": _money_or_none(receipt["total_cents"]),
+                    "txn_id": receipt["txn_id"]},
+        "restocked": named(result["restocked"]), "added": named(result["added"]),
+        "skipped": result["skipped"], "stores_set": result["stores_set"],
+    }), 201
 
 
 @app.post("/api/ask")

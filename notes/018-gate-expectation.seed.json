@@ -1,0 +1,8 @@
+{
+  "note": "Migration #018 (receipts + receipt_lines -- the receipt-scan pantry input). Adds TWO new, empty tables: no existing table changes and no rows are written, so the new tables enter row_counts at 0 and the only changed row count is the schema_version record the migration itself inserts. No money derivation reads either table, and the verb that writes them (record_receipt) writes only receipts, receipt_lines, items and audit_log, never a transaction, split, link or bill payment, so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 17, "new": 18},
+    {"path": "row_counts.receipts", "old": null, "new": 0},
+    {"path": "row_counts.receipt_lines", "old": null, "new": 0}
+  ]
+}

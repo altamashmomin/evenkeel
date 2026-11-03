@@ -4477,3 +4477,23 @@ so, plus the iPhone "Remove Alerts" caveat for subscribed calendars. Read-only
 feed, no migration. The plan's optional Ask/MCP "mark rent paid / link it" tool
 is NOT built (it needs its own two-phase design pass). Suite **780** (+4),
 render **191**. GATE PASS **zero-diff**. Awaits Alta's review, merge and deploy.
+
+**Nov 3, 2026 — receipt scan: photo → reviewed pantry update (on
+`claude/receipt-scan`, NOT deployed).** Alta's ask: photograph a receipt so the
+pantry updates itself and each item learns its store. Migration **#018**
+(`receipts`, `receipt_lines`; photos never stored), verb **`record_receipt`**
+(restock / add new staple / skip per line, all-or-nothing, double-save guard,
+store filled only where empty, optional link to the bank charge, pantry tables
+only), read-time derivations (`receipt_line_suggestions` with remembered-line
+memory, `receipt_canonical_store`, `receipt_store_names`,
+`receipt_charge_candidates` outflows-only, pure `receipt_totals_check`),
+`receipt_reader.py` (one strict-tool Anthropic call, untrusted output bounded,
+caller-safe errors), `POST /api/receipts/read` (session-only, rate-limited,
+per-route upload cap; the app-wide 64KB cap stays) and `POST /api/receipts`,
+and the review sheet. Flask floor raised to 3.1 for per-request
+`max_content_length`. See the INVENTORY-DESIGN receipt-scan amendment. Tests:
+`test_receipts.py` (+27, including "no money table changes" snapshots and a
+balance check), suite **831**, render **199** (+8). GATE PASS against synthetic
+seed-42 dev.db: exactly the enumerated diff (schema 17→18, two empty tables).
+Re-gate on the Pi before deploy. Not browser-smoked; the reader is exercised with a
+fake client only. Awaits Alta's review, merge and deploy.
