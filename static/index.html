@@ -83,6 +83,12 @@
 <dialog id="dlg-recat" class="sheet">
   <div id="recat-body"></div>
 </dialog>
+<dialog id="dlg-receipt" class="sheet">
+  <div id="receipt-body"></div>
+</dialog>
+<!-- Receipt photos: opened by "Scan a receipt"; never stored (the server reads
+     them for one model call and keeps only the lines you confirm). -->
+<input type="file" id="receipt-file" accept="image/*" multiple hidden>
 <dialog id="dlg-txn">
   <form method="dialog" id="form-txn">
     <h2 id="txn-title">Add expense</h2>

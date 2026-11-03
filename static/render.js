@@ -1298,6 +1298,7 @@
       <div class="section-head">
         <p class="eyebrow" style="margin:0">The pantry</p>
         ${data.low_count > 0 ? `<span class="badge due">${data.low_count} running low</span>` : ""}
+        <button type="button" class="btn small inv-scan" id="inv-scan">📷 Scan a receipt</button>
       </div>
       ${closureCard}
       ${restockCard}
@@ -1524,6 +1525,9 @@
         <p>Bills, savings-goal dates, and shopping deadlines can show up right in your phone's calendar app — and they keep themselves up to date. Tap once, subscribe, done. A bill that isn't paid yet reminds you at 9 AM two days before it's due (autopay bills stay quiet). If they don't show on an iPhone, turn off &ldquo;Remove Alerts&rdquo; in that subscribed calendar's settings.</p>
         <div class="help-cal" id="help-cal"><button class="btn" id="help-cal-btn" type="button">📅 Get my calendar link</button></div>
 
+        <h3 class="help-h">Back from the store? Snap the receipt.</h3>
+        <p>On the Pantry tab, tap <b>📷 Scan a receipt</b> and take a photo (up to 3 for a long one). You'll see every line and what it will do: restock, add as new, or skip. Nothing changes until you tap Save. It remembers your choices for next time, and it never touches money.</p>
+
         <h3 class="help-h">The tabs, at a glance.</h3>
         <p>If you'd rather poke around than ask, tap one:</p>
         <div class="help-tabs">${tabRows}</div>
@@ -1599,6 +1603,117 @@
          <div class="dlg-actions"><span class="spacer"></span>
            <button class="btn ghost" type="button" id="recat-cancel">Close</button></div>`;
     return `<p class="sheet-title">Recategorize · ${esc(category)} · ${esc(monthLabel)}</p>${body}`;
+  }
+
+  // ---- receipt scan (INVENTORY-DESIGN, receipt-scan amendment) ----
+  // The review sheet: what the reader saw on the receipt, each line with a
+  // pre-picked choice (restock an item, add a new staple, or skip) that the
+  // person can change before anything is saved. Pure: (draft) → markup.
+  const RECEIPT_SOURCE_LABEL = {
+    remembered: "Remembered", guess: "Best guess", name: "Matched by name",
+    new: "New", "not an item": "Not an item",
+  };
+
+  function receiptCheckText(draft) {
+    const c = (draft && draft.check) || {};
+    const total = draft && draft.total;
+    if (!total) return "No total was read from the receipt.";
+    if (c.missing_prices > 0)
+      return `${c.missing_prices} line${c.missing_prices === 1 ? "" : "s"} had no readable price, so the total can't be checked.`;
+    if (c.adds_up) return `The lines add up to the total, ${total.display}.`;
+    return `The lines come to ${c.expected ? c.expected.display : "?"}, but the receipt says ${total.display}. A line may be missing or misread.`;
+  }
+
+  function receiptTallyText(counts) {
+    const parts = [];
+    if (counts.item) parts.push(`${counts.item} restocked`);
+    if (counts.new) parts.push(`${counts.new} new`);
+    if (counts.skip) parts.push(`${counts.skip} skipped`);
+    return parts.length ? parts.join(" · ") : "Nothing to save";
+  }
+
+  function receiptSavedText(result) {
+    const r = result || {};
+    const n = (a) => (a || []).length;
+    const parts = [];
+    if (n(r.restocked)) parts.push(`restocked ${n(r.restocked)}`);
+    if (n(r.added)) parts.push(`added ${n(r.added)} new`);
+    if (r.skipped) parts.push(`skipped ${r.skipped}`);
+    const store = r.receipt && r.receipt.store ? ` from ${r.receipt.store}` : "";
+    return parts.length
+      ? `Saved the receipt${store}: ${parts.join(", ")}.`
+      : `Saved the receipt${store}.`;
+  }
+
+  function receiptLineSelectHTML(i, s, items) {
+    const opt = (value, label, selected) =>
+      `<option value="${esc(value)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
+    const picked = s.action === "item" ? `item:${s.item_id}` : s.action;
+    return `<select class="rcpt-action" data-rcpt-action="${i}" aria-label="What this line is">
+      ${opt("skip", "Skip (not a pantry item)", picked === "skip")}
+      ${opt("new", "Add as a new staple", picked === "new")}
+      ${items.length ? `<optgroup label="Restock">${items.map((it) =>
+        opt(`item:${it.id}`, it.name + (it.status && it.status !== "stocked" ? ` (${it.status})` : ""),
+            picked === `item:${it.id}`)).join("")}</optgroup>` : ""}
+    </select>`;
+  }
+
+  function receiptReviewHTML(draft) {
+    const d = draft || {};
+    const items = d.items || [];
+    const lines = d.lines || [];
+    const charges = d.charges || [];
+    const strong = charges.length && charges[0].exact_total && charges[0].store_match
+      ? charges[0].txn_id : null;
+    const chargeHTML = charges.length ? `
+      <p class="lbl">Is this one of these bank charges? <span class="rcpt-hint">(optional)</span></p>
+      <div class="rcpt-charges">
+        ${charges.map((c) => `<label class="rcpt-charge">
+          <input type="radio" name="rcpt-txn" value="${c.txn_id}"${c.txn_id === strong ? " checked" : ""}>
+          <span class="grow"><span class="title">${esc(c.description)}</span>
+            <span class="sub">${esc(shortDate(c.txn_date))}${c.exact_total ? " · same total" : ""}</span></span>
+          <span class="amt amount">${esc(c.amount.display)}</span>
+        </label>`).join("")}
+        <label class="rcpt-charge"><input type="radio" name="rcpt-txn" value=""${strong ? "" : " checked"}>
+          <span class="grow"><span class="title">None of these</span></span></label>
+      </div>` : "";
+    const rows = lines.map((l, i) => {
+      const s = l.suggestion || { action: "skip" };
+      const qty = l.quantity && l.quantity > 1 ? `${l.quantity} × ` : "";
+      const price = l.price ? esc(l.price.display) : "—";
+      const newName = s.action === "new" ? (s.name || l.name || "") : (l.name || "");
+      return `<div class="rcpt-line" data-rcpt-line="${i}">
+        <div class="rcpt-top">
+          <span class="rcpt-raw">${esc(l.raw_text)}</span>
+          <span class="amt amount">${qty}${price}</span>
+        </div>
+        ${receiptLineSelectHTML(i, s, items)}
+        <input class="rcpt-name" data-rcpt-name="${i}" maxlength="100"
+               value="${esc(newName)}" placeholder="Name for the new staple"
+               aria-label="Name for the new staple"${s.action === "new" ? "" : " hidden"}>
+        <span class="rcpt-why">${esc(RECEIPT_SOURCE_LABEL[s.source] || "")}</span>
+      </div>`;
+    }).join("");
+    return `<p class="sheet-title">Check the receipt</p>
+      <div class="row2">
+        <label>Store
+          <input id="rcpt-store" list="rcpt-stores" maxlength="60" autocomplete="off"
+                 value="${esc(d.store || "")}" required></label>
+        <label>Date <input id="rcpt-date" type="date" value="${esc(d.purchased_on || "")}"></label>
+      </div>
+      <datalist id="rcpt-stores">${(d.stores || []).map((n) =>
+        `<option value="${esc(n)}"></option>`).join("")}</datalist>
+      <p class="rcpt-check${d.check && d.check.adds_up ? " ok" : ""}">${esc(receiptCheckText(d))}</p>
+      ${chargeHTML}
+      <p class="lbl">${lines.length} line${lines.length === 1 ? "" : "s"}</p>
+      <div class="rcpt-lines">${rows}</div>
+      <div class="dlg-actions">
+        <button class="btn ghost" type="button" id="rcpt-cancel">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn primary" type="button" id="rcpt-save">Save</button>
+      </div>
+      <p class="rcpt-tally" id="rcpt-tally"></p>
+      <p class="recat-note">Saving only updates the pantry. No transaction, balance or split changes. The photo isn't kept.</p>`;
   }
 
   // ---- state-injected row renderers ----
@@ -1943,6 +2058,7 @@
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,
+           receiptReviewHTML, receiptCheckText, receiptTallyText, receiptSavedText,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            budgetStatusHTML,

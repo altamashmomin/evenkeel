@@ -15,7 +15,8 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
         beamHTML, txnRow, calendarAgendaHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
-        pendingApprovalsHTML } = window.Render;
+        pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
+        receiptSavedText } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -423,6 +424,127 @@ async function openRecatSheet(category) {
   dlgRecat.showModal();
 }
 dlgRecat?.addEventListener("click", (e) => { if (e.target === dlgRecat) dlgRecat.close(); });
+
+/* ---- receipt scan (INVENTORY-DESIGN, receipt-scan amendment) ----
+   Pantry "Scan a receipt" → pick 1–3 photos → the server reads them into a
+   draft (nothing saved) → the review sheet, where every line's choice can be
+   changed → Save calls record_receipt. Pantry-only: no money moves. No
+   backdrop-tap close on this sheet, so a stray tap can't lose a review. */
+const dlgReceipt = $("#dlg-receipt");
+const receiptFile = $("#receipt-file");
+
+// Phone photos are 3–12 MP; reading needs ~2000px on the long side. Shrink on
+// the device (faster upload, well under the 5 MB cap) and re-encode as JPEG,
+// which also turns an iPhone HEIC into a type the server accepts. Any decode
+// failure falls back to the original file (the server checks its type).
+async function shrinkPhoto(file, maxSide = 2000) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    if (bmp.close) bmp.close();
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.85));
+    return blob || file;
+  } catch (_) {
+    return file;
+  }
+}
+
+function receiptMessage(title, text) {
+  $("#receipt-body").innerHTML = `<p class="sheet-title">${esc(title)}</p>
+    <p class="rcpt-busy">${esc(text)}</p>
+    <div class="dlg-actions"><span class="spacer"></span>
+      <button class="btn ghost" type="button" id="rcpt-close">Close</button></div>`;
+  $("#rcpt-close").addEventListener("click", () => dlgReceipt.close());
+}
+
+async function scanReceipt(files) {
+  const photos = Array.from(files || []).slice(0, 3);
+  if (!photos.length) return;
+  $("#receipt-body").innerHTML = `<p class="sheet-title">Reading the receipt…</p>
+    <p class="rcpt-busy">Hang on while it reads every line.</p>`;
+  if (!dlgReceipt.open) dlgReceipt.showModal();
+  let draft;
+  try {
+    const form = new FormData();
+    for (const [i, f] of photos.entries())
+      form.append("photo", await shrinkPhoto(f), `receipt-${i + 1}.jpg`);
+    const res = await fetch("/api/receipts/read", { method: "POST", body: form });
+    if (res.status === 401) { dlgReceipt.close(); showAuth(); return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
+    draft = data;
+  } catch (err) {
+    receiptMessage("Couldn't read it", err.message);
+    return;
+  }
+  openReceiptReview(draft);
+}
+
+function openReceiptReview(draft) {
+  const body = $("#receipt-body");
+  body.innerHTML = receiptReviewHTML(draft);
+  const lines = draft.lines || [];
+  const actionOf = (i) => $(`[data-rcpt-action="${i}"]`, body).value;
+  const tally = () => {
+    const counts = { item: 0, new: 0, skip: 0 };
+    lines.forEach((_, i) => {
+      const v = actionOf(i);
+      counts[v.startsWith("item:") ? "item" : v] += 1;
+    });
+    $("#rcpt-tally").textContent = receiptTallyText(counts);
+  };
+  $$(".rcpt-action", body).forEach((sel) => sel.addEventListener("change", () => {
+    const name = $(`[data-rcpt-name="${sel.dataset.rcptAction}"]`, body);
+    name.hidden = sel.value !== "new";
+    if (!name.hidden && !name.value.trim()) name.focus();
+    tally();
+  }));
+  tally();
+  $("#rcpt-cancel").addEventListener("click", () => dlgReceipt.close());
+  const saveBtn = $("#rcpt-save");
+  saveBtn.addEventListener("click", async () => {
+    const storeInput = $("#rcpt-store");
+    const store = storeInput.value.trim();
+    if (!store) { storeInput.focus(); return; }
+    const out = [];
+    for (const [i, l] of lines.entries()) {
+      const v = actionOf(i);
+      const line = { raw_text: l.raw_text, quantity: l.quantity,
+                     price_cents: l.price ? l.price.cents : null };
+      if (v.startsWith("item:")) out.push({ ...line, action: "item", item_id: +v.slice(5) });
+      else if (v === "new") {
+        const nameInput = $(`[data-rcpt-name="${i}"]`, body);
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+        out.push({ ...line, action: "new", name });
+      } else out.push({ ...line, action: "skip" });
+    }
+    const txn = $('input[name="rcpt-txn"]:checked', body);
+    const payload = {
+      store, purchased_on: $("#rcpt-date").value || null,
+      total_cents: draft.total ? draft.total.cents : null,
+      txn_id: txn && txn.value ? +txn.value : null,
+      lines: out,
+    };
+    saveBtn.disabled = true;
+    try {
+      const result = await api("/api/receipts", { method: "POST", body: payload });
+      receiptMessage("Saved", receiptSavedText(result));
+      render();
+    } catch (err) {
+      $("#rcpt-tally").textContent = err.message;
+      saveBtn.disabled = false;
+    }
+  });
+}
+receiptFile?.addEventListener("change", () => {
+  const files = receiptFile.files;
+  if (files && files.length) scanReceipt(files);
+});
 
 // Per-tab row stashes the tap/edit handlers read (findTxn, bill/goal/budget
 // edit, the pantry match editor). Cleared at the top of every render so a tab
@@ -1009,6 +1131,13 @@ function wireMain() {
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemMissed, "out")));
   // "Got everything": one restock_items call marks the whole list bought
   // (all-or-nothing server-side; per-row "Got it" stays for partial trips).
+  // Scan a receipt: open the photo picker (the hidden input lives outside the
+  // re-rendered view, so its change listener is wired once, above).
+  $("#inv-scan")?.addEventListener("click", () => {
+    if (!receiptFile) return;
+    receiptFile.value = "";
+    receiptFile.click();
+  });
   $("#inv-got-all")?.addEventListener("click", async (e) => {
     const ids = e.currentTarget.dataset.gotAll.split(",").map(Number);
     if (!confirm(`Mark all ${ids.length} as bought?`)) return;
