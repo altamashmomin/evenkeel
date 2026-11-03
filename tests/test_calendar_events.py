@@ -72,6 +72,13 @@ class CalendarEventsTests(unittest.TestCase):
         self.assertEqual(9000, first["amount_cents"])
         self.assertFalse(first["paid"])
 
+    def test_bill_events_carry_autopay_for_the_reminder(self):
+        bill_id = self._bill("Electric", 9000, 15)
+        self.assertFalse(calendar_events(self.db, as_of=AS_OF)[0]["autopay"])
+        self.db.execute("UPDATE bills SET autopay = 1 WHERE id = ?", (bill_id,))
+        self.db.commit()
+        self.assertTrue(all(e["autopay"] for e in calendar_events(self.db, as_of=AS_OF)))
+
     def test_due_day_clamps_to_short_months(self):
         self._bill("Rent", 120000, 31)
         events = calendar_events(self.db, as_of="2026-01-10", months_ahead=4)

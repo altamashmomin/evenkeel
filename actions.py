@@ -26,6 +26,7 @@ import hashlib
 from werkzeug.security import check_password_hash, generate_password_hash
 import json
 import secrets
+from urllib.parse import urlsplit
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -54,6 +55,7 @@ GOVERNED_TABLES = frozenset({
     "transactions", "splits", "links", "goals", "goal_contributions",
     "bills", "bill_payments", "audit_log", "income_rules", "members",
     "api_tokens", "pending_actions", "items", "budgets",
+    "receipts", "receipt_lines",
 })
 
 
@@ -575,8 +577,10 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
     share fields well-formed. Messages and check order are the deployed
     route's, frozen.
     edit — one transaction: the bill's transaction row (source 'bill',
-    dated today, amount and category from the bill), its split rows, the
-    bill_payments row, and the audit row.
+    dated today, category from the bill; amount = the optional `amount` the
+    caller sends — what was actually paid — else the bill's usual amount),
+    its split rows (payer_share_pct, default 50), the bill_payments row, and
+    the audit row.
     side effects — none yet.
     Returns (bill_row, period) for the route's bill_to_json response.
     """
@@ -599,6 +603,24 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
         pct = parse_share_bp(data.get("payer_share_pct", 50)) / 100
         if is_shared and len(members) != 2:
             raise ActionError("shared transactions require exactly two active members")
+        # What was actually paid this time. Absent/blank = the bill's usual
+        # amount (the pre-existing behaviour, frozen); utilities vary month to
+        # month, so the dialog can send the real figure. bill_variance then
+        # reports it against the usual amount with no further change.
+        raw_amount = data.get("amount")
+        if raw_amount is None or (isinstance(raw_amount, str) and not raw_amount.strip()):
+            cents = bill["amount_cents"]
+        else:
+            if isinstance(raw_amount, bool):
+                raise ActionError("invalid amount")
+            try:
+                cents = to_cents(raw_amount)
+            except (ValueError, OverflowError):
+                raise ActionError("invalid amount")
+            if cents <= 0:
+                raise ActionError("amount must be positive")
+            if cents > _MAX_MONEY_CENTS:
+                raise ActionError("amount is too large")
 
         today = date.today().isoformat()
         # direction='out' explicit, not by column default: compute_balance
@@ -610,7 +632,7 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
                (txn_date, amount_cents, description, category, paid_by,
                 is_shared, source, direction)
                VALUES (?, ?, ?, ?, ?, ?, 'bill', 'out')""",
-            (today, bill["amount_cents"], f"{bill['name']} ({period})",
+            (today, cents, f"{bill['name']} ({period})",
              bill["category"], paid_by, is_shared))
         txn_id = cur.lastrowid
         write_legacy_two_member_splits(
@@ -622,7 +644,7 @@ def mark_bill_paid(db, actor, bill_id, data, default_paid_by):
         _write_audit(
             db, actor, "mark_bill_paid", f"bill:{bill_id}",
             {"period": period, "transaction": txn_id,
-             "amount_cents": bill["amount_cents"], "paid_by": paid_by})
+             "amount_cents": cents, "paid_by": paid_by})
     return bill, period
 
 
@@ -630,11 +652,14 @@ def unmark_bill_paid(db, actor, bill_id, period):
     """Undo a bill payment for a period.
 
     validate — a payment for (bill, period) exists (NotFound otherwise).
-    edit — one transaction: remove any links referencing the payment's
-    transaction (invariant 5: links are metadata and revert with it),
-    its split rows, the transaction itself, the bill_payments row, and
-    the audit row.
+    edit — one transaction. When the payment's transaction is the one
+    mark_bill_paid logged (source 'bill'): remove any links referencing it
+    (invariant 5: links are metadata and revert with it), its split rows,
+    the transaction itself, the bill_payments row, and the audit row. When
+    it is a charge link_bill_payment attached (any other source): remove
+    only the bill_payments row and the audit row — the charge stays, untouched.
     side effects — none yet.
+    Returns {"kept_transaction": id or None}.
     """
     with action_transaction(db):
         payment = db.execute(
@@ -644,12 +669,82 @@ def unmark_bill_paid(db, actor, bill_id, period):
             raise NotFound("no payment for this period")
         txn_id = payment["txn_id"]
         bill = db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
-        deleted = delete_transaction_graph(db, txn_id) if txn_id else None
+        txn = (db.execute("SELECT id, source FROM transactions WHERE id = ?",
+                          (txn_id,)).fetchone() if txn_id else None)
+        # Only the transaction mark_bill_paid itself logged (source 'bill') is
+        # the payment's own and goes with it. A charge that link_bill_payment
+        # attached (a synced bank debit, a manual entry) is real spending that
+        # existed before the link and must outlive the unlink — never delete it.
+        kept = None
+        if txn is not None and txn["source"] != "bill":
+            deleted, kept = None, txn["id"]
+        else:
+            deleted = delete_transaction_graph(db, txn_id) if txn_id else None
         db.execute("DELETE FROM bill_payments WHERE id = ?", (payment["id"],))
+        detail = {"period": period, "bill": dict(bill) if bill else None,
+                  "payment": dict(payment), "deleted": deleted}
+        if kept is not None:
+            detail["kept_transaction"] = kept
+        _write_audit(db, actor, "unmark_bill_paid", f"bill:{bill_id}", detail)
+    return {"kept_transaction": kept}
+
+
+def link_bill_payment(db, actor, bill_id, data):
+    """Record that an EXISTING transaction is what paid a bill for a period —
+    "this bank charge is the rent" — instead of logging a second one.
+
+    mark_bill_paid logs a new transaction; when SimpleFIN has already imported
+    the real debit, that counts the bill twice (in spend and in who-owes-whom).
+    This verb links the bill to the charge that's already there and creates no
+    transaction, split, or link — the money numbers are exactly what they were
+    before the call.
+
+    validate — an active bill with this id exists (NotFound otherwise); period
+    shape (YYYY-MM); txn_id is an integer id; no payment exists for the period;
+    the transaction exists (NotFound otherwise); it is money going out
+    (direction 'out'), not a settlement and not marked as a transfer; and it
+    doesn't already pay a bill (one charge pays one bill for one month).
+    edit — one transaction: the bill_payments row (paid_on = the charge's own
+    date) and the audit row.
+    side effects — none.
+    Returns (bill_row, period) for the route's bill_to_json response.
+    """
+    with action_transaction(db):
+        bill = db.execute(
+            "SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
+        if bill is None:
+            raise NotFound("not found")
+        period = data.get("period") or current_period()
+        if not isinstance(period, str) or len(period) != 7 or period[4] != "-":
+            raise ActionError("period must be YYYY-MM")
+        txn_id = data.get("txn_id")
+        if isinstance(txn_id, bool) or not isinstance(txn_id, int) or txn_id <= 0:
+            raise ActionError("txn_id must be a transaction id")
+        if db.execute("SELECT id FROM bill_payments WHERE bill_id = ? AND period = ?",
+                      (bill_id, period)).fetchone():
+            raise ActionError("already marked paid for this period")
+        txn = db.execute(
+            "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+        if txn is None:
+            raise NotFound("transaction not found")
+        if txn["direction"] != "out":
+            raise ActionError("only money going out can pay a bill")
+        if txn["source"] == "settlement":
+            raise ActionError("a settlement can't pay a bill")
+        if txn["is_transfer"]:
+            raise ActionError("a transfer can't pay a bill")
+        if db.execute("SELECT id FROM bill_payments WHERE txn_id = ?",
+                      (txn_id,)).fetchone():
+            raise ActionError("that charge already pays a bill")
+        db.execute(
+            "INSERT INTO bill_payments (bill_id, period, paid_on, txn_id) "
+            "VALUES (?, ?, ?, ?)",
+            (bill_id, period, txn["txn_date"], txn_id))
         _write_audit(
-            db, actor, "unmark_bill_paid", f"bill:{bill_id}",
-            {"period": period, "bill": dict(bill) if bill else None,
-             "payment": dict(payment), "deleted": deleted})
+            db, actor, "link_bill_payment", f"bill:{bill_id}",
+            {"period": period, "transaction": txn_id,
+             "amount_cents": txn["amount_cents"], "txn_date": txn["txn_date"]})
+    return bill, period
 
 
 def create_bill(db, actor, data):
@@ -751,6 +846,81 @@ def delete_bill(db, actor, bill_id):
         db.execute("UPDATE bills SET active = 0 WHERE id = ?", (bill_id,))
         _write_audit(db, actor, "delete_bill", f"bill:{bill_id}",
                      {"bill": dict(bill)})
+
+
+_MAX_PAY_URL_LEN = 300
+
+
+def _clean_pay_url(raw):
+    """Normalize a bill's pay-at link: blank clears (None); a bare host like
+    'avalonaccess.com' gains https://; anything that isn't a plain https URL
+    with a real host is refused. Rendered as a link the household taps, so
+    http:, javascript:, userinfo ('me@host') and whitespace are all rejected
+    here, not just escaped at render time."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise ActionError("pay_url must be text")
+    value = raw.strip()
+    if not value:
+        return None
+    if "://" not in value:
+        value = "https://" + value
+    if len(value) > _MAX_PAY_URL_LEN:
+        raise ActionError(f"pay_url must be at most {_MAX_PAY_URL_LEN} characters")
+    if any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ActionError("pay_url must be a single https link")
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname or ""
+    except ValueError:
+        parts, host = None, ""
+    if (parts is None or parts.scheme.lower() != "https" or not host
+            or "." not in host or "@" in parts.netloc):
+        raise ActionError("pay_url must be an https link, e.g. https://example.com")
+    return value
+
+
+def _clean_autopay(raw):
+    if isinstance(raw, bool):
+        return 1 if raw else 0
+    if raw in (0, 1):
+        return int(raw)
+    raise ActionError("autopay must be true or false")
+
+
+def set_bill_pay_details(db, actor, bill_id, data):
+    """Record where a bill is paid and whether it's on autopay (migration
+    #017) — the Calendar tab's "pay at …" link and autopay mark.
+
+    validate — an active bill with this id exists (NotFound otherwise);
+    at least one of `pay_url` / `autopay` is present; pay_url is a plain
+    https link (a bare host gains https://; blank clears it); autopay is a
+    boolean. A key absent from the payload keeps its current value.
+    edit — one transaction: the two columns and the audit row with the
+    before/after pair. Definition metadata only: no transaction, split,
+    payment, or derivation reads these columns, so no money number moves.
+    side effects — none.
+    Returns the updated bill row.
+    """
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM bills WHERE id = ? AND active = 1", (bill_id,)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        if "pay_url" not in data and "autopay" not in data:
+            raise ActionError("nothing to change: send pay_url and/or autopay")
+        pay_url = (_clean_pay_url(data["pay_url"]) if "pay_url" in data
+                   else existing["pay_url"])
+        autopay = (_clean_autopay(data["autopay"]) if "autopay" in data
+                   else existing["autopay"])
+        db.execute("UPDATE bills SET pay_url = ?, autopay = ? WHERE id = ?",
+                   (pay_url, autopay, bill_id))
+        _write_audit(db, actor, "set_bill_pay_details", f"bill:{bill_id}",
+                     {"before": {"pay_url": existing["pay_url"],
+                                 "autopay": existing["autopay"]},
+                      "after": {"pay_url": pay_url, "autopay": autopay}})
+    return db.execute("SELECT * FROM bills WHERE id = ?", (bill_id,)).fetchone()
 
 
 def create_goal(db, actor, data):
@@ -1632,17 +1802,30 @@ def add_item(db, actor, data):
         # Optional restock-match override (INVENTORY-DESIGN step 5); NULL = the
         # restock_suggestions derivation falls back to the item name.
         restock_match = (data.get("restock_match") or "").strip()[:200] or None
-        now = _now()
-        # A stocked add IS a "just full" moment, so it anchors the manual restock
-        # cadence (restock_forecast counts N days from last_stocked_at); a low/out
-        # add leaves the anchor NULL until the item is first marked stocked.
-        last_stocked_at = now if status == "stocked" else None
-        cur = db.execute(
-            "INSERT INTO items (name, category, kind, status, note, restock_match, "
-            "last_stocked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, category, kind, status, note, restock_match, last_stocked_at, now, now))
-        row = db.execute("SELECT * FROM items WHERE id = ?", (cur.lastrowid,)).fetchone()
-        _write_audit(db, actor, "add_item", f"item:{row['id']}", {"item": dict(row)})
+        row = _insert_item(db, actor, "add_item", name=name, category=category,
+                           kind=kind, status=status, note=note,
+                           restock_match=restock_match)
+    return row
+
+
+def _insert_item(db, actor, verb, *, name, kind, status, category=None,
+                 note=None, restock_match=None, store=None):
+    """The one item INSERT, shared by add_item and record_receipt: the row plus
+    its audit row (attributed to `verb`, carrying the created shape), inside the
+    CALLER's transaction. Values arrive already validated."""
+    now = _now()
+    # A stocked add IS a "just full" moment, so it anchors the manual restock
+    # cadence (restock_forecast counts N days from last_stocked_at); a low/out
+    # add leaves the anchor NULL until the item is first marked stocked.
+    last_stocked_at = now if status == "stocked" else None
+    cur = db.execute(
+        "INSERT INTO items (name, category, kind, status, note, restock_match, "
+        "last_stocked_at, store, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (name, category, kind, status, note, restock_match, last_stocked_at,
+         store, now, now))
+    row = db.execute("SELECT * FROM items WHERE id = ?", (cur.lastrowid,)).fetchone()
+    _write_audit(db, actor, verb, f"item:{row['id']}", {"item": dict(row)})
     return row
 
 
@@ -2133,6 +2316,212 @@ def set_item_snooze(db, actor, item_id, until):
     value = _clean_iso_date(until, "snoozed_until")
     return _set_item_meta(db, actor, "set_item_snooze", item_id,
                           "snoozed_until", value)
+
+
+# ─────────────── receipts (INVENTORY-DESIGN, receipt-scan amendment) ───────
+
+RECEIPT_LINE_ACTIONS = ("item", "new", "skip")
+RECEIPT_MAX_LINES = 150
+RECEIPT_TXN_WINDOW_DAYS = 3
+
+
+def _receipt_int(value, label, *, low, high, allow_none=True):
+    """An optional whole number within [low, high]. bool is refused (True is an
+    int in Python, and a stray checkbox value must not become 1 cent)."""
+    if value is None or value == "":
+        if allow_none:
+            return None
+        raise ActionError(f"{label} is required")
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ActionError(f"{label} must be a whole number")
+    if not low <= value <= high:
+        raise ActionError(f"{label} is out of range")
+    return value
+
+
+def _receipt_text(value, label, limit, *, required=True):
+    if value is not None and not isinstance(value, str):
+        raise ActionError(f"{label} must be text")
+    text = " ".join((value or "").split())[:limit]
+    if required and not text:
+        raise ActionError(f"{label} is required")
+    return text or None
+
+
+def record_receipt(db, actor, data):
+    """Save a reviewed store receipt into the pantry — the receipt-scan input
+    (INVENTORY-DESIGN, receipt-scan amendment). A person photographed a receipt,
+    the app read it, and the person confirmed every line on the review sheet;
+    this verb writes only what they confirmed. Pantry-only — never money.
+
+    data:
+      store         the store name as confirmed ("ShopRite"), required
+      purchased_on  'YYYY-MM-DD' or blank
+      total_cents   the printed total as integer cents, or null
+      txn_id        optional: the bank charge this receipt is (an outflow that
+                    is not a settlement, transfer, or Ledger-logged bill, dated
+                    within 3 days of purchased_on, not on another receipt)
+      lines         1..150 of {raw_text, quantity?, price_cents?, action, ...}
+                    action 'item' + item_id  → restock that pantry item
+                    action 'new'  + name     → add it as a new staple (stocked)
+                    action 'skip'            → keep the line, touch no item
+
+    validate — everything above, ALL before ANY edit (a bad line can't half-
+    apply a receipt); a receipt whose store, date, total and line count match
+    an already-saved one is refused as a double-save.
+    edit — one transaction: the receipts row; each 'new' line becomes a staple
+    (status stocked, store = this store; a second line with the same new name,
+    or a name an active item already has, reuses that item instead of adding a
+    twin); every matched item is marked stocked through the same helper
+    set_item_status uses (a one-off archives itself as bought) with its own
+    audit row; an item with no store gets this one (an existing store is left
+    alone); every line is recorded with the item it became — that row is the
+    mapping memory the next review sheet reads; one audit row for the receipt.
+    Writes receipts, receipt_lines, items and audit_log only — never a
+    transaction, split, link, or bill payment.
+    Returns {receipt, restocked, added, skipped, stores_set}.
+    """
+    if not isinstance(data, dict):
+        raise ActionError("send the reviewed receipt as an object")
+    with action_transaction(db):
+        store = _receipt_text(data.get("store"), "store", 60)
+        purchased_on = _clean_iso_date(data.get("purchased_on"), "purchased_on")
+        total_cents = _receipt_int(data.get("total_cents"), "total_cents",
+                                   low=0, high=_MAX_MONEY_CENTS)
+        txn_id = _receipt_int(data.get("txn_id"), "txn_id", low=1,
+                              high=_MAX_MONEY_CENTS)
+        lines = data.get("lines")
+        if not isinstance(lines, list) or not lines:
+            raise ActionError("lines must be a non-empty list")
+        if len(lines) > RECEIPT_MAX_LINES:
+            raise ActionError(f"too many lines in one receipt (max {RECEIPT_MAX_LINES})")
+
+        clean = []
+        items_by_id = {}
+        for n, line in enumerate(lines, start=1):
+            if not isinstance(line, dict):
+                raise ActionError(f"line {n} must be an object")
+            raw_text = _receipt_text(line.get("raw_text"), f"line {n} text", 120)
+            quantity = _receipt_int(line.get("quantity"), f"line {n} quantity",
+                                    low=1, high=999)
+            price_cents = _receipt_int(line.get("price_cents"), f"line {n} price",
+                                       low=-_MAX_MONEY_CENTS, high=_MAX_MONEY_CENTS)
+            action = line.get("action")
+            if action not in RECEIPT_LINE_ACTIONS:
+                raise ActionError(f"line {n} action must be 'item', 'new' or 'skip'")
+            entry = {"raw_text": raw_text, "quantity": quantity,
+                     "price_cents": price_cents, "action": action}
+            if action == "item":
+                item_id = _receipt_int(line.get("item_id"), f"line {n} item_id",
+                                       low=1, high=_MAX_MONEY_CENTS, allow_none=False)
+                row = db.execute("SELECT * FROM items WHERE id = ?",
+                                 (item_id,)).fetchone()
+                if row is None or not row["active"]:
+                    raise NotFound(f"item {item_id} not found")
+                items_by_id[item_id] = row
+                entry["item_id"] = item_id
+            elif action == "new":
+                entry["name"] = _receipt_text(line.get("name"), f"line {n} name", 100)
+            clean.append(entry)
+
+        if txn_id is not None:
+            txn = db.execute(
+                "SELECT id, txn_date, direction, is_transfer, source "
+                "FROM transactions WHERE id = ?", (txn_id,)).fetchone()
+            if txn is None:
+                raise NotFound(f"transaction {txn_id} not found")
+            if (txn["direction"] != "out" or txn["is_transfer"]
+                    or txn["source"] in ("settlement", "bill")):
+                raise ActionError("a receipt can only be linked to a purchase")
+            if purchased_on is not None:
+                gap = abs((date.fromisoformat(txn["txn_date"])
+                           - date.fromisoformat(purchased_on)).days)
+                if gap > RECEIPT_TXN_WINDOW_DAYS:
+                    raise ActionError("that charge is too far from the receipt's date")
+            taken = db.execute(
+                "SELECT id FROM receipts WHERE txn_id = ? AND active = 1",
+                (txn_id,)).fetchone()
+            if taken is not None:
+                raise ActionError("that charge is already linked to another receipt")
+
+        dupe = db.execute(
+            "SELECT r.id FROM receipts r WHERE r.active = 1 "
+            "AND lower(r.store) = lower(?) AND r.purchased_on IS ? "
+            "AND r.total_cents IS ? AND (SELECT COUNT(*) FROM receipt_lines l "
+            "WHERE l.receipt_id = r.id) = ?",
+            (store, purchased_on, total_cents, len(clean))).fetchone()
+        if dupe is not None:
+            raise ActionError("this receipt looks like it's already saved")
+
+        # ---- edit ----
+        now = _now()
+        cur = db.execute(
+            "INSERT INTO receipts (store, purchased_on, total_cents, txn_id, "
+            "created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (store, purchased_on, total_cents, txn_id, actor, now))
+        receipt_id = cur.lastrowid
+
+        # New names resolve to ONE item each: an active item that already has
+        # the name wins (no twin), and two lines adding "Milk" add it once.
+        active_by_name = {}
+        for r in db.execute("SELECT * FROM items WHERE active = 1 ORDER BY id"):
+            active_by_name.setdefault(r["name"].casefold(), r)
+        added = []
+        for entry in clean:
+            if entry["action"] != "new":
+                continue
+            key = entry["name"].casefold()
+            row = active_by_name.get(key)
+            if row is None:
+                row = _insert_item(db, actor, "record_receipt", name=entry["name"],
+                                   kind="staple", status="stocked", store=store)
+                active_by_name[key] = row
+                added.append(row["id"])
+                entry["item_id"] = row["id"]
+            elif row["id"] in added:
+                entry["item_id"] = row["id"]  # second line, same new item
+            else:
+                entry["item_id"] = row["id"]
+                items_by_id.setdefault(row["id"], row)
+                entry["action"] = "item"     # restock the existing one instead
+
+        restocked = []
+        for entry in clean:
+            if entry["action"] != "item" or entry["item_id"] in restocked:
+                continue
+            restocked.append(entry["item_id"])
+        rows = {}
+        for item_id in restocked:
+            rows[item_id] = _apply_item_status(
+                db, actor, "record_receipt", items_by_id[item_id], "stocked")
+
+        stores_set = []
+        for item_id, row in rows.items():
+            if row["store"] is None:
+                db.execute("UPDATE items SET store = ? WHERE id = ?", (store, item_id))
+                _write_audit(db, actor, "record_receipt", f"item:{item_id}",
+                             {"before": {"store": None}, "after": {"store": store},
+                              "receipt_id": receipt_id})
+                stores_set.append(item_id)
+
+        skipped = 0
+        for position, entry in enumerate(clean):
+            if entry["action"] == "skip":
+                skipped += 1
+            db.execute(
+                "INSERT INTO receipt_lines (receipt_id, position, raw_text, "
+                "quantity, price_cents, item_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (receipt_id, position, entry["raw_text"], entry["quantity"],
+                 entry["price_cents"], entry.get("item_id")))
+
+        receipt = db.execute("SELECT * FROM receipts WHERE id = ?",
+                             (receipt_id,)).fetchone()
+        _write_audit(db, actor, "record_receipt", f"receipt:{receipt_id}",
+                     {"receipt": dict(receipt), "lines": len(clean),
+                      "restocked": restocked, "added": added,
+                      "skipped": skipped, "stores_set": stores_set})
+    return {"receipt": receipt, "restocked": restocked, "added": added,
+            "skipped": skipped, "stores_set": stores_set}
 
 
 # ─────────────────── declarative action parameters (ACTION-SCHEMA-DESIGN) ──────

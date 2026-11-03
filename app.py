@@ -16,16 +16,19 @@ from urllib.parse import urlsplit
 from dotenv import load_dotenv
 from flask import Flask, Response, g, jsonify, redirect, request, session
 from flask_compress import Compress
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import actions
 import agent_catalog
 import ask_loop
 import ontology
+import receipt_reader
 from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
-from derivations import (activity_digest, anomaly_flags, bill_variance, budget_status,
+from derivations import (activity_digest, anomaly_flags, bill_link_options,
+                         bill_payment_candidates, bill_variance,
+                         budget_status,
                          calendar_events, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
                          settle_breakdown,
@@ -35,7 +38,10 @@ from derivations import (activity_digest, anomaly_flags, bill_variance, budget_s
                          recurring_charges, restock_forecast, restock_suggestions,
                          savings_rate_trend, shopping_list,
                          spending_summary, stale_shopping_items, staple_spend, list_estimate, trip_plan, trip_closure, stale_staples, pantry_pulse, on_the_way,
-                         top_merchants, unmatched_staples)
+                         top_merchants, unmatched_staples,
+                         receipt_canonical_store, receipt_charge_candidates,
+                         receipt_line_suggestions, receipt_store_names,
+                         receipt_totals_check)
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv()
@@ -1696,6 +1702,144 @@ def search_transactions_view():
     })
 
 
+# ------------------------------- receipt scan (INVENTORY-DESIGN amendment)
+# Photo → draft → the person reviews every line → record_receipt saves it.
+# Reading is a paid model call, so it is session-only (a bearer token can't
+# spend money) and rate-limited like Ask. Photos live in memory for the one
+# call and are never written anywhere.
+
+RECEIPT_READ_MAX, RECEIPT_READ_WINDOW_S = 20, 3600   # 20 reads / hour
+# The app-wide 64KB body cap stays for every other route; this one route lifts
+# it to fit up to 3 photos (Flask ≥ 3.1: per-request max_content_length).
+RECEIPT_UPLOAD_LIMIT = (receipt_reader.MAX_IMAGES * receipt_reader.MAX_IMAGE_BYTES
+                        + 64 * 1024)
+
+
+def _money_or_none(cents):
+    return money(cents) if cents is not None else None
+
+
+def _receipt_draft_json(db, draft):
+    """The reader's draft plus everything the review sheet pre-fills: the
+    household's spelling of the store, a suggestion per line, the totals
+    check, likely bank charges, and the pickers' choices."""
+    store_read = draft["store"]
+    store = receipt_canonical_store(db, store_read) or store_read
+    suggestions = receipt_line_suggestions(db, store, draft["lines"])
+    check = receipt_totals_check(draft["lines"], draft["tax_cents"],
+                                 draft["total_cents"])
+    charges = receipt_charge_candidates(db, store, draft["purchased_on"],
+                                        draft["total_cents"])
+    items = db.execute(
+        "SELECT id, name, kind, status FROM items WHERE active = 1 "
+        "ORDER BY name COLLATE NOCASE").fetchall()
+    return {
+        "store": store,
+        "store_as_read": store_read,
+        "purchased_on": draft["purchased_on"],
+        "subtotal": _money_or_none(draft["subtotal_cents"]),
+        "tax": _money_or_none(draft["tax_cents"]),
+        "total": _money_or_none(draft["total_cents"]),
+        "lines": [{
+            "raw_text": line["raw_text"], "name": line["name"],
+            "kind": line["kind"], "quantity": line["quantity"],
+            "price": _money_or_none(line["price_cents"]),
+            "suggestion": s,
+        } for line, s in zip(draft["lines"], suggestions)],
+        "check": {
+            "lines_total": money(check["lines_total_cents"]),
+            "expected": money(check["expected_cents"]),
+            "difference": _money_or_none(check["difference_cents"]),
+            "missing_prices": check["missing_prices"],
+            "adds_up": check["adds_up"],
+        },
+        "charges": [{
+            "txn_id": c["txn_id"], "txn_date": c["txn_date"],
+            "amount": money(c["amount_cents"]), "description": c["description"],
+            "exact_total": c["exact_total"], "store_match": c["store_match"],
+        } for c in charges],
+        "stores": receipt_store_names(db),
+        "items": [{"id": r["id"], "name": r["name"], "kind": r["kind"],
+                   "status": r["status"]} for r in items],
+    }
+
+
+@app.post("/api/receipts/read")
+@session_required
+def read_receipt_photos():
+    """Read 1–3 receipt photos (multipart, field 'photo') into a draft for the
+    review sheet. Saves nothing. 503 with no API key, 502 if the read fails,
+    429 past the hourly cap."""
+    request.max_content_length = RECEIPT_UPLOAD_LIMIT
+    try:
+        photos = request.files.getlist("photo")
+    except RequestEntityTooLarge:
+        return jsonify({"error": "those photos are too large — "
+                                 "try fewer or smaller ones"}), 413
+    photos = [p for p in photos if p and p.filename is not None]
+    if not photos:
+        return bad_request("add a photo of the receipt")
+    if len(photos) > receipt_reader.MAX_IMAGES:
+        return bad_request(f"up to {receipt_reader.MAX_IMAGES} photos per receipt")
+    images = []
+    for p in photos:
+        data = p.read(receipt_reader.MAX_IMAGE_BYTES + 1)
+        if len(data) > receipt_reader.MAX_IMAGE_BYTES:
+            return jsonify({"error": "each photo must be under 5 MB"}), 413
+        media_type = receipt_reader.sniff_media_type(data)
+        if media_type is None:
+            return bad_request("that file isn't a photo (JPEG, PNG, WebP or GIF)")
+        images.append((data, media_type))
+    rl_key = f"receipt:{session['user_id']}"
+    if _rate_over(rl_key, RECEIPT_READ_MAX, RECEIPT_READ_WINDOW_S):
+        return jsonify({"error": "that's a lot of receipts in a short time — "
+                                 "give it a few minutes"}), 429
+    _rate_hit(rl_key, RECEIPT_READ_WINDOW_S)
+    db = get_db()
+    pantry = [{"id": r["id"], "name": r["name"]} for r in db.execute(
+        "SELECT id, name FROM items WHERE active = 1 ORDER BY id")]
+    try:
+        draft = receipt_reader.read_receipt(images, pantry)
+    except receipt_reader.NotConfigured:
+        return jsonify({"error": "Receipt reading isn't set up yet — no API key "
+                                 "is configured on the server."}), 503
+    except receipt_reader.ReadFailed as e:
+        return jsonify({"error": str(e)}), 502
+    return jsonify(_receipt_draft_json(db, draft))
+
+
+@app.post("/api/receipts")
+@session_required
+def save_receipt():
+    """Thin caller: the record_receipt verb owns validation and the edit.
+    Session-only, like the read — the review sheet is a person's screen."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        result = actions.record_receipt(db, ui_actor(db), data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    receipt = result["receipt"]
+    ids = result["restocked"] + result["added"]
+    names = {r["id"]: r["name"] for r in db.execute(
+        f"SELECT id, name FROM items WHERE id IN ({','.join('?' * len(ids))})",
+        ids)} if ids else {}
+
+    def named(id_list):
+        return [{"id": i, "name": names.get(i)} for i in id_list]
+
+    return jsonify({
+        "receipt": {"id": receipt["id"], "store": receipt["store"],
+                    "purchased_on": receipt["purchased_on"],
+                    "total": _money_or_none(receipt["total_cents"]),
+                    "txn_id": receipt["txn_id"]},
+        "restocked": named(result["restocked"]), "added": named(result["added"]),
+        "skipped": result["skipped"], "stores_set": result["stores_set"],
+    }), 201
+
+
 @app.post("/api/ask")
 @session_required
 def ask():
@@ -1835,13 +1979,36 @@ def _ics_summary(e):
     return base + (" — on the way" if e.get("status") == "ordered" else " — need by")
 
 
+# A bill's reminder: 9:00 AM two days before the due date. For an all-day
+# event the trigger counts back from the due day's midnight, so -P1DT15H is
+# day-2 at 09:00 (floating, the phone's own time zone). Change it here.
+BILL_REMINDER_TRIGGER = "-P1DT15H"
+BILL_REMINDER_TEXT = "due in 2 days"
+
+
+def _bill_alarm(e):
+    """A VALARM for a bill occurrence that still needs someone to act: not
+    already paid, and not on autopay (an autopay bill pays itself; a nudge
+    would be noise). Every other event gets none."""
+    if e["kind"] != "bill" or e.get("paid") or e.get("autopay"):
+        return []
+    return [
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        "DESCRIPTION:" + _ics_escape(f"{e['name']} {BILL_REMINDER_TEXT}"),
+        f"TRIGGER:{BILL_REMINDER_TRIGGER}",
+        "END:VALARM",
+    ]
+
+
 def _render_ics(events, as_of):
     """calendar_events rows → an iCalendar document (presentation at the edge,
     like money()/dollars() — the derivation stays pure data). All-day events
     (DATE values, DTEND exclusive next day), stable UIDs so calendar apps
     update in place across refreshes, DTSTAMP pinned to as_of midnight so the
     same day's feed is byte-identical (deterministic, testable). TRANSP:
-    TRANSPARENT — a bill due date must never make anyone 'busy'."""
+    TRANSPARENT — a bill due date must never make anyone 'busy'. An unpaid,
+    non-autopay bill carries a VALARM (BILL_REMINDER_TRIGGER)."""
     stamp = as_of.replace("-", "") + "T000000Z"
     lines = [
         "BEGIN:VCALENDAR", "VERSION:2.0",
@@ -1861,6 +2028,7 @@ def _render_ics(events, as_of):
             f"DTEND;VALUE=DATE:{(day + timedelta(days=1)).strftime('%Y%m%d')}",
             "SUMMARY:" + _ics_escape(_ics_summary(e)),
             "TRANSP:TRANSPARENT",
+            *_bill_alarm(e),
             "END:VEVENT",
         ]
     lines.append("END:VCALENDAR")
@@ -2017,11 +2185,123 @@ def unpay_bill(bill_id):
     db = get_db()
     period = request.args.get("period") or current_period()
     try:
-        actions.unmark_bill_paid(db, actor=ui_actor(db), bill_id=bill_id,
-                                 period=period)
+        result = actions.unmark_bill_paid(db, actor=ui_actor(db), bill_id=bill_id,
+                                          period=period)
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
-    return jsonify({"ok": True})
+    body = {"ok": True}
+    # Only present when the payment was a linked charge that stays in
+    # Activity, so the v1 shape {"ok": true} is unchanged for a logged one.
+    if result and result.get("kept_transaction") is not None:
+        body["kept_transaction"] = result["kept_transaction"]
+    return jsonify(body)
+
+
+@app.post("/api/bills/<int:bill_id>/link")
+@login_required
+def link_bill(bill_id):
+    """Thin caller: the link_bill_payment verb owns validation and the edit
+    (one bill_payments row + audit; no transaction is created)."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        bill, period = actions.link_bill_payment(
+            db, actor=ui_actor(db), bill_id=bill_id, data=data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(bill_to_json(db, bill, period)), 201
+
+
+@app.get("/api/bills/candidates")
+@login_required
+def bill_candidates_view():
+    """Per unpaid bill, the synced charge that looks like it paid it (the
+    Calendar's "Looks paid … Link it?" chip), from bill_payment_candidates.
+    Pure read: linking still goes through POST /api/bills/<id>/link."""
+    db = get_db()
+    period = request.args.get("period") or current_period()
+    if len(period) != 7 or period[4] != "-":
+        return bad_request("period must be YYYY-MM")
+    try:
+        found = bill_payment_candidates(db, period)
+    except ValueError:
+        return bad_request("period must be YYYY-MM")
+    return jsonify({
+        "period": period,
+        "candidates": [{
+            "bill_id": c["bill_id"], "txn_id": c["txn_id"], "date": c["txn_date"],
+            "description": c["description"], "amount": money(c["amount_cents"]),
+            "reason": c["reason"],
+        } for c in found],
+    })
+
+
+@app.get("/api/bills/<int:bill_id>/link-options")
+@login_required
+def bill_link_options_view(bill_id):
+    """The charges that could be linked to this bill for a period, closest
+    amount and date first, from the bill_link_options derivation. Pure read."""
+    db = get_db()
+    period = request.args.get("period") or current_period()
+    if len(period) != 7 or period[4] != "-":
+        return bad_request("period must be YYYY-MM")
+    try:
+        options = bill_link_options(db, bill_id, period)
+    except ValueError:
+        return bad_request("period must be YYYY-MM")
+    return jsonify({
+        "bill_id": bill_id,
+        "period": period,
+        "options": [{
+            "txn_id": o["txn_id"], "date": o["txn_date"],
+            "description": o["description"], "category": o["category"],
+            "source": o["source"], "amount": money(o["amount_cents"]),
+            "amount_diff": money(o["amount_diff_cents"]),
+            "days_from_due": o["days_from_due"],
+        } for o in options],
+    })
+
+
+def bill_pay_details_to_json(r):
+    """Where a bill is paid + whether it's on autopay (migration #017). Its own
+    shape, served beside — never inside — the byte-frozen bill_to_json. The
+    host is derived on read (nothing derived is stored) so the UI can say
+    "pay at avalonaccess.com" without parsing URLs in the browser."""
+    url = r["pay_url"]
+    host = urlsplit(url).hostname if url else None
+    if host and host.startswith("www."):
+        host = host[4:]
+    return {"id": r["id"], "pay_url": url, "pay_host": host,
+            "autopay": bool(r["autopay"])}
+
+
+@app.get("/api/bills/pay-details")
+@login_required
+def list_bill_pay_details():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, pay_url, autopay FROM bills WHERE active = 1 "
+        "ORDER BY due_day, name").fetchall()
+    return jsonify([bill_pay_details_to_json(r) for r in rows])
+
+
+@app.put("/api/bills/<int:bill_id>/pay-details")
+@login_required
+def set_bill_pay_details(bill_id):
+    """Thin caller: the set_bill_pay_details verb owns validation and the
+    edit (two definition columns + audit, one transaction)."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.set_bill_pay_details(
+            db, actor=ui_actor(db), bill_id=bill_id, data=data)
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify(bill_pay_details_to_json(row))
 
 
 # ---------------------------------------------------------------- goals

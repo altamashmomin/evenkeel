@@ -1152,7 +1152,8 @@ check("app.js: every bare call resolves — no call to a name that exists nowher
     "confirm", "prompt", "alert", "matchMedia", "JSON", "Object", "Array",
     "Number", "String", "Math", "parseInt", "parseFloat", "isNaN", "setTimeout",
     "setInterval", "requestAnimationFrame", "structuredClone", "Boolean",
-    "RegExp", "Symbol", "WeakMap", "console", "document", "window", "localStorage"]);
+    "RegExp", "Symbol", "WeakMap", "console", "document", "window", "localStorage",
+    "FormData", "createImageBitmap"]);
   const defined = new Set();
   for (const m of app.matchAll(/function\s+([a-zA-Z_$][\w$]*)/g)) defined.add(m[1]);
   for (const m of app.matchAll(/(?:const|let|var)\s+([a-zA-Z_$][\w$]*)/g)) defined.add(m[1]);
@@ -1507,6 +1508,36 @@ check("calendarAgendaHTML escapes a hostile bill name (no breakout)", () => {
   assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
 });
 
+// ---- calendarAgendaHTML + payDetailHTML: where to pay / autopay (#017) ----
+check("calendarAgendaHTML without details renders exactly as before", () => {
+  const bills = [{ id: 1, name: "Rent", category: "Housing", due_day: 1, amount: 2400, paid_this_period: false }];
+  assert.strictEqual(R.calendarAgendaHTML(bills, "2026-11-15", "2026-11"),
+                     R.calendarAgendaHTML(bills, "2026-11-15", "2026-11", undefined));
+  assert.ok(!R.calendarAgendaHTML(bills, "2026-11-15", "2026-11").includes("cal-paywhere"));
+});
+check("calendarAgendaHTML shows Pay at <host> and autopay from details", () => {
+  const h = R.calendarAgendaHTML([
+    { id: 1, name: "Rent",     category: "Housing",   due_day: 1,  amount: 2400, paid_this_period: false },
+    { id: 2, name: "Electric", category: "Utilities", due_day: 19, amount: 22.63, paid_this_period: false },
+    { id: 3, name: "Internet", category: "Utilities", due_day: 8,  amount: 10,   paid_this_period: false },
+  ], "2026-11-02", "2026-11", {
+    1: { id: 1, pay_url: "https://www.avalonaccess.com", pay_host: "avalonaccess.com", autopay: false },
+    2: { id: 2, pay_url: "https://onepublicgrid.com", pay_host: "onepublicgrid.com", autopay: true },
+  });
+  assert.ok(h.includes('href="https://www.avalonaccess.com"') && h.includes("Pay at avalonaccess.com"));
+  assert.ok(h.includes('rel="noopener noreferrer"') && h.includes('target="_blank"'));
+  assert.ok(h.includes('class="cal-autopay">autopay'), "the autopay bill says so");
+  assert.ok(h.includes("0 of 3 paid · 1 on autopay"), "summary counts autopay bills");
+  assert.strictEqual((h.match(/cal-paywhere/g) || []).length, 2, "the bill with no details gets no line");
+});
+check("payDetailHTML refuses a non-https link and escapes hostile text", () => {
+  assert.strictEqual(R.payDetailHTML(null), "");
+  assert.strictEqual(R.payDetailHTML({ pay_url: "javascript:alert(1)", pay_host: "x", autopay: false }), "");
+  const h = R.payDetailHTML({ pay_url: 'https://a.com/"><script>', pay_host: '<b>x</b>', autopay: false });
+  assert.ok(!h.includes("<script>") && !h.includes("<b>x"), "no markup breakout");
+  assert.ok(h.includes("&quot;&gt;&lt;script&gt;") && h.includes("&lt;b&gt;x"));
+});
+
 // ---- pendingApprovalsHTML: the Home approvals card (F-1 human-confirm) ----
 check("pendingApprovalsHTML: empty -> '' (card hidden when nothing waits)", () => {
   assert.strictEqual(R.pendingApprovalsHTML([]), "");
@@ -1656,6 +1687,200 @@ check("askThreadHTML empty state offers the help link", () => {
   assert.ok(h.includes("data-help"), "help link present on the empty state");
   const busy = R.askThreadHTML([{ role: "user", content: "hi" }], false);
   assert.ok(!busy.includes("data-help"), "not on a live thread");
+});
+
+// ---- payLinkOptionsHTML: the Mark paid dialog's "pick the charge" list ----
+check("payLinkOptionsHTML renders nothing while loading, an honest empty state", () => {
+  assert.strictEqual(R.payLinkOptionsHTML(null), "");
+  assert.ok(R.payLinkOptionsHTML([]).includes("No unlinked bank charges"));
+});
+check("payLinkOptionsHTML lists charges with a Link button and flags an exact amount", () => {
+  const h = R.payLinkOptionsHTML([
+    { txn_id: 41, date: "2026-10-30", description: "AVALON PISCATAWAY", category: "Rent",
+      amount: { cents: 240000, display: "$2,400.00" }, amount_diff: { cents: 0, display: "$0.00" } },
+    { txn_id: 42, date: "2026-11-02", description: "Coffee", category: "Dining",
+      amount: { cents: 510, display: "$5.10" }, amount_diff: { cents: -239490, display: "-$2,394.90" } },
+  ]);
+  assert.ok(h.includes('data-link-txn="41"') && h.includes('data-link-txn="42"'));
+  assert.ok(h.includes("$2,400.00"));
+  assert.strictEqual((h.match(/exact amount/g) || []).length, 1, "only the exact match is flagged");
+  assert.ok(h.includes("without logging it twice"));
+});
+check("payLinkOptionsHTML escapes bank text and coerces the id", () => {
+  const h = R.payLinkOptionsHTML([{ txn_id: '7" onclick="x', date: "2026-10-30",
+    description: "<img src=x onerror=alert(1)>", category: "<b>",
+    amount: { cents: 1, display: "$0.01" }, amount_diff: { cents: 1, display: "$0.01" } }]);
+  assert.ok(!h.includes("<img"), "description escaped");
+  assert.ok(!h.includes("<b>"), "category escaped");
+  assert.ok(h.includes('data-link-txn="NaN"'), "a non-numeric id can't inject an attribute");
+});
+
+// ---- calendarAgendaHTML actuals: a paid bill shows what was actually paid ----
+check("calendarAgendaHTML shows the actual paid amount and the usual when they differ", () => {
+  const bills = [
+    { id: 1, name: "Electric & gas", amount: 140, due_day: 15, category: "Utilities", paid_this_period: true },
+    { id: 2, name: "Rent", amount: 2400, due_day: 1, category: "Rent", paid_this_period: true },
+    { id: 3, name: "Internet", amount: 60, due_day: 20, category: "Utilities", paid_this_period: false },
+  ];
+  const actuals = {
+    1: { actual: { cents: 15137, display: "$151.37" }, defined: { cents: 14000, display: "$140.00" } },
+    2: { actual: { cents: 240000, display: "$2,400.00" }, defined: { cents: 240000, display: "$2,400.00" } },
+    3: { actual: null, defined: { cents: 6000, display: "$60.00" } },
+  };
+  const h = R.calendarAgendaHTML(bills, "2026-11-10", "2026-11", null, actuals);
+  assert.ok(h.includes("$151.37"), "actual shown for the varying bill");
+  assert.strictEqual((h.match(/cal-usual/g) || []).length, 1, "usual shown only where it differs");
+  assert.ok(h.includes("usual $140.00"));
+  const noActuals = R.calendarAgendaHTML(bills, "2026-11-10", "2026-11", null);
+  assert.ok(!noActuals.includes("cal-usual"), "without actuals the old row is unchanged");
+});
+check("calendarAgendaHTML escapes the server's display strings", () => {
+  const bills = [{ id: 1, name: "X", amount: 1, due_day: 1, category: "", paid_this_period: true }];
+  const h = R.calendarAgendaHTML(bills, "2026-11-10", "2026-11", null,
+    { 1: { actual: { cents: 2, display: "<i>2</i>" }, defined: { cents: 1, display: "<i>1</i>" } } });
+  assert.ok(!h.includes("<i>"));
+});
+
+// ---- calendarAgendaHTML candidates: the "Looks paid … Link it?" chip ----
+check("calendarAgendaHTML shows a looks-paid chip only on an unpaid bill with a candidate", () => {
+  const bills = [
+    { id: 1, name: "Rent", amount: 2400, due_day: 1, category: "Rent", paid_this_period: false },
+    { id: 2, name: "Electric", amount: 140, due_day: 15, category: "Utilities", paid_this_period: true },
+    { id: 3, name: "Internet", amount: 60, due_day: 20, category: "Utilities", paid_this_period: false },
+  ];
+  const cands = {
+    1: { bill_id: 1, txn_id: 9, date: "2026-10-30", description: "AVALON",
+         amount: { cents: 240000, display: "$2,400.00" }, reason: "exact amount" },
+    2: { bill_id: 2, txn_id: 10, date: "2026-11-15", description: "X",
+         amount: { cents: 1, display: "$0.01" }, reason: "exact amount" },
+  };
+  const h = R.calendarAgendaHTML(bills, "2026-11-02", "2026-11", null, null, cands);
+  assert.ok(h.includes('data-looks-paid="1"'), "unpaid bill with a candidate gets the chip");
+  assert.ok(!h.includes('data-looks-paid="2"'), "a paid bill never does");
+  assert.ok(!h.includes('data-looks-paid="3"'), "no candidate, no chip");
+  assert.ok(h.includes("Looks paid:") && h.includes("$2,400.00") && h.includes("Link it?"));
+  assert.ok(!R.calendarAgendaHTML(bills, "2026-11-02", "2026-11").includes("data-looks-paid"));
+});
+
+// ---- Track as bill on the Subscriptions card ----
+const recData = (rows) => ({ recurring: rows });
+const rec = (merchant, cents, cadence) => ({ merchant, cadence, predicted_next: "2026-11-07",
+  amount: { cents, display: `$${(cents / 100).toFixed(2)}` } });
+check("Track as bill: a monthly detection with no covering bill gets the button", () => {
+  const h = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]), []);
+  assert.ok(h.includes('data-bill-from-recurring="0"'));
+});
+check("Track as bill: weekly and 'every ~9 days' rows stay informational", () => {
+  const h = R.recurringChargesHTML(recData([rec("A", 100, "weekly"), rec("B", 200, "every ~9 days")]), []);
+  assert.ok(!h.includes("data-bill-from-recurring"));
+});
+check("Track as bill: suppressed by a name match or an exact-cents match", () => {
+  const byName = R.recurringChargesHTML(recData([rec("SPOTIFY", 1199, "monthly")]),
+    [{ name: "Spotify family", defined: { cents: 1799 } }]);
+  assert.ok(!byName.includes("data-bill-from-recurring"));
+  const byCents = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]),
+    [{ name: "Streaming", defined: { cents: 1599 } }]);
+  assert.ok(!byCents.includes("data-bill-from-recurring"));
+});
+check("billCoversCharge unit rows", () => {
+  const r = rec("Netflix", 1599, "monthly");
+  assert.strictEqual(R.billCoversCharge({ name: "netflix premium", defined: { cents: 1 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "flix", defined: { cents: 1 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "TV", defined: { cents: 1599 } }, r), true);
+  assert.strictEqual(R.billCoversCharge({ name: "Hulu", defined: { cents: 1598 } }, r), false);
+});
+check("Track as bill: no bills arg renders exactly as before (no buttons)", () => {
+  const h = R.recurringChargesHTML(recData([rec("NETFLIX", 1599, "monthly")]));
+  assert.ok(!h.includes("data-bill-from-recurring"));
+  assert.ok(h.includes("NETFLIX") && h.includes("monthly"));
+});
+
+
+// ---- receipt scan review sheet ----
+const rMoney = (cents) => ({ cents, display: R.fmt(cents / 100) });
+const receiptDraft = (over = {}) => ({
+  store: "ShopRite", store_as_read: "SHOPRITE #312", purchased_on: "2026-11-01",
+  subtotal: rMoney(898), tax: rMoney(0), total: rMoney(898),
+  lines: [
+    { raw_text: "GV 2% MLK GAL", name: "2% milk, gallon", kind: "product",
+      quantity: 1, price: rMoney(399),
+      suggestion: { action: "item", item_id: 7, name: "Milk", source: "remembered" } },
+    { raw_text: "BANANAS <b>", name: "Bananas", kind: "product", quantity: 2,
+      price: rMoney(499),
+      suggestion: { action: "new", item_id: null, name: "Bananas", source: "new" } },
+    { raw_text: "BAG FEE", name: "Bag fee", kind: "fee", quantity: 1, price: null,
+      suggestion: { action: "skip", item_id: null, name: "Bag fee", source: "not an item" } },
+  ],
+  check: { lines_total: rMoney(898), expected: rMoney(898), difference: rMoney(0),
+           missing_prices: 0, adds_up: true },
+  charges: [{ txn_id: 41, txn_date: "2026-11-01", amount: rMoney(898),
+              description: "SHOPRITE 312", exact_total: true, store_match: true }],
+  stores: ["ShopRite", "Trader Joe's"],
+  items: [{ id: 7, name: "Milk", kind: "staple", status: "low" },
+          { id: 9, name: "Eggs", kind: "staple", status: "stocked" }],
+  ...over,
+});
+
+check("receiptReviewHTML pre-selects each line's suggestion", () => {
+  const html = R.receiptReviewHTML(receiptDraft());
+  assert.ok(/value="item:7" selected/.test(html), "remembered restock picked");
+  assert.ok(/data-rcpt-action="1"[\s\S]*?value="new" selected/.test(html), "new picked");
+  assert.ok(/data-rcpt-action="2"[\s\S]*?value="skip" selected/.test(html), "skip picked");
+  assert.ok(html.includes("Milk (low)"), "status shown in picker");
+  assert.ok(html.includes("Remembered") && html.includes("Not an item"));
+});
+
+check("receiptReviewHTML shows the name field only for a new line", () => {
+  const html = R.receiptReviewHTML(receiptDraft());
+  const field = (i) => html.match(new RegExp(`data-rcpt-name="${i}"[^>]*>`))[0];
+  assert.ok(!/hidden/.test(field(1)), "new line's name is visible");
+  assert.ok(/hidden/.test(field(0)) && /hidden/.test(field(2)));
+  assert.ok(/value="Bananas"/.test(field(1)));
+});
+
+check("receiptReviewHTML escapes receipt text (it came off a photo)", () => {
+  const html = R.receiptReviewHTML(receiptDraft());
+  assert.ok(html.includes("BANANAS &lt;b&gt;") && !html.includes("BANANAS <b>"));
+});
+
+check("receiptReviewHTML pre-checks only a charge matching total AND store", () => {
+  const strong = R.receiptReviewHTML(receiptDraft());
+  assert.ok(/value="41" checked/.test(strong));
+  const weak = R.receiptReviewHTML(receiptDraft({ charges: [
+    { txn_id: 41, txn_date: "2026-11-02", amount: rMoney(898), description: "POS 1",
+      exact_total: true, store_match: false }] }));
+  assert.ok(!/value="41" checked/.test(weak));
+  assert.ok(/value="" checked/.test(weak), "None of these is the default");
+  const none = R.receiptReviewHTML(receiptDraft({ charges: [] }));
+  assert.ok(!none.includes("rcpt-txn"), "no charge block without candidates");
+});
+
+check("receiptReviewHTML says nothing changes money", () => {
+  assert.ok(R.receiptReviewHTML(receiptDraft()).includes("No transaction, balance or split changes"));
+});
+
+check("receiptCheckText covers adds-up, mismatch, missing price, no total", () => {
+  assert.strictEqual(R.receiptCheckText(receiptDraft()), "The lines add up to the total, $8.98.");
+  assert.ok(R.receiptCheckText(receiptDraft({ check: { expected: rMoney(798),
+    missing_prices: 0, adds_up: false } })).includes("come to $7.98, but the receipt says $8.98"));
+  assert.ok(R.receiptCheckText(receiptDraft({ check: { missing_prices: 1, adds_up: null } }))
+    .startsWith("1 line had no readable price"));
+  assert.strictEqual(R.receiptCheckText(receiptDraft({ total: null })),
+    "No total was read from the receipt.");
+});
+
+check("receiptTallyText and receiptSavedText read plainly", () => {
+  assert.strictEqual(R.receiptTallyText({ item: 2, new: 1, skip: 3 }),
+    "2 restocked · 1 new · 3 skipped");
+  assert.strictEqual(R.receiptTallyText({ item: 0, new: 0, skip: 0 }), "Nothing to save");
+  assert.strictEqual(R.receiptSavedText({ receipt: { store: "ShopRite" },
+    restocked: [{ id: 7 }], added: [{ id: 10 }, { id: 11 }], skipped: 1 }),
+    "Saved the receipt from ShopRite: restocked 1, added 2 new, skipped 1.");
+});
+
+check("inventoryHTML offers the receipt scan button", () => {
+  const html = R.inventoryHTML({ items: [], shopping: [], low_count: 0 }, "2026-11-03");
+  assert.ok(html.includes('id="inv-scan"'));
 });
 
 console.log(`render tests passed (${passed} checks)`);

@@ -391,6 +391,10 @@ main {
 }
 .cal-row.cal-today .cal-day b { color: var(--brass-dim); }
 .cal-manage-head { margin: 18px 0 8px; }
+/* where a bill is paid + autopay (migration #017) */
+.cal-row .cal-paywhere { margin-top: 2px; }
+.cal-row .cal-autopay { color: var(--ok); }
+.cal-row .cal-pay { color: var(--brass-dim); text-decoration: underline; }
 
 /* ---------- Pending approvals (F-1 human-confirm) ---------- */
 .card.approvals {
@@ -671,6 +675,12 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .dlg-actions { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
 .dlg-actions .spacer { flex: 1; }
 .pay-summary { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
+.pay-link { margin: 10px 0 4px; }
+.pay-link .pay-link-why, .pay-link .pay-link-none { margin: 2px 0 6px; }
+.pay-link-list { max-height: 220px; overflow-y: auto; }
+.pay-or { margin-top: 12px; }
+.cal-usual { font-size: 12px; }
+.cal-looks-paid { margin-top: 6px; white-space: normal; text-align: left; }
 
 /* Settle-up breakdown: why the amount is what it is */
 #settle-breakdown { margin: 10px 0 4px; }
@@ -992,3 +1002,29 @@ details.key-group[open] summary.key-h::after { transform: rotate(180deg); }
   white-space: pre-wrap; overflow-x: auto;
 }
 .ops-when { color: var(--muted); font-size: 11px; margin-left: 6px; }
+
+/* ---------- receipt scan (pantry → review sheet) ---------- */
+.section-head .inv-scan { margin-left: auto; align-self: center; }
+.section-head .badge + .inv-scan { margin-left: 8px; }
+#dlg-receipt { max-height: 92vh; overflow-y: auto; }
+.rcpt-check { font-size: 13px; color: var(--danger); margin: 12px 0 4px; }
+.rcpt-check.ok { color: var(--ok); }
+.rcpt-hint { color: var(--muted); font-weight: 400; }
+.rcpt-charges { margin: 6px 0 4px; }
+.rcpt-charge { display: flex; align-items: center; gap: 10px; padding: 8px 2px;
+  border-bottom: 1px solid var(--line); cursor: pointer; }
+.rcpt-charge:last-child { border-bottom: none; }
+.rcpt-charge input { flex: none; width: auto; margin: 0; }
+.rcpt-charge .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rcpt-charge .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rcpt-charge .sub { color: var(--muted); font-size: 12px; }
+.rcpt-lines { margin-top: 6px; }
+.rcpt-line { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.rcpt-line:last-child { border-bottom: none; }
+.rcpt-top { display: flex; gap: 10px; align-items: baseline; }
+.rcpt-raw { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px;
+  overflow-wrap: anywhere; }
+.rcpt-line select, .rcpt-line input { margin-top: 6px; padding: 8px 10px; font-size: 14px; }
+.rcpt-why { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.rcpt-tally { font-size: 12px; color: var(--muted); text-align: right; margin: 6px 0 0; }
+.rcpt-busy { text-align: center; color: var(--muted); padding: 28px 8px; }

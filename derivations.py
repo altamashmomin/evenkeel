@@ -433,6 +433,150 @@ def bill_variance(db, period=None):
     return out
 
 
+LINK_WINDOW_DAYS = 10
+
+
+def _period_bounds(period):
+    """First and last calendar date of a YYYY-MM period. Pure date math."""
+    first = _clamped_due_date(period, 1)
+    return first, _clamped_due_date(period, 31)
+
+
+def bill_link_options(db, bill_id=None, period=None, limit=20):
+    """The charges a person could link to a bill for a period (the Mark paid
+    dialog's "Paid from the bank? Pick the charge" list): outflows dated from
+    LINK_WINDOW_DAYS before the period's first day to LINK_WINDOW_DAYS after
+    its last (rent for November is often paid in late October), that are not
+    a settlement, not marked as a transfer, not a bill transaction Ledger
+    logged itself, and not already linked to any bill.
+
+    Ranked closest amount first (to the bill's usual amount), then closest to
+    the bill's due date, then newest. Each row carries its distance on both
+    axes so a caller can say "exact amount" without redoing the math.
+
+    Reads OUTFLOWS only (direction = 'out'), so it is not tripwire-exempt.
+    Both arguments default to None (which returns []) purely so the tripwire
+    can call it with just `db`; real callers always pass them. Integer cents
+    throughout; stores nothing."""
+    if bill_id is None or period is None:
+        return []
+    bill = db.execute(
+        "SELECT id, amount_cents, due_day FROM bills WHERE id = ? AND active = 1",
+        (bill_id,)).fetchone()
+    if bill is None:
+        return []
+    first, last = _period_bounds(period)
+    start = first - timedelta(days=LINK_WINDOW_DAYS)
+    end = last + timedelta(days=LINK_WINDOW_DAYS)
+    due = _clamped_due_date(period, bill["due_day"])
+    rows = db.execute(
+        """SELECT t.id, t.txn_date, t.amount_cents, t.description, t.category,
+                  t.source
+           FROM transactions t
+           WHERE t.direction = 'out' AND t.is_transfer = 0
+             AND t.source NOT IN ('settlement', 'bill')
+             AND t.txn_date BETWEEN ? AND ?
+             AND NOT EXISTS (SELECT 1 FROM bill_payments bp
+                             WHERE bp.txn_id = t.id)""",
+        (start.isoformat(), end.isoformat())).fetchall()
+    out = []
+    for r in rows:
+        days = (date.fromisoformat(r["txn_date"]) - due).days
+        out.append({
+            "txn_id": r["id"], "txn_date": r["txn_date"],
+            "amount_cents": r["amount_cents"], "description": r["description"],
+            "category": r["category"], "source": r["source"],
+            "amount_diff_cents": r["amount_cents"] - bill["amount_cents"],
+            "days_from_due": days,
+        })
+    out.sort(key=lambda o: (abs(o["amount_diff_cents"]), abs(o["days_from_due"]),
+                            -o["txn_id"]))
+    return out if limit is None else out[:limit]
+
+
+LOOKS_PAID_DAYS = 10
+LOOKS_PAID_TOLERANCE_BP = 5000   # ±50% of the usual amount, on a merchant/name match
+
+
+def _name_overlap(bill_name, merchant_key):
+    """True when the bill's normalized name and a charge's merchant key share
+    a meaningful word (≥ 4 letters) — 'Electric & gas (Public Grid)' vs
+    'PUBLIC GRID ENERGY'. Conservative: short words never match."""
+    bill_words = {w for w in _normalize_merchant(bill_name).split() if len(w) >= 4}
+    return bool(bill_words & {w for w in merchant_key.split() if len(w) >= 4})
+
+
+def bill_payment_candidates(db, period=None):
+    """For each active bill NOT yet paid for `period`, the one synced charge
+    that most likely paid it — the Calendar's "Looks paid: Oct 30, $2,400.
+    Link it?" chip. A SUGGESTION only: nothing here writes, and the chip's
+    tap goes through link_bill_payment's own checks and a confirm.
+
+    The pool is bill_link_options (unlinked outflows, never a settlement,
+    transfer or Ledger-logged bill transaction) narrowed to within
+    LOOKS_PAID_DAYS of the bill's due date. A charge qualifies when:
+      - its amount equals the bill's usual amount to the cent ("exact
+        amount"), or
+      - its merchant matches the charge linked to this bill last time
+        ("same as last time") or shares a word with the bill's name ("name
+        match"), AND its amount is within ±50% of the usual (utilities vary).
+    Ranked: same-as-last-time, then name match, then exact amount; ties by
+    amount closeness, then distance from the due date. Each charge is offered
+    to at most one bill (best pairs first), so two bills never claim the same
+    debit.
+
+    Reads OUTFLOWS only. `period` defaults to None (returns []) purely so the
+    tripwire can call it bare; real callers pass a month. Stores nothing."""
+    if period is None:
+        return []
+    bills = db.execute(
+        """SELECT b.id, b.name, b.amount_cents, b.due_day FROM bills b
+           WHERE b.active = 1 AND NOT EXISTS (
+               SELECT 1 FROM bill_payments bp
+               WHERE bp.bill_id = b.id AND bp.period = ?)
+           ORDER BY b.due_day, b.name""", (period,)).fetchall()
+    pairs = []
+    for bill in bills:
+        last = db.execute(
+            """SELECT t.description FROM bill_payments bp
+               JOIN transactions t ON t.id = bp.txn_id
+               WHERE bp.bill_id = ? AND bp.period < ? AND t.source != 'bill'
+                 AND t.direction = 'out'
+               ORDER BY bp.period DESC LIMIT 1""", (bill["id"], period)).fetchone()
+        last_key = _normalize_merchant(last["description"]) if last else ""
+        usual = bill["amount_cents"]
+        for o in bill_link_options(db, bill["id"], period, limit=None):
+            if abs(o["days_from_due"]) > LOOKS_PAID_DAYS:
+                continue
+            key = _normalize_merchant(o["description"])
+            same = bool(last_key) and key == last_key
+            named = bool(key) and _name_overlap(bill["name"], key)
+            exact = o["amount_diff_cents"] == 0
+            near = abs(o["amount_diff_cents"]) * 10000 <= usual * LOOKS_PAID_TOLERANCE_BP
+            if not (exact or ((same or named) and near)):
+                continue
+            reason = ("same as last time" if same else
+                      "name match" if named else "exact amount")
+            rank = 0 if same else 1 if named else 2
+            pairs.append(((rank, abs(o["amount_diff_cents"]), abs(o["days_from_due"]),
+                           -o["txn_id"], bill["id"]), bill, o, reason))
+    pairs.sort(key=lambda p: p[0])
+    taken_bills, taken_txns, out = set(), set(), []
+    for _, bill, o, reason in pairs:
+        if bill["id"] in taken_bills or o["txn_id"] in taken_txns:
+            continue
+        taken_bills.add(bill["id"])
+        taken_txns.add(o["txn_id"])
+        out.append({
+            "bill_id": bill["id"], "name": bill["name"],
+            "txn_id": o["txn_id"], "txn_date": o["txn_date"],
+            "amount_cents": o["amount_cents"], "description": o["description"],
+            "amount_diff_cents": o["amount_diff_cents"], "reason": reason,
+        })
+    out.sort(key=lambda c: (c["bill_id"]))
+    return out
+
+
 def cash_flow_forecast(db, period=None):
     """Projected month-end NET CASH FLOW for `period` — a conservative floor
     (analytics Tier B #14): where this month lands if the only thing left to
@@ -1628,7 +1772,8 @@ def calendar_events(db, as_of=None, months_ahead=3):
       `months_ahead` months starting at as_of's month (current month included
       even when the due day has passed — a paid bill shows its ✓). `paid` is
       the existence of the (bill, period) row in bill_payments; amounts are
-      the bill's DEFINED cents (no transactions read).
+      the bill's DEFINED cents (no transactions read). `autopay` (#017) lets
+      the feed skip the reminder for a bill that pays itself.
     - goal: each goal with a target_date on/after as_of.
     - item: every shopping_list / on_the_way row carrying a need_by, kept
       while need_by is no more than 14 days past as_of (recent misses still
@@ -1651,7 +1796,7 @@ def calendar_events(db, as_of=None, months_ahead=3):
     paid = {(r["bill_id"], r["period"]) for r in db.execute(
         f"SELECT bill_id, period FROM bill_payments WHERE period IN ({marks})",
         periods)}
-    for b in db.execute("SELECT id, name, amount_cents, due_day FROM bills "
+    for b in db.execute("SELECT id, name, amount_cents, due_day, autopay FROM bills "
                         "WHERE active = 1 ORDER BY due_day, name"):
         for period in periods:
             events.append({
@@ -1659,6 +1804,7 @@ def calendar_events(db, as_of=None, months_ahead=3):
                 "date": _clamped_due_date(period, b["due_day"]).isoformat(),
                 "name": b["name"], "amount_cents": b["amount_cents"],
                 "paid": (b["id"], period) in paid,
+                "autopay": bool(b["autopay"]),
             })
 
     for g in db.execute("SELECT id, name, target_cents, target_date FROM goals "
@@ -1729,3 +1875,219 @@ def activity_digest(db, since=None, now=None):
                       in sorted(by_action.items(), key=lambda kv: (-kv[1], kv[0]))],
         "pending_approvals": pending,
     }
+
+
+# ─────────────── receipts (INVENTORY-DESIGN, receipt-scan amendment) ───────
+# Read-time helpers for the receipt review sheet. Nothing here is stored: the
+# "memory" of how a printed line maps to a pantry item is just the newest
+# confirmed receipt_lines row with the same printed text, found on read.
+
+RECEIPT_CHARGE_WINDOW_DAYS = 3
+
+
+def receipt_text_key(text):
+    """A printed receipt line reduced to what identifies it: case-folded,
+    punctuation to spaces, whitespace collapsed ("GV 2% MLK  GAL." →
+    "gv 2% mlk gal"). Digits and % are kept — "2%" vs "1%" milk, a SKU."""
+    return " ".join(re.sub(r"[^0-9a-z%]+", " ", (text or "").casefold()).split())
+
+
+def receipt_store_key(store):
+    """A store name reduced for comparison: letters and digits only
+    ("Trader Joe's" and "TRADER JOES" → "traderjoes")."""
+    return re.sub(r"[^0-9a-z]+", "", (store or "").casefold())
+
+
+def _name_words(text):
+    return set(re.findall(r"[0-9a-z]+", (text or "").casefold()))
+
+
+def receipt_store_names(db):
+    """Every store name the household already uses — on pantry items (#014)
+    and on saved receipts — one spelling per store (the most common, then the
+    newest), A→Z. Feeds the review sheet's store suggestions so "SHOPRITE #312"
+    becomes the "ShopRite" the shopping list already groups by."""
+    counts = {}
+    for r in db.execute(
+            "SELECT store FROM items WHERE active = 1 AND store IS NOT NULL "
+            "UNION ALL SELECT store FROM receipts WHERE active = 1"):
+        counts[r[0]] = counts.get(r[0], 0) + 1
+    best = {}
+    for name, n in counts.items():
+        key = receipt_store_key(name)
+        if not key:
+            continue
+        if key not in best or n > counts[best[key]]:
+            best[key] = name
+    return sorted(best.values(), key=str.casefold)
+
+
+def receipt_canonical_store(db, store=None):
+    """The household's own spelling of a store, when the receipt's name is
+    the same store (equal keys, or one key starting the other — "shoprite"
+    vs "shopriteofpiscataway"); otherwise the name as read."""
+    key = receipt_store_key(store)
+    if not key:
+        return store
+    for name in receipt_store_names(db):
+        other = receipt_store_key(name)
+        if other == key or (len(other) >= 4 and key.startswith(other)) \
+                or (len(key) >= 4 and other.startswith(key)):
+            return name
+    return store
+
+
+def receipt_line_suggestions(db, store=None, lines=None):
+    """What the review sheet should pre-select for each receipt line.
+
+    lines — [{raw_text, name, kind, item_hint}] as the reader returned them
+    (name = a cleaned-up product name, kind ∈ product|fee|discount|other,
+    item_hint = the reader's guess at an existing item id, or None).
+
+    For each line, in order, the first rule that fires:
+      1. remembered — the newest saved line with the same printed text at this
+         store says what it was: that item (if still active), or skip;
+      2. remembered — the same, at any store;
+      3. guess — the reader's item_hint, if it names an active item;
+      4. name — an active item whose name is the cleaned name, or whose every
+         word appears in it ("Milk" in "2% milk, gallon");
+      5. new — a product line becomes a new staple under its cleaned name;
+         anything else (a fee, tax, a discount) is skipped.
+    Returns one {action, item_id, name, source} per line, same order. Reads
+    items and receipt tables only — no transaction is read, so no inflow can
+    reach it. Bare call (no lines) → []."""
+    if not lines:
+        return []
+    items = {r["id"]: r for r in db.execute(
+        "SELECT id, name, kind FROM items WHERE active = 1")}
+    store_key = receipt_store_key(store)
+    at_store, anywhere = {}, {}
+    for r in db.execute(
+            "SELECT l.raw_text, l.item_id, rc.store FROM receipt_lines l "
+            "JOIN receipts rc ON rc.id = l.receipt_id WHERE rc.active = 1 "
+            "ORDER BY rc.id DESC, l.position"):
+        key = receipt_text_key(r["raw_text"])
+        if not key:
+            continue
+        anywhere.setdefault(key, r["item_id"])
+        if receipt_store_key(r["store"]) == store_key:
+            at_store.setdefault(key, r["item_id"])
+
+    by_name = {}
+    for r in sorted(items.values(), key=lambda r: r["id"]):
+        by_name.setdefault(r["name"].casefold(), r)
+
+    def remembered(memory, key):
+        if key not in memory:
+            return None
+        item_id = memory[key]
+        if item_id is None:
+            return {"action": "skip", "item_id": None, "name": None,
+                    "source": "remembered"}
+        if item_id in items:
+            return {"action": "item", "item_id": item_id,
+                    "name": items[item_id]["name"], "source": "remembered"}
+        return None   # the remembered item is gone — decide afresh
+
+    out = []
+    for line in lines:
+        key = receipt_text_key(line.get("raw_text"))
+        clean = (line.get("name") or "").strip()
+        pick = remembered(at_store, key) or remembered(anywhere, key)
+        hint = line.get("item_hint")
+        if pick is None and isinstance(hint, int) and hint in items:
+            pick = {"action": "item", "item_id": hint,
+                    "name": items[hint]["name"], "source": "guess"}
+        if pick is None and clean:
+            row = by_name.get(clean.casefold())
+            if row is None:
+                words = _name_words(clean) | _name_words(line.get("raw_text"))
+                fits = [r for r in items.values()
+                        if _name_words(r["name"]) and _name_words(r["name"]) <= words]
+                # The most specific fit wins ("Oat milk" over "Milk"); ties → oldest.
+                fits.sort(key=lambda r: (-len(_name_words(r["name"])), r["id"]))
+                row = fits[0] if fits else None
+            if row is not None:
+                pick = {"action": "item", "item_id": row["id"],
+                        "name": row["name"], "source": "name"}
+        if pick is None:
+            if line.get("kind") == "product" and clean:
+                pick = {"action": "new", "item_id": None, "name": clean,
+                        "source": "new"}
+            else:
+                pick = {"action": "skip", "item_id": None, "name": clean or None,
+                        "source": "not an item"}
+        out.append(pick)
+    return out
+
+
+def receipt_charge_candidates(db, store=None, purchased_on=None,
+                              total_cents=None, limit=5):
+    """The bank charges a receipt most likely IS: outflows dated within 3 days
+    of the receipt that are not a settlement, not marked as a transfer, not a
+    bill Ledger logged itself, and not already on another saved receipt —
+    qualifying on the exact printed total, or on a store word (≥ 4 letters)
+    in the charge's description.
+
+    Ranked exact total AND store name first, then exact total, then store
+    name; then closest date, then newest. Reads OUTFLOWS only (direction =
+    'out'), so it is not tripwire-exempt. Bare call (no date) → [], so the
+    tripwire can call it with just `db`. Integer cents; stores nothing."""
+    if purchased_on is None:
+        return []
+    try:
+        day = date.fromisoformat(purchased_on)
+    except (TypeError, ValueError):
+        return []
+    start = (day - timedelta(days=RECEIPT_CHARGE_WINDOW_DAYS)).isoformat()
+    end = (day + timedelta(days=RECEIPT_CHARGE_WINDOW_DAYS)).isoformat()
+    store_words = {w for w in _name_words(store) if len(w) >= 4}
+    rows = db.execute(
+        """SELECT t.id, t.txn_date, t.amount_cents, t.description
+           FROM transactions t
+           WHERE t.direction = 'out' AND t.is_transfer = 0
+             AND t.source NOT IN ('settlement', 'bill')
+             AND t.txn_date BETWEEN ? AND ?
+             AND NOT EXISTS (SELECT 1 FROM receipts r
+                             WHERE r.txn_id = t.id AND r.active = 1)""",
+        (start, end)).fetchall()
+    out = []
+    for r in rows:
+        desc_words = _name_words(r["description"])
+        squashed = receipt_store_key(r["description"])
+        name_match = bool(store_words and (
+            store_words & desc_words
+            or any(w in squashed for w in store_words)))
+        exact = total_cents is not None and r["amount_cents"] == total_cents
+        if not (exact or name_match):
+            continue
+        out.append({
+            "txn_id": r["id"], "txn_date": r["txn_date"],
+            "amount_cents": r["amount_cents"], "description": r["description"],
+            "exact_total": exact, "store_match": name_match,
+            "days_from_receipt": (date.fromisoformat(r["txn_date"]) - day).days,
+        })
+    out.sort(key=lambda c: (not (c["exact_total"] and c["store_match"]),
+                            not c["exact_total"], not c["store_match"],
+                            abs(c["days_from_receipt"]), -c["txn_id"]))
+    return out[:limit]
+
+
+def receipt_totals_check(lines, tax_cents=None, total_cents=None):
+    """Do the read lines add up to the printed total? A pure check on the
+    reader's draft (no db): the sum of every line price (discounts negative,
+    fees included) plus tax, against the total. Returns
+    {lines_total_cents, missing_prices, expected_cents, difference_cents,
+    adds_up} — adds_up is None when it can't be judged (no total, or a line
+    whose price couldn't be read). Integer cents throughout."""
+    prices = [l.get("price_cents") for l in lines or []]
+    missing = sum(1 for p in prices if p is None)
+    lines_total = sum(p for p in prices if p is not None)
+    computed = lines_total + (tax_cents or 0)
+    adds_up = difference = None
+    if total_cents is not None and not missing:
+        difference = total_cents - computed
+        adds_up = difference == 0
+    return {"lines_total_cents": lines_total, "missing_prices": missing,
+            "expected_cents": computed, "difference_cents": difference,
+            "adds_up": adds_up}

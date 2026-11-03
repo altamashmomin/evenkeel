@@ -336,3 +336,56 @@ capture (heavier than one sentence to Ask, which already exists), quantities
 (still upkeep death — `need_by` and notes cover the real cases), per-person
 ownership, a priority field (derivable from status + `need_by`), and the JSON
 attrs blob (see grammar).
+
+---
+
+# Amendment (Nov 3, 2026): receipt scan
+
+Alta asked for it directly: "taking a picture of the receipt and then
+translating that and then having that information associate the product with
+the store that it was bought from … This way, we won't have to manually enter
+items." The v2 list above refused **barcode/camera capture** as heavier than one
+sentence to Ask. That refusal stands for barcodes (a scan per item is upkeep).
+A receipt is different: **one photo per trip** covers every line, and it is the
+only input that says *which store* each thing came from, which is what the #014
+store-grouped list needs and what nobody fills in by hand.
+
+**Flow.** Pantry → "📷 Scan a receipt" → 1–3 photos (a long receipt in parts) →
+`POST /api/receipts/read` reads them into a draft and **saves nothing** → the
+review sheet shows every printed line with a pre-picked choice (restock an
+item / add as a new staple / skip) that the person can change → Save →
+`POST /api/receipts` → the `record_receipt` verb.
+
+**Reading.** One Anthropic Messages call (the Ask tab's `ANTHROPIC_API_KEY`;
+model `RECEIPT_MODEL`, default `claude-opus-5-5`) with a strict tool schema;
+the tool input is the draft. Chosen over on-Pi OCR (Tesseract) because receipt
+abbreviations ("GV 2% MLK GAL") need a reader that knows groceries, and the Pi's
+CPU stays free. The model's output is untrusted input: every field is bounded
+and re-parsed (`receipt_reader.normalize`, Decimal → integer cents). Session-only
+(a bearer token can't spend money), 20 reads/hour/person, photos ≤ 5 MB each,
+type checked from the bytes. **Photos are never stored** — held in memory for
+the one call. The phone shrinks them to ~2000px JPEG before upload.
+
+**Memory without a new table.** `receipt_lines` keeps each printed line with the
+item it became (or NULL for skipped). The next review sheet looks up the newest
+line with the same printed text — at the same store first, then anywhere — so
+"GV 2% MLK GAL" is Milk forever after one confirmation. Computed on read
+(`receipt_line_suggestions`); no alias table, no stored match key. Then the
+reader's own guess at an existing item, then a name match, then "add as new"
+for products and "skip" for fees, tax and discounts.
+
+**Store.** The household's spelling wins (`receipt_canonical_store`: "SHOPRITE
+#312" → the "ShopRite" the list already groups by). Save fills the store only on
+items that have none; an item's existing store is never overwritten.
+
+**Money: none.** `record_receipt` writes `receipts`, `receipt_lines`, `items`
+and `audit_log` only. The optional bank-charge link (`receipts.txn_id`, offered
+from `receipt_charge_candidates`: outflows within 3 days on the exact total or a
+store word, never a transfer/settlement/Ledger-logged bill, one receipt per
+charge) is a pointer for later questions ("what did that $84 ShopRite trip
+buy?"); it changes no amount, split or balance. Gate expectation: schema 17→18
+plus two empty tables (`notes/018-gate-expectation.seed.json`).
+
+**Still refused here:** quantities (the receipt's count is recorded on the line,
+never as pantry stock), per-item prices as a budget, and auto-saving without the
+review sheet.

@@ -1,0 +1,6 @@
+{
+  "note": "Migration #017 (bills.pay_url + bills.autopay -- where a bill is paid and whether it's on autopay). Adds TWO columns to the existing bills table (pay_url nullable, autopay NOT NULL DEFAULT 0): no new table and no new rows, so the only row-count change is the schema_version record the migration itself inserts. Every existing bill defaults to pay_url NULL / autopay 0, and no derivation reads either column (they are bill-definition metadata, served only by GET /api/bills/pay-details), so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list. The verb that sets them (set_bill_pay_details) writes only those two columns plus its audit row, never a transaction, split, or bill payment.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 16, "new": 17}
+  ]
+}

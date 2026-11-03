@@ -4392,3 +4392,139 @@ the guardian's ops-alert GitHub-issue bridge is failing on every amber/red
 likely an expired/revoked `OPS_ALERT_GH_TOKEN` PAT; a green run does not exercise
 it, so it stays hidden until the next amber. Rotate that PAT or alerts will not
 reach GitHub. `NIGHTLY-BACKUP-DESIGN.md` status flipped BUILT→INSTALLED LIVE.
+
+**Oct 29, 2026 — migration #017 + `set_bill_pay_details`: where each bill is
+paid, and whether it's on autopay (on `claude/bill-pay-details`, NOT deployed).**
+After the move to the new apartment the household's bills live on several sites
+(the landlord's resident portal, the utility's billing service, the internet
+provider), and the Calendar tab could say *when* each is due but not *where* to
+pay it or whether it already pays itself. Migration #017 adds `bills.pay_url`
+(TEXT, NULL = not recorded) and `bills.autopay` (INTEGER NOT NULL DEFAULT 0,
+CHECK 0/1), guarded-idempotent; schema v16→**v17**. The verb
+`set_bill_pay_details(db, actor, bill_id, data)` (registered in CORE-DESIGN)
+sets either or both: the link must be a plain https URL with a real host (a bare
+`avalonaccess.com` gains `https://`; blank clears; http:, javascript:, userinfo,
+whitespace and >300 chars refused — proven-fail-first by re-allowing http), a
+key absent from the payload keeps its value, audit carries before/after.
+`bill_to_json` is untouched so the byte-frozen `/api/bills` (API parity) can't
+move; the new fields ride `GET /api/bills/pay-details` (host derived on read)
++ `PUT /api/bills/<id>/pay-details` (thin caller). Frontend: the agenda shows
+"Pay at <host>" (new tab, `noopener noreferrer`, re-checked https + `esc()`)
+and an autopay mark per bill, the summary adds "· N on autopay" (a COUNT, no JS
+money math), and the bill dialog gains "Pay at" + "On autopay" fields (a second
+write only when they changed). No derivation reads the columns. Suite 728→**743**,
+render 177→**180**. GATE PASS by enumeration (sole diff `schema_version 16→17`;
+balance + every monthly total byte-identical, synthetic seed-42 dev.db with
+income). **Awaits Alta's merge + Pi deploy** — the Pi is offline after the
+move (Tailscale to be reconnected); after deploy the household's bills are
+entered in the app (rent, electric+gas, internet) with their pay links.
+
+**Nov 1, 2026 — rent & bills Phase 1: `link_bill_payment`, a bill paid by the
+bank charge that paid it (on `claude/bill-link-charge`, NOT deployed).** The
+household's rent and utilities are now real bills, and some are paid from a
+SimpleFIN-synced account. Mark paid always logged a NEW transaction at the bill's
+amount, so a bill paid from a synced account appeared twice — once as the
+imported debit, once as the logged payment — in spend AND in who-owes-whom. The
+new verb `link_bill_payment(db, actor, bill_id, {period, txn_id})` (registered in
+CORE-DESIGN) records that an existing transaction is the payment: it writes only
+the `bill_payments` row (`txn_id` was always a nullable FK, so **no migration**),
+with `paid_on` = the charge's own date, plus the audit row. It refuses an inflow,
+a settlement, a transfer, a charge already linked to any bill (one charge pays
+one bill for one month), and a period already paid. `unmark_bill_paid` now
+deletes only a transaction it logged itself (`source='bill'`); a linked charge is
+kept and the audit records `kept_transaction` (the logged-payment path and its
+audit shape are unchanged — proven-fail-first by forcing the old delete).
+`bill_variance` needed nothing: it already reads the actual amount through
+`bill_payments.txn_id`, so a linked charge reports "over/under its usual" for
+free, and `cash_flow_forecast` stops counting the bill as remaining. Read side:
+`bill_link_options(db, bill_id, period)` (outflows from 10 days before the month
+to 10 days after, unlinked, not settlement/transfer/`source='bill'`; ranked by
+amount closeness, then distance from the due day) + `GET
+/api/bills/<id>/link-options`; `POST /api/bills/<id>/link` is a thin caller;
+`DELETE /api/bills/<id>/pay` adds `kept_transaction` only when a charge was kept
+(v1 `{"ok": true}` otherwise). Frontend: the Mark paid dialog lists those charges
+("Paid from the bank? Pick the charge") with a Link button and a confirm; the
+existing "log it as paid" path stays below for payments Ledger can't see; the
+Undo confirm now says a linked charge stays. Suite **760** (+17 in
+`test_bill_link.py`), render **183** (+3). GATE PASS **zero-diff** (synthetic
+seed-42 dev.db with income; nothing on existing data calls the verb). Not
+browser-smoked (cloud session, no browser on the app). Awaits Alta's review,
+merge and Pi deploy.
+
+**Nov 1, 2026 — rent & bills Phase 2: the actual amount and the split in Mark
+paid (on `claude/bill-pay-amount-split`, stacked on Phase 1, NOT deployed).**
+Electric & gas varies every month, and the Mark paid dialog hard-coded both the
+bill's defined amount and a 50/50 split. `mark_bill_paid` now takes an optional
+`amount` (what was actually paid): absent or blank keeps the frozen behaviour,
+text / bool / Infinity / NaN / ≤ 0 / over the money cap are refused with nothing
+written. The logged transaction, its audit `amount_cents` and `bill_variance`'s
+actual all carry the sent figure; the bill definition is untouched, so next
+month's usual is unchanged. The dialog gains "Amount paid" (prefilled with the
+usual) and a "Payer's share (%)" field (default 50, hidden when not shared) in
+place of the "Shared 50/50" checkbox; the bill dialog's "Amount" reads "Usual
+amount". The Calendar agenda shows a paid bill's actual amount, with "usual $X"
+beside it only when they differ, from the existing
+`/api/analytics/bill-variance` read (no new endpoint; `/api/bills` stays
+byte-frozen). No schema change. Suite **765** (+5 in `test_bill_pay_amount.py`),
+render **185** (+2). GATE PASS **zero-diff** (synthetic seed-42 dev.db with
+income). Not browser-smoked. Awaits Alta's review, merge and deploy (after #57).
+
+**Nov 1, 2026 — rent & bills Phase 3: "Looks paid … Link it?" + "Track as bill"
+(on `claude/bill-looks-paid`, stacked on Phase 2, NOT deployed).** Two commits,
+both reads plus UI, no verb, no schema change.
+(a) `bill_payment_candidates(db, period)`: for each active bill not yet paid for
+the period, the one charge from `bill_link_options` within 10 days of the due
+date that most likely paid it. It qualifies on the exact usual amount, or on a
+merchant match with last month's linked charge (or a ≥4-letter word shared with
+the bill's name — "Public Grid") within ±50% of the usual, since utilities vary.
+Ranked same-as-last-time → name match → exact amount, then amount and date
+closeness; each charge is offered to one bill at most and each bill gets one
+charge. `GET /api/bills/candidates`; the Calendar agenda renders a "Looks paid:
+Oct 30, $2,400.00. Link it?" chip on that unpaid bill, and the tap confirms then
+calls the Phase 1 link route (never auto-links). Bare-callable (None → []) for
+the tripwire; inflow/transfer/settlement/`source='bill'` exclusion and
+reads-only (`total_changes` unchanged) pinned by hand in
+`test_bill_candidates.py`.
+(b) **Track as bill** — the Oct 30 prompt, built as written with one adaptation:
+coverage is checked against the bill-variance rows renderAnalytics already
+fetches (every active bill with its usual amount as integer `defined.cents`), so
+there is no second fetch and no `Math.round` float bridge. Each MONTHLY detection
+not covered by a bill (name-contains either way, or exact cents) gets a button
+that opens the Add-bill dialog in add mode, pre-filled; the write is `create_bill`
+on Save. `_cadence_label(30) == "monthly"` pinned as the literal the button keys
+on. Suite **776** (+10 candidates, +1 cadence pin), render **191** (+6). GATE PASS
+**zero-diff**. Not browser-smoked. Awaits Alta's review, merge and deploy.
+
+**Nov 1, 2026 — rent & bills Phase 4: bill reminders in the calendar feed (on
+`claude/bill-feed-alarms`, stacked on Phase 3, NOT deployed).** The subscribed
+`.ics` feed already put each bill on its due date; now an occurrence that still
+needs someone to act carries a `VALARM` (ACTION:DISPLAY, "<bill> due in 2
+days", `TRIGGER:-P1DT15H` = 9:00 AM two days before, floating in the phone's
+own zone — one constant, `BILL_REMINDER_TRIGGER`). Paid occurrences (logged or
+linked — both are a `bill_payments` row) and autopay bills get none; goals and
+shopping items get none. `calendar_events` adds `autopay` to bill rows (the #017
+column; still no transactions read). The Help sheet's calendar paragraph says
+so, plus the iPhone "Remove Alerts" caveat for subscribed calendars. Read-only
+feed, no migration. The plan's optional Ask/MCP "mark rent paid / link it" tool
+is NOT built (it needs its own two-phase design pass). Suite **780** (+4),
+render **191**. GATE PASS **zero-diff**. Awaits Alta's review, merge and deploy.
+
+**Nov 3, 2026 — receipt scan: photo → reviewed pantry update (on
+`claude/receipt-scan`, NOT deployed).** Alta's ask: photograph a receipt so the
+pantry updates itself and each item learns its store. Migration **#018**
+(`receipts`, `receipt_lines`; photos never stored), verb **`record_receipt`**
+(restock / add new staple / skip per line, all-or-nothing, double-save guard,
+store filled only where empty, optional link to the bank charge, pantry tables
+only), read-time derivations (`receipt_line_suggestions` with remembered-line
+memory, `receipt_canonical_store`, `receipt_store_names`,
+`receipt_charge_candidates` outflows-only, pure `receipt_totals_check`),
+`receipt_reader.py` (one strict-tool Anthropic call, untrusted output bounded,
+caller-safe errors), `POST /api/receipts/read` (session-only, rate-limited,
+per-route upload cap; the app-wide 64KB cap stays) and `POST /api/receipts`,
+and the review sheet. Flask floor raised to 3.1 for per-request
+`max_content_length`. See the INVENTORY-DESIGN receipt-scan amendment. Tests:
+`test_receipts.py` (+27, including "no money table changes" snapshots and a
+balance check), suite **831**, render **199** (+8). GATE PASS against synthetic
+seed-42 dev.db: exactly the enumerated diff (schema 17→18, two empty tables).
+Re-gate on the Pi before deploy. Not browser-smoked; the reader is exercised with a
+fake client only. Awaits Alta's review, merge and deploy.

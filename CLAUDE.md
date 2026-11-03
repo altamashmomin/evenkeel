@@ -511,6 +511,25 @@ remaining items are off-repo ops residuals (the live tailnet-ACL spot check, the
 `pi-deploy.md` bring-up-guide path/PAT tidy, the optional `pip-audit` toolchain
 bump).
 
+Then (Oct 29): **migration #017 + `set_bill_pay_details`** — each bill can carry
+where it's paid (an https link) and whether it's on autopay; the Calendar agenda
+shows "Pay at <host>" + an autopay mark, the bill dialog edits them, served by
+`GET /api/bills/pay-details` so `/api/bills` stays byte-frozen. Schema v16→**v17**,
+suite 743, render 180, GATE PASS by enumeration (sole diff `schema_version
+16→17`). On `claude/bill-pay-details`; **awaits Alta's merge + Pi deploy** (the
+Pi is offline after the move until Tailscale is reconnected).
+
+Then (Nov 1): **rent & bills Phase 1 — `link_bill_payment`** — mark a bill paid
+by the synced bank charge that paid it instead of logging a second transaction
+(the rent double-count fix); unmark keeps a linked charge. No schema change,
+suite 760, render 183, GATE PASS zero-diff. On `claude/bill-link-charge`;
+**awaits Alta's merge + Pi deploy.** Phase 2 (`claude/bill-pay-amount-split`): Mark paid takes the
+actual amount and the split; the Calendar shows actual vs usual. Suite 765, render 185, GATE PASS zero-diff.
+Phase 3 (`claude/bill-looks-paid`): `bill_payment_candidates` + the Calendar's "Looks paid … Link
+it?" chip, and "Track as bill" on the Subscriptions card. Suite 776, render 191, GATE PASS zero-diff.
+Phase 4 (`claude/bill-feed-alarms`): the .ics feed reminds 2 days before each unpaid, non-autopay
+bill. Suite 780, render 191, GATE PASS zero-diff. Merge order: #57 → #58 → #59 → #60.
+
 After each increment, append the record to `docs/PROGRESS-LOG.md` (not this file),
 and keep this section a short pointer to the current state.
 

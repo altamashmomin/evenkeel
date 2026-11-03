@@ -16,7 +16,7 @@ const OBJ_GROUPS = [
   { g: 'People & shares',  items: ['members', 'splits'] },
   { g: 'Money movement',   items: ['transactions', 'links', 'income_rules', 'budgets'] },
   { g: 'Commitments',      items: ['bills', 'bill_payments', 'goals', 'goal_contributions'] },
-  { g: 'Household',        items: ['items'] },
+  { g: 'Household',        items: ['items', 'receipts', 'receipt_lines'] },
   { g: 'System of record', items: ['audit_log', 'api_tokens', 'pending_actions'] }
 ];
 

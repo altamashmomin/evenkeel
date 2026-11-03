@@ -518,16 +518,41 @@
 
   // Recurring / subscriptions (#13): detected repeat charges (same merchant +
   // amount on a regular cadence). Sparse until a few months of history.
-  function recurringChargesHTML(data) {
+  // With `bills` (the bill-variance rows: every ACTIVE bill with its usual
+  // amount as integer `defined.cents`), each MONTHLY detection not already
+  // covered by a bill gets a "Track as bill" action, index-addressed
+  // (data-bill-from-recurring = the row's index in data.recurring; app.js
+  // stashes the same array as window._recurring). Suppression is deliberately
+  // conservative: name-contains either way (case-insensitive) or exact cents.
+  function billCoversCharge(bill, r) {
+    const bn = (bill.name || "").toLowerCase();
+    const mn = (r.merchant || "").toLowerCase();
+    const nameHit = !!(bn && mn && (bn.includes(mn) || mn.includes(bn)));
+    const centsHit = !!(r.amount && r.amount.cents != null && bill.defined &&
+      bill.defined.cents === r.amount.cents);
+    return nameHit || centsHit;
+  }
+
+  function recurringChargesHTML(data, bills) {
     const rec = data.recurring || [];
     if (!rec.length) {
       return `<div class="card"><p class="eyebrow">Recurring & subscriptions</p>
         <p class="empty">None detected yet — needs a few months of history.</p></div>`;
     }
-    const rows = rec.map((r) => `
+    const rows = rec.map((r, i) => {
+      // `monthly` is derivations._cadence_label's literal (pinned in
+      // test_recurring_charges): bills.due_day is monthly-shaped, so only a
+      // monthly rhythm can become a bill.
+      const track = bills && r.cadence === "monthly" &&
+                    !bills.some((b) => billCoversCharge(b, r))
+        ? `<button class="btn ghost small" data-bill-from-recurring="${i}">Track as bill</button>`
+        : "";
+      return `
       <li><div class="grow"><div class="title">${esc(r.merchant)}</div>
         <div class="sub">${esc(r.cadence)} · next ~${esc(shortDate(r.predicted_next))}</div></div>
-        <span class="amt amount">${amt(r.amount)}</span></li>`).join("");
+        ${track}
+        <span class="amt amount">${amt(r.amount)}</span></li>`;
+    }).join("");
     return `<div class="card"><p class="eyebrow">Recurring & subscriptions</p>
       <ul class="list">${rows}</ul></div>`;
   }
@@ -1273,6 +1298,7 @@
       <div class="section-head">
         <p class="eyebrow" style="margin:0">The pantry</p>
         ${data.low_count > 0 ? `<span class="badge due">${data.low_count} running low</span>` : ""}
+        <button type="button" class="btn small inv-scan" id="inv-scan">📷 Scan a receipt</button>
       </div>
       ${closureCard}
       ${restockCard}
@@ -1496,8 +1522,11 @@
         </div>
 
         <h3 class="help-h">See it on your calendar.</h3>
-        <p>Bills, savings-goal dates, and shopping deadlines can show up right in your phone's calendar app — and they keep themselves up to date. Tap once, subscribe, done.</p>
+        <p>Bills, savings-goal dates, and shopping deadlines can show up right in your phone's calendar app — and they keep themselves up to date. Tap once, subscribe, done. A bill that isn't paid yet reminds you at 9 AM two days before it's due (autopay bills stay quiet). If they don't show on an iPhone, turn off &ldquo;Remove Alerts&rdquo; in that subscribed calendar's settings.</p>
         <div class="help-cal" id="help-cal"><button class="btn" id="help-cal-btn" type="button">📅 Get my calendar link</button></div>
+
+        <h3 class="help-h">Back from the store? Snap the receipt.</h3>
+        <p>On the Pantry tab, tap <b>📷 Scan a receipt</b> and take a photo (up to 3 for a long one). You'll see every line and what it will do: restock, add as new, or skip. Nothing changes until you tap Save. It remembers your choices for next time, and it never touches money.</p>
 
         <h3 class="help-h">The tabs, at a glance.</h3>
         <p>If you'd rather poke around than ask, tap one:</p>
@@ -1574,6 +1603,117 @@
          <div class="dlg-actions"><span class="spacer"></span>
            <button class="btn ghost" type="button" id="recat-cancel">Close</button></div>`;
     return `<p class="sheet-title">Recategorize · ${esc(category)} · ${esc(monthLabel)}</p>${body}`;
+  }
+
+  // ---- receipt scan (INVENTORY-DESIGN, receipt-scan amendment) ----
+  // The review sheet: what the reader saw on the receipt, each line with a
+  // pre-picked choice (restock an item, add a new staple, or skip) that the
+  // person can change before anything is saved. Pure: (draft) → markup.
+  const RECEIPT_SOURCE_LABEL = {
+    remembered: "Remembered", guess: "Best guess", name: "Matched by name",
+    new: "New", "not an item": "Not an item",
+  };
+
+  function receiptCheckText(draft) {
+    const c = (draft && draft.check) || {};
+    const total = draft && draft.total;
+    if (!total) return "No total was read from the receipt.";
+    if (c.missing_prices > 0)
+      return `${c.missing_prices} line${c.missing_prices === 1 ? "" : "s"} had no readable price, so the total can't be checked.`;
+    if (c.adds_up) return `The lines add up to the total, ${total.display}.`;
+    return `The lines come to ${c.expected ? c.expected.display : "?"}, but the receipt says ${total.display}. A line may be missing or misread.`;
+  }
+
+  function receiptTallyText(counts) {
+    const parts = [];
+    if (counts.item) parts.push(`${counts.item} restocked`);
+    if (counts.new) parts.push(`${counts.new} new`);
+    if (counts.skip) parts.push(`${counts.skip} skipped`);
+    return parts.length ? parts.join(" · ") : "Nothing to save";
+  }
+
+  function receiptSavedText(result) {
+    const r = result || {};
+    const n = (a) => (a || []).length;
+    const parts = [];
+    if (n(r.restocked)) parts.push(`restocked ${n(r.restocked)}`);
+    if (n(r.added)) parts.push(`added ${n(r.added)} new`);
+    if (r.skipped) parts.push(`skipped ${r.skipped}`);
+    const store = r.receipt && r.receipt.store ? ` from ${r.receipt.store}` : "";
+    return parts.length
+      ? `Saved the receipt${store}: ${parts.join(", ")}.`
+      : `Saved the receipt${store}.`;
+  }
+
+  function receiptLineSelectHTML(i, s, items) {
+    const opt = (value, label, selected) =>
+      `<option value="${esc(value)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
+    const picked = s.action === "item" ? `item:${s.item_id}` : s.action;
+    return `<select class="rcpt-action" data-rcpt-action="${i}" aria-label="What this line is">
+      ${opt("skip", "Skip (not a pantry item)", picked === "skip")}
+      ${opt("new", "Add as a new staple", picked === "new")}
+      ${items.length ? `<optgroup label="Restock">${items.map((it) =>
+        opt(`item:${it.id}`, it.name + (it.status && it.status !== "stocked" ? ` (${it.status})` : ""),
+            picked === `item:${it.id}`)).join("")}</optgroup>` : ""}
+    </select>`;
+  }
+
+  function receiptReviewHTML(draft) {
+    const d = draft || {};
+    const items = d.items || [];
+    const lines = d.lines || [];
+    const charges = d.charges || [];
+    const strong = charges.length && charges[0].exact_total && charges[0].store_match
+      ? charges[0].txn_id : null;
+    const chargeHTML = charges.length ? `
+      <p class="lbl">Is this one of these bank charges? <span class="rcpt-hint">(optional)</span></p>
+      <div class="rcpt-charges">
+        ${charges.map((c) => `<label class="rcpt-charge">
+          <input type="radio" name="rcpt-txn" value="${c.txn_id}"${c.txn_id === strong ? " checked" : ""}>
+          <span class="grow"><span class="title">${esc(c.description)}</span>
+            <span class="sub">${esc(shortDate(c.txn_date))}${c.exact_total ? " · same total" : ""}</span></span>
+          <span class="amt amount">${esc(c.amount.display)}</span>
+        </label>`).join("")}
+        <label class="rcpt-charge"><input type="radio" name="rcpt-txn" value=""${strong ? "" : " checked"}>
+          <span class="grow"><span class="title">None of these</span></span></label>
+      </div>` : "";
+    const rows = lines.map((l, i) => {
+      const s = l.suggestion || { action: "skip" };
+      const qty = l.quantity && l.quantity > 1 ? `${l.quantity} × ` : "";
+      const price = l.price ? esc(l.price.display) : "—";
+      const newName = s.action === "new" ? (s.name || l.name || "") : (l.name || "");
+      return `<div class="rcpt-line" data-rcpt-line="${i}">
+        <div class="rcpt-top">
+          <span class="rcpt-raw">${esc(l.raw_text)}</span>
+          <span class="amt amount">${qty}${price}</span>
+        </div>
+        ${receiptLineSelectHTML(i, s, items)}
+        <input class="rcpt-name" data-rcpt-name="${i}" maxlength="100"
+               value="${esc(newName)}" placeholder="Name for the new staple"
+               aria-label="Name for the new staple"${s.action === "new" ? "" : " hidden"}>
+        <span class="rcpt-why">${esc(RECEIPT_SOURCE_LABEL[s.source] || "")}</span>
+      </div>`;
+    }).join("");
+    return `<p class="sheet-title">Check the receipt</p>
+      <div class="row2">
+        <label>Store
+          <input id="rcpt-store" list="rcpt-stores" maxlength="60" autocomplete="off"
+                 value="${esc(d.store || "")}" required></label>
+        <label>Date <input id="rcpt-date" type="date" value="${esc(d.purchased_on || "")}"></label>
+      </div>
+      <datalist id="rcpt-stores">${(d.stores || []).map((n) =>
+        `<option value="${esc(n)}"></option>`).join("")}</datalist>
+      <p class="rcpt-check${d.check && d.check.adds_up ? " ok" : ""}">${esc(receiptCheckText(d))}</p>
+      ${chargeHTML}
+      <p class="lbl">${lines.length} line${lines.length === 1 ? "" : "s"}</p>
+      <div class="rcpt-lines">${rows}</div>
+      <div class="dlg-actions">
+        <button class="btn ghost" type="button" id="rcpt-cancel">Cancel</button>
+        <span class="spacer"></span>
+        <button class="btn primary" type="button" id="rcpt-save">Save</button>
+      </div>
+      <p class="rcpt-tally" id="rcpt-tally"></p>
+      <p class="recat-note">Saving only updates the pantry. No transaction, balance or split changes. The photo isn't kept.</p>`;
   }
 
   // ---- state-injected row renderers ----
@@ -1700,7 +1840,62 @@
   // JSON edge): the summary is a COUNT, honoring the integer-cents invariant.
   // A "$ still due" figure would have to come from the server's
   // cash_flow_forecast, never JS addition.
-  function calendarAgendaHTML(bills, todayISO, monthISO) {
+  // `details` (optional, migration #017) maps bill id -> the
+  // /api/bills/pay-details row: an autopay bill says so, a bill with a pay link
+  // gets "Pay at <host>" opening that page. The link is server-validated https;
+  // it's re-checked and esc()-ed here anyway (defense in depth).
+  function payDetailHTML(d) {
+    if (!d) return "";
+    const parts = [];
+    if (d.autopay) parts.push(`<span class="cal-autopay">autopay</span>`);
+    if (d.pay_url && /^https:\/\//i.test(d.pay_url))
+      parts.push(`<a class="cal-pay" href="${esc(d.pay_url)}" target="_blank" ` +
+        `rel="noopener noreferrer">Pay at ${esc(d.pay_host || d.pay_url)}</a>`);
+    return parts.join(" · ");
+  }
+
+  // The Mark paid dialog's "Paid from the bank? Pick the charge" list. Pure:
+  // app.js fetches /api/bills/<id>/link-options and passes the rows. Linking an
+  // imported charge records the payment WITHOUT logging a second transaction —
+  // the whole point (rent counted once). Descriptions are bank text: esc() them.
+  // A null list (still loading / fetch failed) renders nothing.
+  function payLinkOptionsHTML(options) {
+    if (!options) return "";
+    if (!options.length)
+      return `<p class="sub pay-link-none">No unlinked bank charges near this bill's due date.</p>`;
+    const rows = options.map((o) => {
+      const exact = o.amount_diff && o.amount_diff.cents === 0;
+      return `
+        <li>
+          <div class="grow">
+            <div class="title">${esc(o.description)}</div>
+            <div class="sub">${esc(shortDate(o.date))} · ${esc(o.category || "")}${exact ? " · exact amount" : ""}</div>
+          </div>
+          <span class="amt amount">${esc(o.amount.display)}</span>
+          <button class="btn small" type="button" data-link-txn="${Number(o.txn_id)}">Link</button>
+        </li>`;
+    }).join("");
+    return `
+      <p class="lbl">Paid from the bank? Pick the charge</p>
+      <p class="sub pay-link-why">Linking it marks the bill paid without logging it twice.</p>
+      <ul class="list pay-link-list">${rows}</ul>`;
+  }
+
+  function looksPaidChipHTML(b, c) {
+    if (!c) return "";
+    return `<button class="btn small ghost cal-looks-paid" type="button" ` +
+      `data-looks-paid="${Number(b.id)}">Looks paid: ${esc(shortDate(c.date))}, ` +
+      `${esc(c.amount.display)}. Link it?</button>`;
+  }
+
+  // `actuals` (optional): bill id -> the /api/analytics/bill-variance row, so a
+  // paid bill shows what was actually paid (a utility that varies) and, when it
+  // differs, the usual amount beside it. Absent -> the bill's usual amount, as
+  // before. Display strings come from the server; no money math here.
+  // `candidates` (optional): bill id -> the /api/bills/candidates row, the
+  // synced charge that looks like it paid an unpaid bill. Renders a one-tap
+  // "Looks paid … Link it?" chip; app.js confirms, then links. Never auto-links.
+  function calendarAgendaHTML(bills, todayISO, monthISO, details, actuals, candidates) {
     if (!bills || !bills.length)
       return `<div class="card cal-agenda"><p class="empty">No bills this month.</p></div>`;
     const [y, mo] = monthISO.split("-").map(Number);
@@ -1716,21 +1911,31 @@
       const overdue = !paid && dISO < todayISO;
       const state = paid ? "paid" : overdue ? "overdue" : "due";
       const today = dISO === todayISO ? " cal-today" : "";
+      const pay = payDetailHTML(details && details[b.id]);
+      const act = paid && actuals && actuals[b.id] && actuals[b.id].actual;
+      const usual = act && actuals[b.id].defined;
+      const differs = act && usual && act.cents !== usual.cents;
       return `
         <li class="cal-row${today}">
           <span class="cal-day"><b>${day}</b><span>${wd}</span></span>
           <div class="grow">
             <div class="title">${esc(b.name)}</div>
             <div class="sub">${esc(b.category || "")}</div>
+            ${differs ? `<div class="sub cal-usual">usual ${esc(usual.display)}</div>` : ""}
+            ${pay ? `<div class="sub cal-paywhere">${pay}</div>` : ""}
+            ${looksPaidChipHTML(b, !paid && candidates && candidates[b.id])}
           </div>
-          <span class="amt amount">${fmt(b.amount)}</span>
+          <span class="amt amount">${act ? esc(act.display) : fmt(b.amount)}</span>
           <span class="badge ${state}">${state}</span>
         </li>`;
     });
     const paidCount = bills.filter((b) => b.paid_this_period).length;
-    const sum = paidCount === bills.length
+    const autoCount = details
+      ? bills.filter((b) => details[b.id] && details[b.id].autopay).length : 0;
+    const sum = (paidCount === bills.length
       ? `All ${bills.length} paid 🎉`
-      : `${paidCount} of ${bills.length} paid`;
+      : `${paidCount} of ${bills.length} paid`)
+      + (autoCount ? ` · ${autoCount} on autopay` : "");
     return `
       <div class="card cal-agenda">
         <p class="cal-sum">${sum}</p>
@@ -1842,7 +2047,7 @@
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            ruleBreadthWarning,
-           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, billRowHTML,
+           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, payDetailHTML, payLinkOptionsHTML, billRowHTML,
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
@@ -1853,11 +2058,12 @@
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML,
+           receiptReviewHTML, receiptCheckText, receiptTallyText, receiptSavedText,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
            budgetStatusHTML,
            savingsRateTrendHTML, categoryTrendHTML,
-           cashFlowForecastHTML, anomaliesHTML, recurringChargesHTML, goalPaceHTML,
+           cashFlowForecastHTML, anomaliesHTML, billCoversCharge, recurringChargesHTML, goalPaceHTML,
            goalWhatIf, addMonths, goalWhatIfText, goalPaceLineHTML,
            askThreadHTML, askFollowups, agentsHTML, opsPanelHTML };
 });

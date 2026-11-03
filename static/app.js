@@ -14,8 +14,9 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
-        beamHTML, txnRow, calendarAgendaHTML, billRowHTML, contribLogHTML, goalCardHTML,
-        pendingApprovalsHTML } = window.Render;
+        beamHTML, txnRow, calendarAgendaHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
+        pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
+        receiptSavedText } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -35,6 +36,7 @@ const state = {
 
   editingTxn: null,
   editingBill: null,
+  editingBillDetails: null,
   payingBill: null,
   contribGoal: null,
   openLogs: new Set(),
@@ -423,6 +425,127 @@ async function openRecatSheet(category) {
 }
 dlgRecat?.addEventListener("click", (e) => { if (e.target === dlgRecat) dlgRecat.close(); });
 
+/* ---- receipt scan (INVENTORY-DESIGN, receipt-scan amendment) ----
+   Pantry "Scan a receipt" → pick 1–3 photos → the server reads them into a
+   draft (nothing saved) → the review sheet, where every line's choice can be
+   changed → Save calls record_receipt. Pantry-only: no money moves. No
+   backdrop-tap close on this sheet, so a stray tap can't lose a review. */
+const dlgReceipt = $("#dlg-receipt");
+const receiptFile = $("#receipt-file");
+
+// Phone photos are 3–12 MP; reading needs ~2000px on the long side. Shrink on
+// the device (faster upload, well under the 5 MB cap) and re-encode as JPEG,
+// which also turns an iPhone HEIC into a type the server accepts. Any decode
+// failure falls back to the original file (the server checks its type).
+async function shrinkPhoto(file, maxSide = 2000) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    if (bmp.close) bmp.close();
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.85));
+    return blob || file;
+  } catch (_) {
+    return file;
+  }
+}
+
+function receiptMessage(title, text) {
+  $("#receipt-body").innerHTML = `<p class="sheet-title">${esc(title)}</p>
+    <p class="rcpt-busy">${esc(text)}</p>
+    <div class="dlg-actions"><span class="spacer"></span>
+      <button class="btn ghost" type="button" id="rcpt-close">Close</button></div>`;
+  $("#rcpt-close").addEventListener("click", () => dlgReceipt.close());
+}
+
+async function scanReceipt(files) {
+  const photos = Array.from(files || []).slice(0, 3);
+  if (!photos.length) return;
+  $("#receipt-body").innerHTML = `<p class="sheet-title">Reading the receipt…</p>
+    <p class="rcpt-busy">Hang on while it reads every line.</p>`;
+  if (!dlgReceipt.open) dlgReceipt.showModal();
+  let draft;
+  try {
+    const form = new FormData();
+    for (const [i, f] of photos.entries())
+      form.append("photo", await shrinkPhoto(f), `receipt-${i + 1}.jpg`);
+    const res = await fetch("/api/receipts/read", { method: "POST", body: form });
+    if (res.status === 401) { dlgReceipt.close(); showAuth(); return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
+    draft = data;
+  } catch (err) {
+    receiptMessage("Couldn't read it", err.message);
+    return;
+  }
+  openReceiptReview(draft);
+}
+
+function openReceiptReview(draft) {
+  const body = $("#receipt-body");
+  body.innerHTML = receiptReviewHTML(draft);
+  const lines = draft.lines || [];
+  const actionOf = (i) => $(`[data-rcpt-action="${i}"]`, body).value;
+  const tally = () => {
+    const counts = { item: 0, new: 0, skip: 0 };
+    lines.forEach((_, i) => {
+      const v = actionOf(i);
+      counts[v.startsWith("item:") ? "item" : v] += 1;
+    });
+    $("#rcpt-tally").textContent = receiptTallyText(counts);
+  };
+  $$(".rcpt-action", body).forEach((sel) => sel.addEventListener("change", () => {
+    const name = $(`[data-rcpt-name="${sel.dataset.rcptAction}"]`, body);
+    name.hidden = sel.value !== "new";
+    if (!name.hidden && !name.value.trim()) name.focus();
+    tally();
+  }));
+  tally();
+  $("#rcpt-cancel").addEventListener("click", () => dlgReceipt.close());
+  const saveBtn = $("#rcpt-save");
+  saveBtn.addEventListener("click", async () => {
+    const storeInput = $("#rcpt-store");
+    const store = storeInput.value.trim();
+    if (!store) { storeInput.focus(); return; }
+    const out = [];
+    for (const [i, l] of lines.entries()) {
+      const v = actionOf(i);
+      const line = { raw_text: l.raw_text, quantity: l.quantity,
+                     price_cents: l.price ? l.price.cents : null };
+      if (v.startsWith("item:")) out.push({ ...line, action: "item", item_id: +v.slice(5) });
+      else if (v === "new") {
+        const nameInput = $(`[data-rcpt-name="${i}"]`, body);
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+        out.push({ ...line, action: "new", name });
+      } else out.push({ ...line, action: "skip" });
+    }
+    const txn = $('input[name="rcpt-txn"]:checked', body);
+    const payload = {
+      store, purchased_on: $("#rcpt-date").value || null,
+      total_cents: draft.total ? draft.total.cents : null,
+      txn_id: txn && txn.value ? +txn.value : null,
+      lines: out,
+    };
+    saveBtn.disabled = true;
+    try {
+      const result = await api("/api/receipts", { method: "POST", body: payload });
+      receiptMessage("Saved", receiptSavedText(result));
+      render();
+    } catch (err) {
+      $("#rcpt-tally").textContent = err.message;
+      saveBtn.disabled = false;
+    }
+  });
+}
+receiptFile?.addEventListener("change", () => {
+  const files = receiptFile.files;
+  if (files && files.length) scanReceipt(files);
+});
+
 // Per-tab row stashes the tap/edit handlers read (findTxn, bill/goal/budget
 // edit, the pantry match editor). Cleared at the top of every render so a tab
 // only ever sees ITS OWN current rows — otherwise a stale pool (e.g. _txns,
@@ -590,8 +713,23 @@ async function renderActivity() {
 // agenda is new presentation — the lower list and its [data-bill-*] wiring
 // (wireMain) are the proven money-touching surface, unchanged.
 async function renderCalendar() {
-  const bills = await api("/api/bills");
+  // Pay details (migration #017) ride beside the byte-frozen /api/bills rows,
+  // joined by bill id here — never merged into the money-touching rows.
+  // What each paid bill actually cost comes from the bill-variance read (the
+  // same derivation as the Analytics card), so /api/bills stays byte-frozen.
+  const [bills, payRows, variance, cands] = await Promise.all([
+    api("/api/bills"), api("/api/bills/pay-details"),
+    api("/api/analytics/bill-variance").catch(() => null),
+    api("/api/bills/candidates").catch(() => null)]);
   window._bills = bills;
+  const details = Object.fromEntries(payRows.map((d) => [d.id, d]));
+  window._billDetails = details;
+  const actuals = variance
+    ? Object.fromEntries(variance.bills.map((v) => [v.bill_id, v])) : null;
+  // Suggestions only: a chip per unpaid bill whose charge looks like it landed.
+  const candidates = cands
+    ? Object.fromEntries(cands.candidates.map((c) => [c.bill_id, c])) : null;
+  window._billCandidates = candidates || {};
   const manageRows = bills.length
     ? `<ul class="list">${bills.map(billRowHTML).join("")}</ul>`
     : `<p class="empty">No recurring bills yet.</p>`;
@@ -600,7 +738,7 @@ async function renderCalendar() {
       <p class="eyebrow" style="margin:0">Calendar — ${monthName(thisMonthISO())}</p>
       <button class="btn small" id="btn-add-bill">Add bill</button>
     </div>
-    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO())}
+    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details, actuals, candidates)}
     <p class="eyebrow cal-manage-head">Your bills</p>
     <div class="card">${manageRows}</div>`;
 }
@@ -662,6 +800,8 @@ async function renderAnalytics() {
   // the id-carrying list (category→id for remove). Same pattern as window._inv.
   window._budgetStatus = budgetStatus.budgets || [];
   window._budgets = budgetList || [];
+  // The Subscriptions card's "Track as bill" rows, index-addressed.
+  window._recurring = recurring.recurring || [];
   // Drill into the biggest category this month — a trend without a picker.
   let catCard = "";
   const top = (comp.by_category || [])[0];
@@ -684,7 +824,7 @@ async function renderAnalytics() {
     ${budgetStatusHTML(budgetStatus, categories)}
     ${anomaliesHTML(anomalies)}
     ${catCard}
-    ${recurringChargesHTML(recurring)}
+    ${recurringChargesHTML(recurring, bills.bills || [])}
     ${memberBreakdownHTML(members)}
     ${billVarianceHTML(bills)}
     ${goalPaceHTML(goals)}`;
@@ -909,6 +1049,10 @@ function wireMain() {
     el.addEventListener("click", () => askFrom(el.dataset.ask)));
   $$("[data-help]").forEach((el) => el.addEventListener("click", openHelpSheet));
   // Budgets (Analytics Tier C): edit/remove by row index; add via the small form.
+  // Subscriptions card: "Track as bill" pre-fills the Add-bill dialog.
+  $$("[data-bill-from-recurring]").forEach((el) =>
+    el.addEventListener("click", () =>
+      billFromRecurring(+el.dataset.billFromRecurring)));
   $$("[data-budget-edit]").forEach((el) =>
     el.addEventListener("click", () => editBudget(+el.dataset.budgetEdit)));
   $$("[data-budget-remove]").forEach((el) =>
@@ -927,6 +1071,13 @@ function wireMain() {
       // income and could write stray split rows.
       if (t.direction === "in") openClassifyDialog(t);
       else openTxnDialog(t);
+    }));
+  $$("[data-looks-paid]").forEach((el) =>
+    el.addEventListener("click", () => {
+      const id = +el.dataset.looksPaid;
+      const bill = window._bills.find((b) => b.id === id);
+      const c = (window._billCandidates || {})[id];
+      if (bill && c) linkBillCharge(bill, c.txn_id);
     }));
   $$("[data-bill-pay]").forEach((el) =>
     el.addEventListener("click", () => openPayDialog(+el.dataset.billPay)));
@@ -980,6 +1131,13 @@ function wireMain() {
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemMissed, "out")));
   // "Got everything": one restock_items call marks the whole list bought
   // (all-or-nothing server-side; per-row "Got it" stays for partial trips).
+  // Scan a receipt: open the photo picker (the hidden input lives outside the
+  // re-rendered view, so its change listener is wired once, above).
+  $("#inv-scan")?.addEventListener("click", () => {
+    if (!receiptFile) return;
+    receiptFile.value = "";
+    receiptFile.click();
+  });
   $("#inv-got-all")?.addEventListener("click", async (e) => {
     const ids = e.currentTarget.dataset.gotAll.split(",").map(Number);
     if (!confirm(`Mark all ${ids.length} as bought?`)) return;
@@ -1318,6 +1476,21 @@ formRule.addEventListener("submit", async (ev) => {
   }
 });
 
+// Subscriptions → bill: pre-fill the Add-bill dialog from a monthly detection.
+// The person reviews/edits and taps Save; the write is the normal
+// POST /api/bills path (create_bill verb). Nothing happens without the Save.
+function billFromRecurring(idx) {
+  const r = (window._recurring || [])[idx];
+  if (!r) return;
+  openBillDialog(null);                          // add mode: submit will POST
+  formBill.name.value = r.merchant || "";
+  if (r.amount && r.amount.cents != null)
+    formBill.amount.value = (r.amount.cents / 100).toFixed(2);   // display layer only
+  if (r.predicted_next)                          // ISO date → day of month
+    formBill.due_day.value = +r.predicted_next.slice(8, 10) || "";
+  // category left blank: submit defaults it to "Bills", same as a manual add
+}
+
 /* ---------- bill dialogs ---------- */
 const dlgBill = $("#dlg-bill");
 const formBill = $("#form-bill");
@@ -1331,6 +1504,10 @@ function openBillDialog(bill) {
   formBill.amount.value = bill ? bill.amount : "";
   formBill.due_day.value = bill ? bill.due_day : "";
   formBill.category.value = bill ? bill.category : "";
+  const d = bill && window._billDetails ? window._billDetails[bill.id] : null;
+  state.editingBillDetails = d || null;
+  formBill.pay_url.value = d && d.pay_url ? d.pay_url : "";
+  formBill.autopay.checked = !!(d && d.autopay);
   dlgBill.showModal();
 }
 
@@ -1343,11 +1520,25 @@ formBill.addEventListener("submit", async (ev) => {
     due_day: +formBill.due_day.value,
     category: formBill.category.value || "Bills",
   };
+  const payUrl = formBill.pay_url.value.trim();
+  const autopay = formBill.autopay.checked;
+  const prev = state.editingBillDetails;
   try {
+    let saved;
     if (state.editingBill) {
-      await api(`/api/bills/${state.editingBill.id}`, { method: "PUT", body });
+      saved = await api(`/api/bills/${state.editingBill.id}`, { method: "PUT", body });
     } else {
-      await api("/api/bills", { method: "POST", body });
+      saved = await api("/api/bills", { method: "POST", body });
+    }
+    // Where-to-pay + autopay are their own verb (set_bill_pay_details); only
+    // call it when they changed, so an ordinary edit stays one write.
+    const changed = prev
+      ? payUrl !== (prev.pay_url || "") || autopay !== !!prev.autopay
+      : !!payUrl || autopay;
+    if (changed) {
+      state.editingBill = saved;   // a retry after a bad link edits, not re-creates
+      await api(`/api/bills/${saved.id}/pay-details`, {
+        method: "PUT", body: { pay_url: payUrl, autopay } });
     }
     dlgBill.close();
     render();
@@ -1371,10 +1562,45 @@ function openPayDialog(billId) {
   state.payingBill = bill;
   $("#pay-error").textContent = "";
   $("#pay-summary").textContent =
-    `${bill.name} — ${fmt(bill.amount)} for ${monthName(bill.period)}. This also logs a transaction.`;
+    `${bill.name} for ${monthName(bill.period)} — usually ${fmt(bill.amount)}.`;
+  formPay.amount.value = bill.amount;
   formPay.is_shared.checked = true;
+  formPay.payer_share_pct.value = 50;
+  syncPayShare();
   buildSeg($("#pay-paidby"), state.meId);
+  const linkBox = $("#pay-link");
+  linkBox.innerHTML = "";
   dlgPay.showModal();
+  // The charges SimpleFIN already imported near this bill's due date. Linking
+  // one records the payment without logging a second transaction.
+  api(`/api/bills/${bill.id}/link-options?period=${bill.period}`)
+    .then((res) => {
+      if (state.payingBill !== bill) return;   // dialog moved on meanwhile
+      linkBox.innerHTML = payLinkOptionsHTML(res.options);
+      $$("#pay-link [data-link-txn]").forEach((el) =>
+        el.addEventListener("click", () => linkBillCharge(bill, +el.dataset.linkTxn)));
+    })
+    .catch(() => { linkBox.innerHTML = ""; });
+}
+
+// The payer's share only means something on a shared payment.
+function syncPayShare() {
+  $("#pay-share-row").classList.toggle("hidden", !formPay.is_shared.checked);
+}
+formPay.is_shared.addEventListener("change", syncPayShare);
+
+async function linkBillCharge(bill, txnId) {
+  if (!confirm(`Link this charge as ${bill.name} for ${monthName(bill.period)}? ` +
+               "Nothing new is logged.")) return;
+  try {
+    await api(`/api/bills/${bill.id}/link`, {
+      method: "POST", body: { period: bill.period, txn_id: txnId } });
+    if (dlgPay.open) dlgPay.close();
+    render();
+  } catch (e) {
+    if (dlgPay.open) $("#pay-error").textContent = e.message;
+    else alert(e.message);
+  }
 }
 
 formPay.addEventListener("submit", async (ev) => {
@@ -1386,7 +1612,8 @@ formPay.addEventListener("submit", async (ev) => {
       body: {
         paid_by: +$("#pay-paidby").dataset.value,
         is_shared: formPay.is_shared.checked,
-        payer_share_pct: 50,
+        payer_share_pct: formPay.is_shared.checked ? formPay.payer_share_pct.value : 50,
+        amount: formPay.amount.value,
       },
     });
     dlgPay.close();
@@ -1397,7 +1624,8 @@ formPay.addEventListener("submit", async (ev) => {
 });
 
 async function unpayBill(billId) {
-  if (!confirm("Undo this payment? The logged transaction is removed too.")) return;
+  if (!confirm("Undo this payment? A transaction Ledger logged for it is removed; " +
+               "a linked bank charge stays in Activity.")) return;
   await api(`/api/bills/${billId}/pay`, { method: "DELETE" });
   render();
 }

@@ -4,7 +4,7 @@
 # ceilings sit above the current latest (3.x / 26.x), so they don't change what
 # a deploy resolves today — they only block a FUTURE breaking major until it's
 # tested and the ceiling raised deliberately (CODE-REVIEW 2026-08-08 Tier 2 #9).
-flask>=3.0,<4
+flask>=3.1,<4   # 3.1: per-request max_content_length (receipt photo upload)
 python-dotenv>=1.0
 requests>=2.31
 gunicorn>=21.2,<27
