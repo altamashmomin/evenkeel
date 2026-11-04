@@ -32,7 +32,7 @@ from derivations import (activity_digest, anomaly_flags, bill_link_options,
                          budget_status,
                          calendar_events, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
-                         settle_breakdown,
+                         settle_breakdown, settlement_history,
                          income_summary, last_shopping_trip,
                          income_trend, low_stock, member_breakdown,
                          new_staple_suggestions,
@@ -1989,10 +1989,28 @@ def settle_breakdown_view():
     one unsettled shared expense with its signed owed delta; the signed lines
     sum to the same figure /api/balance shows, by construction. Money as
     {cents, display}; `owed` per line is SIGNED (+ = the second member owes the
-    first, matching the balance's sign). Pure read."""
+    first, matching the balance's sign). Pure read.
+
+    `?as_of=YYYY-MM-DD` (optional) explains the balance as of that day, which
+    is what "We were already even up to <date>" clears. Each line also
+    carries `txn` (the row in the /api/transactions shape) so the dialog can
+    open it for a fix (who paid, shared or not) without a second fetch."""
     db = get_db()
-    bd = settle_breakdown(db)
+    as_of = request.args.get("as_of")
+    if as_of:
+        try:
+            as_of = actions.parse_iso_date(as_of, "as_of")
+        except ValueError as e:
+            return bad_request(str(e))
+    bd = settle_breakdown(db, as_of or None)
     name_of = {m["id"]: m["display_name"] for m in bd["members"]}
+    line_ids = [ln["transaction_id"] for ln in bd["lines"]]
+    txn_rows = {}
+    if line_ids:
+        marks = ",".join("?" for _ in line_ids)
+        txn_rows = {r["id"]: r for r in db.execute(
+            f"SELECT * FROM transactions WHERE id IN ({marks})", line_ids)}
+    shares = prefetch_payer_shares(db, line_ids)
     return jsonify({
         "state": bd["state"],
         "amount": money(bd["amount_cents"]),
@@ -2013,8 +2031,32 @@ def settle_breakdown_view():
             "paid_by": {"id": ln["paid_by"], "name": name_of.get(ln["paid_by"], "?")},
             "share_pct": ln["share_bp"] / 100,
             "owed": money(ln["owed_cents"]),
+            "txn": txn_to_json(db, txn_rows[ln["transaction_id"]], shares),
         } for ln in bd["lines"]],
+        "as_of": as_of or None,
     })
+
+
+@app.get("/api/settle/history")
+@login_required
+def settle_history_view():
+    """The latest settle-ups, newest first, from `settlement_history`: the
+    landing page's "last settled" line and the settle dialog's Undo. `method`
+    is 'paid' or 'already_even'; only the row with `is_latest` is offered for
+    undo (DELETE /api/transactions/<id>, the existing delete verb, which
+    reopens what it covered). Pure read."""
+    db = get_db()
+    names = {r["id"]: r["display_name"] for r in db.execute(
+        "SELECT id, display_name FROM members")}
+    return jsonify({"settlements": [{
+        "transaction_id": h["transaction_id"], "date": h["date"],
+        "amount": money(h["amount_cents"]),
+        "paid_by": {"id": h["paid_by"], "name": names.get(h["paid_by"], "?")},
+        "owed": None if h["owed"] is None
+                else {"id": h["owed"], "name": names.get(h["owed"], "?")},
+        "method": h["method"], "note": h["note"], "covers": h["covers"],
+        "is_latest": h["is_latest"],
+    } for h in settlement_history(db)]})
 
 
 # ---------------------------------------------------------------- calendar feed

@@ -242,16 +242,24 @@
 </dialog>
 <dialog id="dlg-settle">
   <form method="dialog" id="form-settle">
-    <h2>Settle up</h2>
+    <h2 id="settle-title">Settle up</h2>
     <p id="settle-summary"></p>
     <div id="settle-breakdown"></div>
-    <p class="split-hint">This records the repayment so the balance returns to zero. Do the actual transfer however you like (Zelle, cash, etc.).</p>
+    <p class="split-hint" id="settle-pay-hint">This records the repayment so the balance returns to zero. Do the actual transfer however you like (Zelle, cash, etc.).</p>
+    <div id="settle-even" class="hidden">
+      <p class="split-hint">Use this when you two were actually square and the number is off, for example a charge counted as the wrong person's. Nothing is paid and no charge changes: Ledger records that you were even and starts fresh from that day. You can undo it.</p>
+      <label>Even as of <input type="date" name="even_date" id="settle-even-date"></label>
+      <label>Note (optional) <input type="text" name="even_note" id="settle-even-note" maxlength="120" placeholder="e.g. we split the Costco run in person"></label>
+      <p class="settle-sub" id="settle-even-amount"></p>
+    </div>
+    <div id="settle-last"></div>
     <p class="form-error" id="settle-error"></p>
     <div class="dlg-actions">
       <button class="btn ghost" type="button" id="settle-ask">💬 Ask about this</button>
       <span class="spacer"></span>
       <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
-      <button class="btn primary" type="submit">Record settlement</button>
+      <button class="btn ghost" type="button" id="settle-even-toggle">We're already even</button>
+      <button class="btn primary" type="submit" id="settle-submit">Record settlement</button>
     </div>
   </form>
 </dialog>

@@ -13,7 +13,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
-        moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
+        moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML,
         beamHTML, txnRow, calendarAgendaHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
         pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
         receiptSavedText, checkInView, checkInCardHTML, checkInsListHTML } = window.Render;
@@ -592,6 +592,11 @@ async function renderDashboard() {
   // that a person must approve. Failure here only costs the card, never the
   // Home render (same defensive pattern as the pantry badge).
   const pending = await api("/api/actions/pending").catch(() => []);
+  // The newest settle-up, for the balance card's "since …" line. Best-effort:
+  // a failure only drops that line.
+  const settleHist = await api("/api/settle/history").catch(() => null);
+  const lastSettle = settleHist && settleHist.settlements.length
+    ? settleHist.settlements[0] : null;
   // The pantry badge rides alongside (not inside) the frozen dashboard payload;
   // a failure here only costs the ambient line, never the Home render.
   api("/api/inventory/badge").then((b) => { window._pantryBadge = b; renderHeader(); })
@@ -653,7 +658,7 @@ async function renderDashboard() {
 
   return `
     ${pendingApprovalsHTML(pending)}
-    ${beamHTML(d.balance)}
+    ${beamHTML(d.balance, state.meId, lastSettle)}
     <div class="card">
       <div class="spent-head">
         <div>
@@ -1182,7 +1187,8 @@ function findTxn(id) {
 }
 
 function wireMain() {
-  $("#btn-settle")?.addEventListener("click", openSettle);
+  $("#btn-settle")?.addEventListener("click", () => openSettle());
+  $("#btn-settle-even")?.addEventListener("click", () => openSettle({ even: true }));
   $("#month-prev")?.addEventListener("click", () => shiftMonth(-1));
   $("#month-next")?.addEventListener("click", () => shiftMonth(1));
   $$("[data-filter]").forEach((el) =>
@@ -1225,6 +1231,7 @@ function wireMain() {
       // spend edit dialog — it has split controls that don't apply to
       // income and could write stray split rows.
       if (t.direction === "in") openClassifyDialog(t);
+      else if (t.source === "settlement") undoSettlement(t.id, t.date, t.amount);
       else openTxnDialog(t);
     }));
   $$("[data-looks-paid]").forEach((el) =>
@@ -1866,23 +1873,120 @@ formContrib.addEventListener("submit", async (ev) => {
 
 /* ---------- settle up ---------- */
 const dlgSettle = $("#dlg-settle");
+// What the dialog is showing right now: the breakdown it was opened on (the
+// amount + who pays come from it, fresh from the server, never from a cached
+// Home payload), and whether the "we're already even" panel is open.
+const settleState = { bd: null, evenBd: null, even: false, reopen: false };
 
-async function openSettle() {
-  const bal = window._dash.balance;
-  if (bal.settled) return;
-  $("#settle-summary").textContent =
-    `${bal.owes.name} pays ${bal.owed.name} ${fmt(bal.amount)}.`;
+async function openSettle(opts = {}) {
   $("#settle-error").textContent = "";
-  // The breakdown (why it's this amount) loads async; a failure to fetch it
-  // must never block recording the settlement, so it's best-effort.
-  $("#settle-breakdown").innerHTML = `<p class="settle-sub">Loading breakdown…</p>`;
-  dlgSettle.showModal();
+  $("#settle-summary").textContent = "Loading…";
+  $("#settle-breakdown").innerHTML = "";
+  $("#settle-last").innerHTML = "";
+  $("#settle-even-note").value = "";
+  $("#settle-even-date").value = todayISO();
+  $("#settle-even-date").max = todayISO();
+  settleState.bd = settleState.evenBd = null;
+  if (!dlgSettle.open) dlgSettle.showModal();
+  let bd;
   try {
-    const bd = await api("/api/settle/breakdown");
-    $("#settle-breakdown").innerHTML = settleBreakdownHTML(bd, state.meId);
+    bd = await api("/api/settle/breakdown");
   } catch (e) {
-    $("#settle-breakdown").innerHTML = "";   // silent — settling still works
+    $("#settle-summary").textContent = "";
+    $("#settle-error").textContent = e.message;
+    return;
   }
+  settleState.bd = bd;
+  $("#settle-summary").textContent = bd.state === "owing"
+    ? settleSummaryText(bd)
+    : "You two are all square right now.";
+  $("#settle-breakdown").innerHTML = settleBreakdownHTML(bd, state.meId);
+  $$("#settle-breakdown [data-settle-fix]").forEach((el) =>
+    el.addEventListener("click", () => fixFromSettle(bd, +el.dataset.settleFix)));
+  setSettleMode(bd.state === "owing" && !!opts.even);
+  $("#settle-submit").disabled = bd.state !== "owing";
+  $("#settle-even-toggle").classList.toggle("hidden", bd.state !== "owing");
+  api("/api/settle/history").then((h) => {
+    $("#settle-last").innerHTML = settleLastHTML(h.settlements);
+    $$("#settle-last [data-settle-undo]").forEach((el) =>
+      el.addEventListener("click", () => {
+        const last = h.settlements.find((x) => x.is_latest);
+        if (last) undoSettlement(last.transaction_id, last.date, last.amount.display);
+      }));
+  }).catch(() => {});
+}
+
+function settleSummaryText(bd) {
+  const amt = bd.amount.display;
+  if (bd.ower.id === state.meId) return `You pay ${bd.owed.name} ${amt}.`;
+  if (bd.owed.id === state.meId) return `${bd.ower.name} pays you ${amt}.`;
+  return `${bd.ower.name} pays ${bd.owed.name} ${amt}.`;
+}
+
+// Two modes, one dialog: record a repayment, or record that you were even.
+function setSettleMode(even) {
+  settleState.even = even;
+  $("#settle-even").classList.toggle("hidden", !even);
+  $("#settle-pay-hint").classList.toggle("hidden", even);
+  $("#settle-title").textContent = even ? "Mark as even" : "Settle up";
+  $("#settle-submit").textContent = even ? "Mark even" : "Record settlement";
+  $("#settle-even-toggle").textContent = even ? "Back to settle up" : "We're already even";
+  if (even) refreshEvenAmount();
+}
+
+// What "even as of <date>" would clear, read from the balance as of that day.
+async function refreshEvenAmount() {
+  const date = $("#settle-even-date").value || todayISO();
+  const out = $("#settle-even-amount");
+  out.textContent = "";
+  settleState.evenBd = null;
+  try {
+    const bd = await api(`/api/settle/breakdown?as_of=${encodeURIComponent(date)}`);
+    settleState.evenBd = bd;
+    const who = (m) => (m.id === state.meId ? "you" : m.name);
+    out.textContent = bd.state === "owing"
+      ? `This clears ${bd.amount.display} (${who(bd.ower)} to ${who(bd.owed)}) for everything ` +
+        `up to ${monthDay(date)}. Anything after that still counts.`
+      : `You were already even on ${monthDay(date)}, so there's nothing to clear.`;
+  } catch (e) {
+    out.textContent = e.message;
+  }
+}
+function monthDay(iso) {
+  const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+$("#settle-even-date").addEventListener("change", refreshEvenAmount);
+$("#settle-even-toggle").addEventListener("click", () => setSettleMode(!settleState.even));
+
+// Tap a charge in the breakdown → fix it in the normal edit dialog (who paid,
+// shared or not), then come straight back here with the new number.
+function fixFromSettle(bd, txnId) {
+  const line = (bd.lines || []).find((l) => l.transaction_id === txnId);
+  if (!line || !line.txn) return;
+  settleState.reopen = true;
+  dlgSettle.close();
+  openTxnDialog(line.txn);
+}
+dlgTxn.addEventListener("close", async () => {
+  if (!settleState.reopen) return;
+  settleState.reopen = false;
+  await render();
+  openSettle();
+});
+
+async function undoSettlement(txnId, date, amount) {
+  const amt = typeof amount === "number" ? fmt(amount) : amount;
+  if (!confirm(`Undo the settle-up from ${monthDay(date)} (${amt})? ` +
+               "The balance goes back to what it was, and the charges it closed count again.")) return;
+  try {
+    await api(`/api/transactions/${txnId}`, { method: "DELETE" });
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+  if (dlgSettle.open) dlgSettle.close();
+  render();
 }
 
 // A4: from the settle dialog, "Ask about this" hands off to the assistant
@@ -1893,23 +1997,34 @@ $("#settle-ask")?.addEventListener("click", () => askFrom("balance"));
 $("#form-settle").addEventListener("submit", async (ev) => {
   if (ev.submitter && ev.submitter.value === "cancel") return;
   ev.preventDefault();
-  const bal = window._dash.balance;
+  $("#settle-error").textContent = "";
+  const even = settleState.even;
+  const bd = even ? settleState.evenBd : settleState.bd;
+  if (!bd || bd.state !== "owing") {
+    $("#settle-error").textContent = even
+      ? "Nothing to clear as of that date." : "Nothing to settle right now.";
+    return;
+  }
+  const date = even ? ($("#settle-even-date").value || todayISO()) : todayISO();
+  const note = $("#settle-even-note").value.trim();
+  const body = {
+    date,
+    amount: (bd.amount.cents / 100).toFixed(2),
+    description: even ? "Marked even" : `Settlement — ${bd.ower.name} → ${bd.owed.name}`,
+    category: "Settlement",
+    paid_by: bd.ower.id,
+    is_shared: true,
+    payer_share_pct: 0,
+    source: "settlement",
+    method: even ? "already_even" : "paid",
+  };
+  if (even && note) body.note = note;
   try {
     // Paid by the ower with payer share 0% — the full amount credits the other
-    // person, which exactly offsets the outstanding balance.
-    await api("/api/transactions", {
-      method: "POST",
-      body: {
-        date: todayISO(),
-        amount: bal.amount,
-        description: `Settlement — ${bal.owes.name} → ${bal.owed.name}`,
-        category: "Settlement",
-        paid_by: bal.owes.id,
-        is_shared: true,
-        payer_share_pct: 0,
-        source: "settlement",
-      },
-    });
+    // person, which exactly offsets the outstanding balance. "Already even"
+    // is the same record with method=already_even: the server labels it
+    // "no money moved", and it can be undone like any settle-up.
+    await api("/api/transactions", { method: "POST", body });
     dlgSettle.close();
     render();
   } catch (e) {
