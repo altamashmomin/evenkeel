@@ -42,6 +42,7 @@ READ_TOOLS = {
     "ledger_list_income_rules",
     "ledger_unclassified_inflows", "ledger_search_transactions",
     "ledger_list_goals_and_bills", "ledger_inventory",
+    "ledger_check_ins",
 }
 
 

@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
-from derivations import compute_balance
+from derivations import CHECK_IN_KINDS, compute_balance
 
 
 class ActionError(ValueError):
@@ -55,7 +55,7 @@ GOVERNED_TABLES = frozenset({
     "transactions", "splits", "links", "goals", "goal_contributions",
     "bills", "bill_payments", "audit_log", "income_rules", "members",
     "api_tokens", "pending_actions", "items", "budgets",
-    "receipts", "receipt_lines",
+    "receipts", "receipt_lines", "check_in_mutes",
 })
 
 
@@ -2316,6 +2316,101 @@ def set_item_snooze(db, actor, item_id, until):
     value = _clean_iso_date(until, "snoozed_until")
     return _set_item_meta(db, actor, "set_item_snooze", item_id,
                           "snoozed_until", value)
+
+
+# ─────────────── check-ins (Ask starts the conversation, #019) ─────────────
+
+CHECK_IN_KEY_MAX = 120
+
+
+def _clean_check_in_key(key):
+    """A check-in mute key: 'kind:<kind>' (a whole kind off) or
+    '<kind>:<subject>' (one check-in). The kind must be a real one
+    (derivations.CHECK_IN_KINDS) so a typo can't park a row that never matches;
+    the subject is opaque (the derivation mints it) but must be non-empty,
+    printable, and short. Returned trimmed."""
+    if not isinstance(key, str):
+        raise ActionError("key must be text")
+    key = key.strip()
+    if not key or len(key) > CHECK_IN_KEY_MAX:
+        raise ActionError(f"key must be 1 to {CHECK_IN_KEY_MAX} characters")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in key):
+        raise ActionError("key has a control character")
+    head, sep, subject = key.partition(":")
+    if not sep or not subject:
+        raise ActionError("key must look like 'kind:<kind>' or '<kind>:<subject>'")
+    if head == "kind":
+        if subject not in CHECK_IN_KINDS:
+            raise ActionError(f"unknown check-in kind: {subject}")
+    elif head not in CHECK_IN_KINDS:
+        raise ActionError(f"unknown check-in kind: {head}")
+    return key
+
+
+def _check_in_member(db, member_id):
+    if not isinstance(member_id, int) or isinstance(member_id, bool):
+        raise ActionError("member_id must be a whole number")
+    row = db.execute("SELECT id FROM members WHERE id = ? AND active = 1",
+                     (member_id,)).fetchone()
+    if row is None:
+        raise NotFound("not found")
+
+
+def mute_check_in(db, actor, member_id, key, until=None):
+    """Stop one person's check-in from coming back: dismiss it (until None),
+    snooze it to a date (until 'YYYY-MM-DD'), or, with key 'kind:<kind>', turn
+    a whole kind off for them. A per-person preference — it never touches
+    money, and the other member's check-ins are unaffected.
+
+    validate — the member exists and is active (NotFound otherwise); the key
+    names a real kind (_clean_check_in_key); until is a 'YYYY-MM-DD' or blank.
+    edit — one transaction: upsert the (member, key) row + an audit row with
+    the before/after until. Re-muting replaces the until (snooze again, or
+    turn a snooze into a dismissal). Returns the row.
+    """
+    with action_transaction(db):
+        _check_in_member(db, member_id)
+        key = _clean_check_in_key(key)
+        value = _clean_iso_date(until, "until")
+        before = db.execute(
+            "SELECT * FROM check_in_mutes WHERE member_id = ? AND key = ?",
+            (member_id, key)).fetchone()
+        now = _now()
+        db.execute(
+            "INSERT INTO check_in_mutes (member_id, key, until, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(member_id, key) DO UPDATE SET "
+            "until = excluded.until, updated_at = excluded.updated_at",
+            (member_id, key, value, now, now))
+        row = db.execute(
+            "SELECT * FROM check_in_mutes WHERE member_id = ? AND key = ?",
+            (member_id, key)).fetchone()
+        _write_audit(db, actor, "mute_check_in", f"member:{member_id}",
+                     {"key": key, "before": (before["until"] if before else None),
+                      "existed": before is not None, "until": value})
+    return row
+
+
+def unmute_check_in(db, actor, member_id, key):
+    """Turn a muted check-in (or a whole muted kind) back on for one person —
+    deletes their (member, key) row. A preference row, so a hard delete is the
+    honest undo; the audit row keeps the before-image. Never touches money.
+
+    validate — the member exists and is active, and the row exists (NotFound
+    otherwise).
+    edit — one transaction: the delete + an audit row. Returns None.
+    """
+    with action_transaction(db):
+        _check_in_member(db, member_id)
+        key = _clean_check_in_key(key)
+        existing = db.execute(
+            "SELECT * FROM check_in_mutes WHERE member_id = ? AND key = ?",
+            (member_id, key)).fetchone()
+        if existing is None:
+            raise NotFound("not found")
+        db.execute("DELETE FROM check_in_mutes WHERE id = ?", (existing["id"],))
+        _write_audit(db, actor, "unmute_check_in", f"member:{member_id}",
+                     {"key": key, "before": dict(existing)})
 
 
 # ─────────────── receipts (INVENTORY-DESIGN, receipt-scan amendment) ───────

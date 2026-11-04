@@ -670,6 +670,7 @@
     if (!Array.isArray(messages) || !messages.length) return [];
     const last = messages[messages.length - 1];
     if (!last || last.role !== "assistant") return [];
+    if (last.chips) return [];   // a check-in opener brings its own replies
     let lastQ = "";
     for (let i = messages.length - 2; i >= 0; i--) {
       if (messages[i].role === "user") { lastQ = (messages[i].content || "").trim(); break; }
@@ -703,7 +704,8 @@
         <button type="button" class="ask-help-link" data-help>How does this work?</button>
       </div>`;
     }
-    const bubbles = messages.map((m) => {
+    const shown = messages.filter((m) => !m.hidden);
+    const bubbles = shown.map((m, i) => {
       // A1: when the assistant actually changed something, its reply carries
       // tap-through chips — one per destination tab (deduped server-side) — so
       // a write reads differently from a plain answer AND jumps you to where
@@ -712,7 +714,11 @@
       const chips = acts.map((a) =>
         `<button type="button" class="ask-nav" data-ask-nav="${esc(a.tab)}">✓ ${esc(a.label)} →</button>`
       ).join("");
-      return `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}${chips}</div>`;
+      // A check-in opener carries its quick replies, live only while it's the
+      // latest message (an answered one shouldn't stay tappable).
+      const ciChips = (m.chips && i === shown.length - 1 && !pending)
+        ? checkInChipsHTML(m.chips, "data-ci-thread-chip") : "";
+      return `<div class="ask-msg ${m.role === "user" ? "ask-you" : "ask-bot"}">${esc(m.content)}${chips}</div>${ciChips}`;
     }).join("");
     const thinking = pending
       ? `<div class="ask-msg ask-bot ask-thinking"><span></span><span></span><span></span></div>`
@@ -2045,6 +2051,199 @@
       </div>`;
   }
 
+  /* ===== Ask check-ins: the assistant starts the conversation (#019) =====
+     The server decides WHICH check-ins exist (derivations.check_ins, plain
+     rules, no model). Everything a person reads lives here: the opener the
+     assistant "says", the quick replies, and a factual context line handed to
+     the model only if they tap a reply that asks it something. Pure: same
+     check-in + today in, same text out.
+
+     A chip's `do` is one of:
+       ask      — send `text` to the assistant (the only path that costs a call)
+       nav      — open a tab (the Calendar, where a bill is paid or linked)
+       item     — set a pantry item's status through the existing pantry route
+       snooze   — quiet this check-in for `days` days
+       dismiss  — quiet this check-in for good (the next instance still asks)
+     Nothing here can pay, settle, link or edit money. */
+  const CHECK_IN_KIND_LABELS = {
+    bill_due: "bills coming due",
+    bill_looks_paid: "bills that look paid",
+    budget: "budgets",
+    spend_spike: "spending jumps",
+    unusual_charge: "unusual charges",
+    restock_due: "pantry restocks",
+    order_waiting: "orders on the way",
+  };
+
+  function checkInKindLabel(kind) {
+    return CHECK_IN_KIND_LABELS[kind] || kind;
+  }
+
+  const disp = (m) => (m && m.display) || "";
+  const lower = (s) => (s || "").toLowerCase();
+
+  function checkInView(ci) {
+    const k = ci.kind;
+    if (k === "bill_due") {
+      const when = ci.level === "overdue"
+        ? `was due ${shortDate(ci.due_date)} and isn't marked paid yet`
+        : ci.days === 0 ? "is due today"
+        : `is due in ${ci.days} day${ci.days === 1 ? "" : "s"} (${shortDate(ci.due_date)})`;
+      return {
+        opener: `${ci.name} (${disp(ci.amount)}) ${when}. ` +
+          (ci.level === "overdue" ? "Already paid it?" : "Want to get it handled?"),
+        context: `Ledger check-in: the ${ci.name} bill, usually ${disp(ci.amount)}, ` +
+          `${when}. It is not on autopay.`,
+        chips: [
+          { label: ci.level === "overdue" ? "Mark it paid in Calendar" : "Open Calendar",
+            do: "nav", tab: "bills" },
+          { label: "Remind me tomorrow", do: "snooze", days: 1 },
+          { label: "What else is due?", do: "ask",
+            text: "What other bills are still due this month?" },
+        ],
+      };
+    }
+    if (k === "bill_looks_paid") {
+      return {
+        opener: `A ${disp(ci.txn_amount)} charge on ${shortDate(ci.txn_date)} looks like ` +
+          `it paid ${ci.name}. Link it in the Calendar so it isn't counted twice?`,
+        context: `Ledger check-in: a ${disp(ci.txn_amount)} bank charge on ` +
+          `${ci.txn_date} looks like it paid the ${ci.name} bill (${ci.reason}).`,
+        chips: [
+          { label: "Open Calendar", do: "nav", tab: "bills" },
+          { label: "That's not it", do: "dismiss" },
+        ],
+      };
+    }
+    if (k === "budget") {
+      const month = monthName(ci.period).split(" ")[0];
+      const opener = ci.level === "over"
+        ? `${ci.category} is over budget: ${disp(ci.actual)} of ${disp(ci.budgeted)} ` +
+          `for ${month}.`
+        : `${ci.category} is at ${ci.pct}% of its ${disp(ci.budgeted)} budget, with ` +
+          `${disp(ci.remaining)} left for ${month}.`;
+      return {
+        opener: opener + " Want to look at where it went?",
+        context: `Ledger check-in: ${opener}`,
+        chips: [
+          { label: "Where did it go?", do: "ask",
+            text: `Where did our ${lower(ci.category)} money go this month?` },
+          { label: "Got it", do: "dismiss" },
+        ],
+      };
+    }
+    if (k === "spend_spike") {
+      const opener = `${ci.category} is at ${disp(ci.current)} this month, ` +
+        `${ci.pct_over}% above the usual ${disp(ci.baseline)}.`;
+      return {
+        opener: opener + " Anything unexpected in there?",
+        context: `Ledger check-in: ${opener}`,
+        chips: [
+          { label: "What drove it?", do: "ask",
+            text: `What drove the jump in ${lower(ci.category)} spending this month?` },
+          { label: "That's expected", do: "dismiss" },
+        ],
+      };
+    }
+    if (k === "unusual_charge") {
+      const opener = `${ci.description} charged ${disp(ci.amount)} on ` +
+        `${shortDate(ci.txn_date)}. It's usually about ${disp(ci.usual)}.`;
+      return {
+        opener: opener + " Does that look right?",
+        context: `Ledger check-in: ${opener} (median of the last ${ci.prior_count} charges).`,
+        chips: [
+          { label: "Show recent charges", do: "ask",
+            text: `Show me the recent charges from ${ci.description}.` },
+          { label: "That's fine", do: "dismiss" },
+        ],
+      };
+    }
+    if (k === "restock_due") {
+      const since = ci.interval_days + ci.days_late;
+      const pace = ci.days_late >= 0
+        ? `usually lasts about ${ci.interval_days} days, and it's been ${since}`
+        : `usually lasts about ${ci.interval_days} days, so it's due in ${-ci.days_late}`;
+      return {
+        opener: `${ci.name} ${pace}. Running low?`,
+        context: `Ledger check-in: the pantry staple ${ci.name} ${pace} ` +
+          `(cadence from ${ci.interval_source === "manual" ? "the interval they set" :
+            ci.interval_source === "status" ? "their past restocks" : "past purchases"}).`,
+        chips: [
+          { label: "Yes, add to the list", do: "item", item_id: ci.item_id, status: "low" },
+          { label: "Still have plenty", do: "snooze", days: 7 },
+          { label: "How often do we buy it?", do: "ask",
+            text: `How often do we usually buy ${ci.name}?` },
+        ],
+      };
+    }
+    if (k === "order_waiting") {
+      return {
+        opener: `${ci.name} was ordered ${ci.days_waiting} days ago and hasn't been ` +
+          "marked as arrived. Did it come?",
+        context: `Ledger check-in: ${ci.name} was ordered ${ci.days_waiting} days ago ` +
+          "and is still marked on the way.",
+        chips: [
+          { label: "It came", do: "item", item_id: ci.item_id, status: "stocked" },
+          { label: "Still waiting", do: "snooze", days: 3 },
+          { label: "It never came", do: "item", item_id: ci.item_id, status: "out" },
+        ],
+      };
+    }
+    return { opener: "", context: "", chips: [] };
+  }
+
+  function checkInChipsHTML(chips, attr) {
+    return `<div class="ci-chips">${(chips || []).map((c, i) =>
+      `<button type="button" class="ask-eg ci-chip" ${attr}="${i}">${esc(c.label)}</button>`
+    ).join("")}</div>`;
+  }
+
+  // The pop-up card: one check-in at a time, its quick replies, a pager when
+  // more are waiting, "Not now" (closes for today) and a quiet "stop asking
+  // about <kind>" for this person.
+  function checkInCardHTML(ci, index, total) {
+    const v = checkInView(ci);
+    const pager = total > 1
+      ? `<button type="button" class="ci-next" data-ci-next>${index + 1} of ${total} ›</button>`
+      : "";
+    return `
+      <div class="ci-card" role="dialog" aria-label="Check-in from Ledger">
+        <div class="ci-head">
+          <span class="ci-from">💬 Ledger</span>${pager}
+          <button type="button" class="ci-close" data-ci-close aria-label="Not now">×</button>
+        </div>
+        <p class="ci-text">${esc(v.opener)}</p>
+        ${checkInChipsHTML(v.chips, "data-ci-chip")}
+        <div class="ci-foot">
+          <button type="button" class="ci-link" data-ci-chat>Chat about it</button>
+          <button type="button" class="ci-link" data-ci-mute-kind="${esc(ci.kind)}">Stop asking about ${esc(checkInKindLabel(ci.kind))}</button>
+        </div>
+      </div>`;
+  }
+
+  // The Ask tab's empty state lists what's waiting (tap to start that
+  // conversation) and any kinds this person turned off, with a way back on.
+  function checkInsListHTML(payload) {
+    const list = (payload && payload.check_ins) || [];
+    const off = ((payload && payload.kinds) || []).filter((k) => !k.on);
+    const rows = list.map((ci, i) =>
+      `<button type="button" class="ci-row" data-ci-open="${i}">${esc(checkInView(ci).opener)}</button>`
+    ).join("");
+    const more = payload && payload.total > list.length
+      ? `<p class="ci-more">${payload.total - list.length} more after these.</p>` : "";
+    const offHTML = off.length
+      ? `<p class="ci-off">Not asking about ${off.map((k) =>
+          `${esc(checkInKindLabel(k.kind))} <button type="button" class="ci-link" ` +
+          `data-ci-unmute-kind="${esc(k.kind)}">turn back on</button>`).join(", ")}.</p>`
+      : "";
+    if (!rows && !offHTML) return "";
+    return `
+      <div class="ci-list">
+        ${rows ? `<p class="ci-list-title">Things I noticed</p>${rows}${more}` : ""}
+        ${offHTML}
+      </div>`;
+  }
+
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            ruleBreadthWarning,
            userById, userColor, beamHTML, txnRow, calendarAgendaHTML, payDetailHTML, payLinkOptionsHTML, billRowHTML,
@@ -2065,5 +2264,6 @@
            savingsRateTrendHTML, categoryTrendHTML,
            cashFlowForecastHTML, anomaliesHTML, billCoversCharge, recurringChargesHTML, goalPaceHTML,
            goalWhatIf, addMonths, goalWhatIfText, goalPaceLineHTML,
-           askThreadHTML, askFollowups, agentsHTML, opsPanelHTML };
+           askThreadHTML, askFollowups, agentsHTML, opsPanelHTML,
+           checkInKindLabel, checkInView, checkInCardHTML, checkInsListHTML };
 });

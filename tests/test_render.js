@@ -1883,4 +1883,109 @@ check("inventoryHTML offers the receipt scan button", () => {
   assert.ok(html.includes('id="inv-scan"'));
 });
 
+
+// ---- check-ins ----
+const ciM = (c) => ({ cents: c, display: R.fmt(c / 100) });
+const CI = {
+  bill_due: { key: "bill_due:3:2026-11-06", kind: "bill_due", level: "soon", name: "Internet",
+    bill_id: 3, due_date: "2026-11-06", days: 2, amount: ciM(6500) },
+  bill_overdue: { key: "bill_due:3:2026-11-01", kind: "bill_due", level: "overdue", name: "Rent",
+    bill_id: 3, due_date: "2026-11-01", days: -3, amount: ciM(265500) },
+  bill_looks_paid: { key: "bill_looks_paid:4:2026-11-01", kind: "bill_looks_paid", name: "Gym",
+    bill_id: 4, txn_id: 9, txn_date: "2026-11-02", txn_amount: ciM(4000), reason: "same amount" },
+  budget: { key: "budget:Dining:2026-11", kind: "budget", level: "over", category: "Dining",
+    period: "2026-11", pct: 120, budgeted: ciM(20000), actual: ciM(24000), remaining: ciM(-4000) },
+  spend_spike: { key: "spend_spike:Groceries:2026-11", kind: "spend_spike", category: "Groceries",
+    pct_over: 60, current: ciM(48000), baseline: ciM(30000) },
+  unusual_charge: { key: "unusual_charge:77", kind: "unusual_charge", txn_id: 77,
+    description: "Netflix", txn_date: "2026-11-03", amount: ciM(4599), usual: ciM(1549),
+    prior_count: 6 },
+  restock_due: { key: "restock_due:5:2026-11-02", kind: "restock_due", item_id: 5, name: "Eggs",
+    interval_days: 10, days_late: 2, interval_source: "status" },
+  order_waiting: { key: "order_waiting:6:2026-10-25", kind: "order_waiting", item_id: 6,
+    name: "Paper towels", days_waiting: 10 },
+};
+
+check("checkInView gives every kind an opener, context and chips", () => {
+  for (const [name, ci] of Object.entries(CI)) {
+    const v = R.checkInView(ci);
+    assert.ok(v.opener && !v.opener.includes("undefined"), `${name} opener: ${v.opener}`);
+    assert.ok(v.context.startsWith("Ledger check-in:"), `${name} context`);
+    assert.ok(!v.context.includes("undefined"), `${name} context: ${v.context}`);
+    assert.ok(v.chips.length >= 2, `${name} chips`);
+    for (const c of v.chips) assert.ok(["ask", "nav", "item", "snooze", "dismiss"].includes(c.do));
+  }
+  assert.deepStrictEqual(R.checkInView({ kind: "nope" }), { opener: "", context: "", chips: [] });
+});
+
+check("checkInView words bills, budgets and the pantry plainly", () => {
+  assert.strictEqual(R.checkInView(CI.bill_due).opener,
+    `Internet ($65.00) is due in 2 days (${R.shortDate("2026-11-06")}). Want to get it handled?`);
+  assert.ok(R.checkInView({ ...CI.bill_due, days: 0 }).opener.includes("is due today"));
+  assert.ok(R.checkInView({ ...CI.bill_due, days: 1 }).opener.includes("in 1 day ("));
+  assert.ok(R.checkInView(CI.bill_overdue).opener.endsWith("Already paid it?"));
+  assert.ok(R.checkInView(CI.budget).opener.startsWith("Dining is over budget: $240.00 of $200.00"));
+  const near = R.checkInView({ ...CI.budget, level: "near", pct: 92, actual: ciM(18400),
+    remaining: ciM(1600) }).opener;
+  assert.ok(near.includes("at 92% of its $200.00 budget, with $16.00 left"));
+  assert.ok(R.checkInView(CI.restock_due).opener.includes("about 10 days, and it's been 12"));
+  assert.ok(R.checkInView({ ...CI.restock_due, days_late: -2 }).opener.includes("due in 2"));
+  assert.ok(R.checkInView(CI.unusual_charge).opener.includes("usually about $15.49"));
+});
+
+check("checkInView never offers a money write", () => {
+  // Bill chips only open the Calendar; the only writes are pantry statuses and mutes.
+  for (const ci of Object.values(CI)) {
+    for (const c of R.checkInView(ci).chips) {
+      if (c.do === "nav") assert.strictEqual(c.tab, "bills");
+      if (c.do === "item") {
+        assert.ok(["low", "stocked", "out"].includes(c.status));
+        assert.ok(["restock_due", "order_waiting"].includes(ci.kind));
+      }
+    }
+  }
+  const restock = R.checkInView(CI.restock_due).chips;
+  assert.deepStrictEqual(restock[0], { label: "Yes, add to the list", do: "item", item_id: 5, status: "low" });
+});
+
+check("checkInCardHTML shows the opener, chips, pager and mute", () => {
+  const one = R.checkInCardHTML(CI.bill_due, 0, 1);
+  assert.ok(one.includes("Internet ($65.00)"));
+  assert.ok(!one.includes("data-ci-next"), "no pager for a single check-in");
+  assert.ok(one.includes('data-ci-chip="0"') && one.includes('data-ci-chip="2"'));
+  assert.ok(one.includes('data-ci-mute-kind="bill_due"'));
+  assert.ok(one.includes("Stop asking about bills coming due"));
+  const many = R.checkInCardHTML(CI.restock_due, 1, 3);
+  assert.ok(many.includes("2 of 3"));
+  const evil = R.checkInCardHTML({ ...CI.order_waiting, name: "<img src=x>" }, 0, 1);
+  assert.ok(!evil.includes("<img"), "names are escaped");
+});
+
+check("checkInsListHTML lists what's waiting and kinds turned off", () => {
+  assert.strictEqual(R.checkInsListHTML(null), "");
+  assert.strictEqual(R.checkInsListHTML({ check_ins: [], total: 0, kinds: [{ kind: "budget", on: true }] }), "");
+  const html = R.checkInsListHTML({ check_ins: [CI.bill_due, CI.restock_due], total: 5,
+    kinds: [{ kind: "budget", on: false }, { kind: "bill_due", on: true }] });
+  assert.ok(html.includes("Things I noticed"));
+  assert.ok(html.includes('data-ci-open="0"') && html.includes('data-ci-open="1"'));
+  assert.ok(html.includes("3 more after these."));
+  assert.ok(html.includes('data-ci-unmute-kind="budget"'));
+  assert.ok(!html.includes('data-ci-unmute-kind="bill_due"'));
+  const offOnly = R.checkInsListHTML({ check_ins: [], total: 0, kinds: [{ kind: "budget", on: false }] });
+  assert.ok(offOnly.includes("Not asking about budgets") && !offOnly.includes("Things I noticed"));
+});
+
+check("askThreadHTML hides context lines and shows chips on the latest opener", () => {
+  const v = R.checkInView(CI.bill_due);
+  const msgs = [{ role: "user", content: v.context, hidden: true },
+                { role: "assistant", content: v.opener, chips: v.chips }];
+  const html = R.askThreadHTML(msgs, false);
+  assert.ok(!html.includes("Ledger check-in:"), "hidden context is not shown");
+  assert.ok(html.includes('data-ci-thread-chip="0"'));
+  assert.ok(!R.askThreadHTML(msgs, true).includes("data-ci-thread-chip"), "no chips while pending");
+  const later = msgs.concat({ role: "user", content: "ok" }, { role: "assistant", content: "Done." });
+  assert.ok(!R.askThreadHTML(later, false).includes("data-ci-thread-chip"), "chips only on the latest");
+  assert.deepStrictEqual(R.askFollowups(msgs), [], "chips replace the follow-up suggestions");
+});
+
 console.log(`render tests passed (${passed} checks)`);

@@ -4528,3 +4528,35 @@ balance check), suite **831**, render **199** (+8). GATE PASS against synthetic
 seed-42 dev.db: exactly the enumerated diff (schema 17→18, two empty tables).
 Re-gate on the Pi before deploy. Not browser-smoked; the reader is exercised with a
 fake client only. Awaits Alta's review, merge and deploy.
+
+**Nov 4, 2026 — Ask check-ins: the assistant asks first (on
+`claude/ask-check-ins`, NOT deployed).** Alta's ask: let the chatbot start the
+conversation, with a pop-up asking about restocks, budgets, spending patterns,
+the pantry and bills. Cheap local rules decide WHICH check-ins exist
+(`derivations.check_ins`, clock-free, household-wide): a bill coming due in 3
+days or overdue this month and not on autopay; a bank charge that looks like it
+paid a bill (replaces the due one); a budget at 90% or over; a category spending
+jump (`anomaly_flags`, unbudgeted categories only); an unusual charge
+(`unusual_charges`: at least 2× the merchant's median over the last year and $25
+over, at least 3 prior charges, outflows only, no transfers, settlements or bill
+rows); a stocked staple due to run out (`restock_forecast`, 2 days ahead, 45 days
+late at most, snoozed items skipped); an order on the way for 7+ days. Each
+instance has its own key, so next month's bill or the next restock asks again.
+Migration **#019** (`check_in_mutes`, per person: `kind:<kind>` turns a kind off,
+`<key>` with an optional `until` snoozes or dismisses one), verbs
+**`mute_check_in`** / **`unmute_check_in`** (write only that table + audit).
+Routes: `GET /api/check-ins` (capped at 3, with `total`, the kinds and live
+mutes), `POST`/`DELETE /api/check-ins/mute` (session only). Read tool
+`ledger_check_ins` for Ask and MCP; the Ask system prompt gets a CHECK-INS rule
+(recheck with tools, never pay/settle/link/mark paid — point to the Calendar).
+UI: a pop-up card that opens by itself at most once a day per device (then a dot
+on the Ask tab), quick replies that are the app's own actions (open the
+Calendar, pantry status through the existing route, snooze, dismiss) except
+"ask" replies, which start an Ask conversation seeded with a hidden facts line.
+**No model call happens until someone taps a reply that asks something.** No
+background job on the Pi. Known gap: last month's unpaid bills aren't raised
+(bills have no created_at, so freshly imported bills would false-alarm). Tests:
+`test_check_ins.py` (+23), suite **854**, render **205** (+6). GATE PASS against
+synthetic seed-42 dev.db migrated to v18: exactly the enumerated diff (schema
+18→19, one empty table). Re-gate on the Pi before deploy. Not browser-smoked.
+Awaits Alta's review, merge and deploy.

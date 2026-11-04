@@ -2091,3 +2091,247 @@ def receipt_totals_check(lines, tax_cents=None, total_cents=None):
     return {"lines_total_cents": lines_total, "missing_prices": missing,
             "expected_cents": computed, "difference_cents": difference,
             "adds_up": adds_up}
+
+
+# ─────────────── check-ins (Ask starts the conversation, #019) ─────────────
+#
+# The assistant opens a conversation on its own ("Coffee is usually restocked
+# every 12 days. Running low?"). WHICH check-ins exist is decided here, by
+# plain rules over the derivations the app already trusts, so it costs nothing
+# to compute and no model runs until a person taps to chat. The wording lives
+# in render.js (presentation), the per-person "stop asking" rows in
+# check_in_mutes (#019). Nothing here writes or stores anything.
+
+# Every kind, in the order a settings list shows them. actions.py imports this
+# so a mute key can only name a real kind.
+CHECK_IN_KINDS = ("bill_due", "bill_looks_paid", "budget", "spend_spike",
+                  "unusual_charge", "restock_due", "order_waiting")
+
+# Lower = more pressing. A missed bill outranks a coffee restock.
+_CHECK_IN_PRIORITY = {
+    ("bill_due", "overdue"): 10, ("bill_looks_paid", None): 15,
+    ("bill_due", "soon"): 20, ("budget", "over"): 25,
+    ("unusual_charge", None): 30, ("restock_due", None): 40,
+    ("order_waiting", None): 45, ("budget", "near"): 50,
+    ("spend_spike", None): 55,
+}
+
+CHECK_IN_BILL_SOON_DAYS = 3      # "rent is due in 3 days"
+CHECK_IN_RESTOCK_AHEAD_DAYS = 2  # ask a little before the forecast date
+CHECK_IN_RESTOCK_MAX_LATE = 45   # past this it's list rot (stale_staples' job)
+CHECK_IN_ORDER_WAIT_DAYS = 7     # matches the Pantry's "still waiting?" nudge
+CHECK_IN_BUDGET_NEAR_PCT = 90
+
+UNUSUAL_WINDOW_DAYS = 7          # how recent a charge must be to ask about it
+UNUSUAL_HISTORY_DAYS = 365       # how far back "the usual" looks
+UNUSUAL_MIN_PRIOR = 3            # need a real history at that merchant
+UNUSUAL_RATIO = 2                # at least double the usual...
+UNUSUAL_MIN_OVER_CENTS = 2500    # ...and at least $25 more, so $3 → $7 is quiet
+
+
+def unusual_charges(db, as_of=None):
+    """Recent charges that are much bigger than usual for their merchant — "the
+    Verizon bill was $212, it's usually $85". For each outflow in the
+    UNUSUAL_WINDOW_DAYS up to `as_of`: the merchant key (_normalize_merchant)
+    must have >= UNUSUAL_MIN_PRIOR earlier charges in the last year, and this
+    one must be >= UNUSUAL_RATIO x their median AND >= UNUSUAL_MIN_OVER_CENTS
+    above it. A heads-up, never an authority.
+
+    OUTFLOWS ONLY (direction='out'), never a transfer, settlement or a bill
+    transaction Ledger logged itself. Clock-free: `as_of` (ISO date) is
+    required; None returns [] so the tripwire can call it bare. Integer cents;
+    biggest jump first."""
+    if as_of is None:
+        return []
+    anchor = date.fromisoformat(as_of)
+    window_start = anchor - timedelta(days=UNUSUAL_WINDOW_DAYS - 1)
+    history_start = anchor - timedelta(days=UNUSUAL_HISTORY_DAYS)
+    rows = db.execute(
+        """SELECT id, txn_date, amount_cents, description, category
+           FROM transactions
+           WHERE direction = 'out' AND is_transfer = 0
+             AND source NOT IN ('settlement', 'bill')
+             AND txn_date BETWEEN ? AND ?
+           ORDER BY txn_date, id""",
+        (history_start.isoformat(), as_of + "￿")).fetchall()
+    by_merchant = {}
+    for r in rows:
+        key = _normalize_merchant(r["description"])
+        if key:
+            by_merchant.setdefault(key, []).append(r)
+    out = []
+    for key, charges in by_merchant.items():
+        for i, r in enumerate(charges):
+            if r["txn_date"][:10] < window_start.isoformat():
+                continue
+            prior = [p["amount_cents"] for p in charges[:i]
+                     if p["txn_date"][:10] < r["txn_date"][:10]]
+            if len(prior) < UNUSUAL_MIN_PRIOR:
+                continue
+            usual = _median_int(prior)
+            over = r["amount_cents"] - usual
+            if usual <= 0 or r["amount_cents"] < UNUSUAL_RATIO * usual \
+                    or over < UNUSUAL_MIN_OVER_CENTS:
+                continue
+            out.append({
+                "txn_id": r["id"], "txn_date": r["txn_date"][:10],
+                "description": r["description"], "merchant": key,
+                "category": r["category"], "amount_cents": r["amount_cents"],
+                "usual_cents": usual, "over_cents": over,
+                "prior_count": len(prior),
+            })
+    out.sort(key=lambda u: (-u["over_cents"], u["txn_id"]))
+    return out
+
+
+def check_in_is_muted(key, kind, mutes, as_of):
+    """True when this person's mutes silence the check-in: a whole-kind mute
+    ('kind:<kind>') or this exact key, either with no end date or ending
+    after `as_of`. A snooze that has run out no longer counts."""
+    for m in mutes or ():
+        if m["key"] not in (key, f"kind:{kind}"):
+            continue
+        if m["until"] is None or m["until"] > as_of:
+            return True
+    return False
+
+
+def _period_of(day):
+    return day.strftime("%Y-%m")
+
+
+def _next_period(period):
+    year, month = (int(p) for p in period.split("-"))
+    return f"{year + (month == 12):04d}-{month % 12 + 1:02d}"
+
+
+def check_ins(db, as_of=None, mutes=None):
+    """The things worth asking a person about today, most pressing first —
+    the data behind the Ask tab's check-in pop-up. Each is
+    {key, kind, level, priority, ...facts}; `key` names the INSTANCE (a bill
+    and its month, an item and its forecast date) so dismissing one doesn't
+    silence the next. `mutes` are that person's check_in_mutes rows; muted
+    check-ins are dropped here (check_in_is_muted).
+
+    The rules, each over a derivation another screen already shows:
+      bill_due        active, not-autopay bill unpaid for its month, due within
+                      CHECK_IN_BILL_SOON_DAYS or already past due this month
+                      (the Calendar's own months: this one, plus next month's
+                      first days). Not raised when a charge looks like it paid it.
+      bill_looks_paid bill_payment_candidates — "a charge looks like it paid
+                      rent; link it?" (any bill, autopay included).
+      budget          budget_status for this month at >= 90% (near) or over.
+      spend_spike     anomaly_flags for this month, when no budget check-in
+                      already covers that category.
+      unusual_charge  unusual_charges — a recent charge way above its usual.
+      restock_due     restock_forecast for a STOCKED staple whose predicted
+                      date is within CHECK_IN_RESTOCK_AHEAD_DAYS (or past, up
+                      to CHECK_IN_RESTOCK_MAX_LATE), not snoozed on the item.
+      order_waiting   on_the_way rows ordered >= CHECK_IN_ORDER_WAIT_DAYS ago.
+
+    Clock-free: `as_of` (ISO date, the viewer's today) is required; None
+    returns [] so the tripwire can call it bare. Reads only; never touches
+    money, never writes. Budget and spike read spending_summary (refund-
+    netted, the same bounded reason budget_status/anomaly_flags are
+    tripwire-exempt); every other rule reads outflows only."""
+    if as_of is None:
+        return []
+    today = date.fromisoformat(as_of)
+    period = _period_of(today)
+    out = []
+
+    def add(kind, level, key, **facts):
+        out.append({"key": key, "kind": kind, "level": level,
+                    "priority": _CHECK_IN_PRIORITY[(kind, level)], **facts})
+
+    # Bills: this month and next (rent due on the 1st, asked on the 30th).
+    periods = (period, _next_period(period))
+    looks_paid = {}
+    for p in periods:
+        for c in bill_payment_candidates(db, p):
+            looks_paid[(c["bill_id"], p)] = c
+    paid = {(r["bill_id"], r["period"]) for r in db.execute(
+        "SELECT bill_id, period FROM bill_payments WHERE period IN (?, ?)", periods)}
+    for b in db.execute("SELECT id, name, amount_cents, due_day, autopay FROM bills "
+                        "WHERE active = 1 ORDER BY due_day, name"):
+        for p in periods:
+            if (b["id"], p) in paid:
+                continue
+            due = _clamped_due_date(p, b["due_day"])
+            days = (due - today).days
+            cand = looks_paid.get((b["id"], p))
+            if cand is not None and days <= LOOKS_PAID_DAYS:
+                add("bill_looks_paid", None, f"bill_looks_paid:{b['id']}:{p}",
+                    bill_id=b["id"], name=b["name"], period=p,
+                    due_date=due.isoformat(), amount_cents=b["amount_cents"],
+                    txn_id=cand["txn_id"], txn_date=cand["txn_date"],
+                    txn_amount_cents=cand["amount_cents"],
+                    txn_description=cand["description"], reason=cand["reason"])
+                continue
+            if b["autopay"]:
+                continue
+            if p == period and days < 0:
+                level = "overdue"
+            elif 0 <= days <= CHECK_IN_BILL_SOON_DAYS:
+                level = "soon"
+            else:
+                continue
+            add("bill_due", level, f"bill_due:{b['id']}:{p}",
+                bill_id=b["id"], name=b["name"], period=p,
+                due_date=due.isoformat(), days=days,
+                amount_cents=b["amount_cents"])
+
+    # Budgets, then spikes in categories no budget check-in already covers.
+    budgeted = set()
+    for s in budget_status(db, period)["budgets"]:
+        if s["pct"] is None or s["pct"] < CHECK_IN_BUDGET_NEAR_PCT:
+            continue
+        level = "over" if s["over"] else "near"
+        budgeted.add(s["category"])
+        add("budget", level, f"budget:{s['category']}:{period}:{level}",
+            category=s["category"], period=period, pct=s["pct"],
+            budgeted_cents=s["budgeted_cents"], actual_cents=s["actual_cents"],
+            remaining_cents=s["remaining_cents"])
+    for a in anomaly_flags(db, month=period):
+        if a["category"] in budgeted:
+            continue
+        add("spend_spike", None, f"spend_spike:{a['category']}:{period}",
+            category=a["category"], period=period, pct_over=a["pct_over"],
+            current_cents=a["current_cents"], baseline_cents=a["baseline_cents"])
+
+    for u in unusual_charges(db, as_of):
+        add("unusual_charge", None, f"unusual_charge:{u['txn_id']}", **u)
+
+    # Pantry.
+    ahead = (today + timedelta(days=CHECK_IN_RESTOCK_AHEAD_DAYS)).isoformat()
+    for f in restock_forecast(db):
+        if f["status"] != "stocked" or f["predicted_date"] > ahead:
+            continue
+        if f["snoozed_until"] and f["snoozed_until"] > as_of:
+            continue
+        late = (today - date.fromisoformat(f["predicted_date"])).days
+        if late > CHECK_IN_RESTOCK_MAX_LATE:
+            continue
+        add("restock_due", None,
+            f"restock_due:{f['item_id']}:{f['predicted_date']}",
+            item_id=f["item_id"], name=f["name"], store=f["store"],
+            interval_days=f["interval_days"],
+            interval_source=f["interval_source"],
+            last_purchase=f["last_purchase"],
+            predicted_date=f["predicted_date"], days_late=late)
+    wait_floor = (today - timedelta(days=CHECK_IN_ORDER_WAIT_DAYS)).isoformat()
+    for it in on_the_way(db):
+        ordered_on = (it["updated_at"] or "")[:10]
+        if not ordered_on or ordered_on > wait_floor:
+            continue
+        if it["snoozed_until"] and it["snoozed_until"] > as_of:
+            continue
+        add("order_waiting", None, f"order_waiting:{it['id']}:{ordered_on}",
+            item_id=it["id"], name=it["name"], store=it["store"],
+            ordered_on=ordered_on,
+            days_waiting=(today - date.fromisoformat(ordered_on)).days)
+
+    out = [c for c in out
+           if not check_in_is_muted(c["key"], c["kind"], mutes, as_of)]
+    out.sort(key=lambda c: (c["priority"], c["key"]))
+    return out

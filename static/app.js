@@ -16,7 +16,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
         beamHTML, txnRow, calendarAgendaHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
         pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
-        receiptSavedText } = window.Render;
+        receiptSavedText, checkInView, checkInCardHTML, checkInsListHTML } = window.Render;
 
 // One local-time source for "today" / "this month" — the user's calendar, not
 // UTC. Both the initial selected month and the Bills header read it, so the app
@@ -42,6 +42,8 @@ const state = {
   openLogs: new Set(),
 
   ask: { messages: [], pending: false, prefill: "" },   // Ask tab: client-held chat history; prefill = A4 seed
+  checkIns: null,     // /api/check-ins payload (the assistant's own check-ins)
+  ciIndex: 0,         // which check-in the pop-up is showing
 };
 
 // userById / userColor moved into render.js (pure, users injected) alongside
@@ -86,6 +88,7 @@ async function showApp() {
   renderHeader();
   await loadCategories();
   setTab(state.tab);
+  loadCheckIns({ autoOpen: true });   // non-blocking; a failure only costs the pop-up
 }
 
 // The Garden greeting: a time-of-day hello + the household's avatars.
@@ -977,6 +980,7 @@ function renderAsk() {
   const a = state.ask;
   return `
     <div class="ask-wrap">
+      ${a.messages.length ? "" : checkInsListHTML(state.checkIns)}
       <div class="ask-thread" id="ask-thread">${askThreadHTML(a.messages, a.pending)}</div>
       <form class="ask-bar" id="ask-form">
         <input id="ask-input" type="text" autocomplete="off" enterkeyhint="send"
@@ -992,7 +996,14 @@ async function askSend(text) {
   text = (text || "").trim();
   if (!text || state.ask.pending) return;
   // History is the turns BEFORE this question (client-held, send-and-wait).
-  const history = state.ask.messages.map((m) => ({ role: m.role, content: m.content }));
+  // Consecutive same-role turns are merged so the history the model sees
+  // always alternates user/assistant.
+  const history = [];
+  for (const m of state.ask.messages) {
+    const prev = history[history.length - 1];
+    if (prev && prev.role === m.role) prev.content += "\n\n" + m.content;
+    else history.push({ role: m.role, content: m.content });
+  }
   state.ask.messages.push({ role: "user", content: text });
   state.ask.pending = true;
   render();
@@ -1007,6 +1018,150 @@ async function askSend(text) {
     state.ask.messages.push({ role: "assistant", content: "Sorry — " + e.message });
   } finally {
     state.ask.pending = false;
+    render();
+  }
+}
+
+/* ================= check-ins ================= */
+// The assistant starts the conversation. The server's rules decide WHICH
+// check-ins exist (GET /api/check-ins — a local read, no model call); the
+// words and quick replies come from render.js. The model only runs when a
+// person taps a reply that asks it something (askSend → /api/ask). The pop-up
+// opens on its own at most once a day per device; after that the check-ins
+// wait in the Ask tab (with a dot on its nav button).
+
+const CI_SHOWN_KEY = "ledger-checkins-shown";
+const ciPop = $("#ci-pop");
+const ciList = () => (state.checkIns && state.checkIns.check_ins) || [];
+
+function ciSeenToday() {
+  try { return localStorage.getItem(CI_SHOWN_KEY) === todayISO(); } catch (e) { return false; }
+}
+function ciMarkSeen() {
+  try { localStorage.setItem(CI_SHOWN_KEY, todayISO()); } catch (e) { /* private mode */ }
+}
+function addDaysISO(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function paintAskBadge() {
+  const n = ciList().length;
+  $$('#topnav [data-tab="ask"], #tabbar [data-tab="ask"]').forEach((b) => {
+    b.classList.toggle("has-ci", n > 0);
+    b.setAttribute("aria-label", n ? `Ask, ${n} check-in${n === 1 ? "" : "s"} waiting` : "Ask");
+  });
+}
+
+async function loadCheckIns({ autoOpen = false } = {}) {
+  const before = JSON.stringify(state.checkIns);
+  try {
+    state.checkIns = await api(`/api/check-ins?today=${todayISO()}`);
+  } catch (e) {
+    state.checkIns = null;
+  }
+  paintAskBadge();
+  const list = ciList();
+  if (state.ciIndex >= list.length) state.ciIndex = 0;
+  if (!list.length) closeCheckInPop();
+  else if (ciPop && !ciPop.classList.contains("hidden")) renderCheckInPop();
+  else if (autoOpen && !ciSeenToday() && state.tab !== "ask") openCheckInPop();
+  // Refresh the Ask tab's "Things I noticed" list only when it changed.
+  if (state.tab === "ask" && !state.ask.messages.length &&
+      JSON.stringify(state.checkIns) !== before) render();
+}
+
+function openCheckInPop() {
+  if (!ciPop || !ciList().length) return;
+  ciMarkSeen();
+  ciPop.classList.remove("hidden");
+  renderCheckInPop();
+}
+function closeCheckInPop() { ciPop?.classList.add("hidden"); }
+
+function renderCheckInPop() {
+  const list = ciList();
+  if (!list.length) return closeCheckInPop();
+  const i = state.ciIndex % list.length;
+  const ci = list[i];
+  const chips = checkInView(ci).chips;
+  ciPop.innerHTML = checkInCardHTML(ci, i, list.length);
+  $("[data-ci-close]", ciPop)?.addEventListener("click", closeCheckInPop);
+  $("[data-ci-next]", ciPop)?.addEventListener("click", () => {
+    state.ciIndex = (i + 1) % list.length;
+    renderCheckInPop();
+  });
+  $("[data-ci-chat]", ciPop)?.addEventListener("click", () => startCheckInChat(ci));
+  $("[data-ci-mute-kind]", ciPop)?.addEventListener("click", () =>
+    ciMute(`kind:${ci.kind}`, null));
+  $$("[data-ci-chip]", ciPop).forEach((b) => b.addEventListener("click", () =>
+    runCheckInChip(ci, chips[+b.dataset.ciChip], "pop")));
+}
+
+async function ciMute(key, until) {
+  try {
+    await api("/api/check-ins/mute", { method: "POST", body: { key, until } });
+  } catch (e) { alert(e.message); return false; }
+  await loadCheckIns();
+  return true;
+}
+
+// Open the Ask tab on this check-in: a hidden line of facts for the model,
+// then the assistant's opener with its quick replies. A check-in is a new
+// topic, so it starts a fresh conversation. `firstText` (an "ask" reply tapped
+// in the pop-up) is sent straight away: the person tapped it, so that's them
+// engaging, and the one place a check-in costs a model call.
+function startCheckInChat(ci, firstText) {
+  if (!ci || state.ask.pending) return;
+  const v = checkInView(ci);
+  state.ask.messages = [
+    { role: "user", content: v.context, hidden: true },
+    { role: "assistant", content: v.opener, chips: v.chips, checkIn: ci },
+  ];
+  closeCheckInPop();
+  setTab("ask");
+  if (firstText) askSend(firstText);
+}
+
+const CI_ACKS = {
+  snooze: (c) => c.days === 1 ? "Okay, I'll ask again tomorrow."
+    : `Okay, I'll check again in ${c.days} days.`,
+  dismiss: () => "Got it, I won't ask about this one again.",
+  low: (ci) => `Added ${ci.name} to the shopping list.`,
+  stocked: (ci) => `Marked ${ci.name} as arrived and stocked.`,
+  out: (ci) => `Marked ${ci.name} as out, so it's back on the list.`,
+};
+
+// One quick reply. `where` is "pop" (the pop-up) or "thread" (the Ask tab).
+// Only "ask" reaches the model; the rest are the app's own actions: a tab, a
+// pantry status through the pantry route, or this person's mute.
+async function runCheckInChip(ci, chip, where) {
+  if (!chip) return;
+  if (chip.do === "ask") {
+    if (where === "pop") startCheckInChat(ci, chip.text);
+    else askSend(chip.text);
+    return;
+  }
+  if (chip.do === "nav") { closeCheckInPop(); setTab(chip.tab); return; }
+  let ack = "";
+  if (chip.do === "item") {
+    try {
+      await api(`/api/inventory/${chip.item_id}`, { method: "PUT", body: { status: chip.status } });
+    } catch (e) { alert(e.message); return; }
+    ack = CI_ACKS[chip.status](ci);
+    await loadCheckIns();
+  } else if (chip.do === "snooze") {
+    if (!(await ciMute(ci.key, addDaysISO(chip.days)))) return;
+    ack = CI_ACKS.snooze(chip);
+  } else if (chip.do === "dismiss") {
+    if (!(await ciMute(ci.key, null))) return;
+    ack = CI_ACKS.dismiss();
+  }
+  if (where === "thread") {
+    // Shown as their reply and a local answer: no model call.
+    state.ask.messages.push({ role: "user", content: chip.label },
+                            { role: "assistant", content: ack });
     render();
   }
 }
@@ -1213,6 +1368,21 @@ function wireMain() {
   // person can see or adjust the change (the screen is itself the way back).
   $$("[data-ask-nav]").forEach((el) =>
     el.addEventListener("click", () => setTab(el.dataset.askNav)));
+  // Check-ins in the Ask tab: open one from the list, tap a quick reply under
+  // the opener, or turn a kind back on.
+  $$("[data-ci-open]").forEach((el) => el.addEventListener("click", () =>
+    startCheckInChat(ciList()[+el.dataset.ciOpen])));
+  $$("[data-ci-thread-chip]").forEach((el) => el.addEventListener("click", () => {
+    const opener = [...state.ask.messages].reverse().find((m) => m.chips);
+    if (opener) runCheckInChip(opener.checkIn, opener.chips[+el.dataset.ciThreadChip], "thread");
+  }));
+  $$("[data-ci-unmute-kind]").forEach((el) => el.addEventListener("click", async () => {
+    try {
+      await api("/api/check-ins/mute", { method: "DELETE",
+                                         body: { key: `kind:${el.dataset.ciUnmuteKind}` } });
+    } catch (e) { alert(e.message); return; }
+    loadCheckIns();
+  }));
   // A4: a seeded prefill (from an ask-from-anywhere entry point) lands in the
   // box — focus it and put the cursor at the end so it's ready to send or edit,
   // then clear the seed so a later re-render won't clobber what was typed.
@@ -1754,6 +1924,9 @@ $("#form-settle").addEventListener("submit", async (ev) => {
 // a logout/login cycle and would otherwise stack duplicate timers).
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) renderHeader();
+  // Back on the app: refresh the check-ins (a cheap local read). The pop-up
+  // still opens by itself at most once a day.
+  if (!document.hidden && state.meId) loadCheckIns({ autoOpen: true });
 });
 setInterval(renderHeader, 5 * 60 * 1000);
 

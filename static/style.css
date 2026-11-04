@@ -1028,3 +1028,56 @@ details.key-group[open] summary.key-h::after { transform: rotate(180deg); }
 .rcpt-why { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
 .rcpt-tally { font-size: 12px; color: var(--muted); text-align: right; margin: 6px 0 0; }
 .rcpt-busy { text-align: center; color: var(--muted); padding: 28px 8px; }
+
+/* ---------- Ask check-ins (#019): the assistant starts the conversation ----------
+   A small card that floats above the mobile tab bar (bottom-right on desktop,
+   clear of the FAB). One check-in at a time; its quick replies reuse the
+   example-chip look. A dot on the Ask nav button says some are waiting. */
+.ci-pop {
+  position: fixed; z-index: 7; left: 50%; transform: translateX(-50%);
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  width: min(400px, calc(100% - 24px));
+}
+@media (min-width: 720px) {
+  .ci-pop { left: auto; right: 20px; transform: none; bottom: 96px; width: 360px; }
+}
+.ci-card {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 16px 36px -14px rgba(40, 60, 45, 0.45);
+  padding: 14px 16px 10px;
+  animation: ci-in 180ms ease-out;
+}
+@keyframes ci-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ci-card { animation: none; } }
+.ci-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ci-from { font-family: var(--mono); font-weight: 700; font-size: 13px; color: var(--muted); }
+.ci-next { margin-left: auto; background: none; border: none; color: var(--brass-dim);
+  font-family: inherit; font-size: 13px; cursor: pointer; padding: 4px 6px; }
+.ci-close { background: none; border: none; color: var(--muted); font-size: 22px;
+  line-height: 1; cursor: pointer; padding: 2px 6px; }
+.ci-head .ci-next + .ci-close, .ci-head .ci-close:only-of-type { margin-left: 0; }
+.ci-head .ci-from + .ci-close { margin-left: auto; }
+.ci-text { margin: 0 0 10px; font-size: 15px; line-height: 1.4; }
+.ci-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-thread .ci-chips { align-self: flex-start; max-width: 92%; margin: 2px 0 4px; }
+.ci-chip { padding: 7px 13px; font-size: 13px; }
+.ci-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px;
+  border-top: 1px solid var(--line); padding-top: 8px; }
+.ci-link { background: none; border: none; padding: 2px 0; color: var(--muted);
+  font-family: inherit; font-size: 12px; cursor: pointer; text-decoration: underline;
+  text-underline-offset: 2px; }
+.ci-list { background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+.ci-list-title { margin: 0 0 8px; font-family: var(--mono); font-weight: 700;
+  font-size: 13px; color: var(--muted); }
+.ci-row { display: block; width: 100%; text-align: left; background: var(--surface-2);
+  border: none; border-radius: 12px; padding: 10px 12px; margin-bottom: 6px;
+  color: var(--text); font-family: inherit; font-size: 14px; line-height: 1.35; cursor: pointer; }
+.ci-more, .ci-off { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+/* the waiting dot on the Ask nav button */
+#tabbar button.has-ci .g, #topnav button.has-ci { position: relative; }
+#tabbar button.has-ci .g::after, #topnav button.has-ci::after {
+  content: ""; position: absolute; top: -2px; right: -6px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--brass); box-shadow: 0 0 0 2px var(--surface);
+}
