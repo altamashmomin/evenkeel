@@ -2038,4 +2038,24 @@ check("txnRow renders a settle-up as a handshake row, not spending", () => {
   assert.ok(!html.includes("payer 0%"), "no confusing split label");
 });
 
+check("accountsSheetHTML shows an owner picker and says what's left", () => {
+  const users = [{ id: 1, display_name: "Alta" }, { id: 2, display_name: "Charlee" }];
+  const html = R.accountsSheetHTML([
+    { account_id: "ACT-C", label: "Charlee <Visa>", owner: { id: 2, name: "Charlee" },
+      charges: 3, sample: "Target", by_payer: [{ id: 1, name: "Alta", count: 2 }, { id: 2, name: "Charlee", count: 1 }],
+      mismatched: 2, mismatched_open: 1 },
+    { account_id: "ACT-A", label: "Account ending CT-A", owner: null, charges: 1,
+      sample: null, by_payer: [{ id: 1, name: "Alta", count: 1 }], mismatched: 0, mismatched_open: 0 }],
+    users, 1);
+  assert.ok(html.includes('data-acct-owner="ACT-C" data-member="2"'));
+  assert.ok(/aria-pressed="true"[^>]*>\s*<span class="dot"><\/span>Charlee/.test(html), "owner is pressed");
+  assert.ok(html.includes(">Mine<") || html.includes("</span>Mine"), "viewer reads as Mine");
+  assert.ok(html.includes("2 earlier charges from it still show someone else (1 not settled yet)"));
+  assert.ok(html.includes("Not set yet, so its charges are credited to Alta"));
+  assert.ok(html.includes('data-member=""'), "an owned account can be cleared");
+  assert.ok(!html.includes("<Visa>"), "label is escaped");
+  assert.ok(html.includes('id="acct-done"'));
+  assert.ok(R.accountsSheetHTML([], users, 1).includes("No bank accounts synced yet"));
+});
+
 console.log(`render tests passed (${passed} checks)`);

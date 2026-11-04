@@ -25,6 +25,7 @@ import hashlib
 
 from werkzeug.security import check_password_hash, generate_password_hash
 import json
+import re
 import secrets
 from urllib.parse import urlsplit
 from contextlib import contextmanager
@@ -55,7 +56,7 @@ GOVERNED_TABLES = frozenset({
     "transactions", "splits", "links", "goals", "goal_contributions",
     "bills", "bill_payments", "audit_log", "income_rules", "members",
     "api_tokens", "pending_actions", "items", "budgets",
-    "receipts", "receipt_lines", "check_in_mutes",
+    "receipts", "receipt_lines", "check_in_mutes", "bank_accounts",
 })
 
 
@@ -2452,6 +2453,112 @@ def unmute_check_in(db, actor, member_id, key):
         db.execute("DELETE FROM check_in_mutes WHERE id = ?", (existing["id"],))
         _write_audit(db, actor, "unmute_check_in", f"member:{member_id}",
                      {"key": key, "before": dict(existing)})
+
+
+# ─────────────── bank accounts: whose synced account is whose (migration #020) ──
+
+_ACCOUNT_ID_RE = re.compile(r"^[^\s:]{1,200}$")
+
+
+def _clean_account_id(account_id):
+    """A SimpleFIN account id as it appears inside external_id: printable,
+    no ':' (the external_id separator), bounded."""
+    if not isinstance(account_id, str) or not _ACCOUNT_ID_RE.match(account_id):
+        raise ActionError("account id is not valid")
+    return account_id
+
+
+def account_seen(db, account_id):
+    """True when the account is already known: a bank_accounts row, or a
+    synced transaction whose external_id names it (accounts imported before
+    migration #020 have no row until the next sync)."""
+    if db.execute("SELECT 1 FROM bank_accounts WHERE account_id = ?",
+                  (account_id,)).fetchone():
+        return True
+    prefix = f"simplefin:{account_id}:"
+    return db.execute(
+        "SELECT 1 FROM transactions WHERE substr(external_id, 1, ?) = ? LIMIT 1",
+        (len(prefix), prefix)).fetchone() is not None
+
+
+def note_bank_account(db, actor, account_id, name):
+    """The sync's record that an account exists and what SimpleFIN calls it.
+
+    validate — a well-formed account id; name is text (blank allowed; capped
+    at 120 chars).
+    edit — insert the row (owner not set) if it's new, or update the name if
+    it changed; anything else is a no-op with NO audit row (the sync calls
+    this for every account on every run, and an unchanged account isn't an
+    event). Never sets or clears an owner, never touches a transaction.
+    Returns the row."""
+    account_id = _clean_account_id(account_id)
+    if name is not None and not isinstance(name, str):
+        raise ActionError("account name must be text")
+    name = " ".join((name or "").split())[:120] or None
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM bank_accounts WHERE account_id = ?",
+            (account_id,)).fetchone()
+        now = _now()
+        if existing is None:
+            db.execute(
+                "INSERT INTO bank_accounts (account_id, name, member_id, "
+                "created_at, updated_at) VALUES (?, ?, NULL, ?, ?)",
+                (account_id, name, now, now))
+            _write_audit(db, actor, "note_bank_account", f"bank_account:{account_id}",
+                         {"before": None, "name": name}, at=now)
+        elif name is not None and existing["name"] != name:
+            db.execute(
+                "UPDATE bank_accounts SET name = ?, updated_at = ? WHERE account_id = ?",
+                (name, now, account_id))
+            _write_audit(db, actor, "note_bank_account", f"bank_account:{account_id}",
+                         {"before": dict(existing), "name": name}, at=now)
+    return db.execute("SELECT * FROM bank_accounts WHERE account_id = ?",
+                      (account_id,)).fetchone()
+
+
+def set_account_owner(db, actor, account_id, member_id):
+    """Say whose bank account this is, so the sync credits that person for
+    the charges it imports from now on. `member_id` None clears it (back to
+    the sync's old default).
+
+    validate — a well-formed account id that Ledger has seen (a bank_accounts
+    row or a synced transaction from it; NotFound otherwise); member_id is an
+    active member or None.
+    edit — upsert the one bank_accounts row + an audit row with before/after.
+    Deliberately does NOT rewrite past transactions: a person's word about an
+    account is a rule for the future, and silently moving dozens of old
+    charges (and the balance with them) is exactly what invariant 3 forbids.
+    Past rows are fixed one at a time in the edit dialog, or in bulk by
+    fix_payers.py (dry run by default) through edit_transaction.
+    Returns the row."""
+    account_id = _clean_account_id(account_id)
+    if member_id is not None:
+        if isinstance(member_id, bool) or not isinstance(member_id, int):
+            raise ActionError("member must be one of the household")
+        if member_id not in {m["id"] for m in active_members(db)}:
+            raise ActionError("member must be one of the household")
+    with action_transaction(db):
+        if not account_seen(db, account_id):
+            raise NotFound("not found")
+        existing = db.execute(
+            "SELECT * FROM bank_accounts WHERE account_id = ?",
+            (account_id,)).fetchone()
+        now = _now()
+        if existing is None:
+            db.execute(
+                "INSERT INTO bank_accounts (account_id, name, member_id, "
+                "created_at, updated_at) VALUES (?, NULL, ?, ?, ?)",
+                (account_id, member_id, now, now))
+        else:
+            db.execute(
+                "UPDATE bank_accounts SET member_id = ?, updated_at = ? "
+                "WHERE account_id = ?", (member_id, now, account_id))
+        _write_audit(db, actor, "set_account_owner", f"bank_account:{account_id}",
+                     {"before": dict(existing) if existing else None,
+                      "member_id": member_id}, at=now)
+    return db.execute("SELECT * FROM bank_accounts WHERE account_id = ?",
+                      (account_id,)).fetchone()
 
 
 # ─────────────── receipts (INVENTORY-DESIGN, receipt-scan amendment) ───────

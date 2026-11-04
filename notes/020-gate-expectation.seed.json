@@ -1,0 +1,7 @@
+{
+  "note": "Migration #020 (bank_accounts -- whose bank account each synced SimpleFIN account is). Adds ONE new, empty table: no existing table changes and no rows are written, so the new table enters row_counts at 0 and the only changed row count is the schema_version record the migration itself inserts. No money derivation reads it; the verbs that write it (note_bank_account, set_account_owner) write only bank_accounts and audit_log, and the sync uses it only for rows it imports after an owner is set, so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 19, "new": 20},
+    {"path": "row_counts.bank_accounts", "old": null, "new": 0}
+  ]
+}

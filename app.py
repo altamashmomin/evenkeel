@@ -33,6 +33,7 @@ from derivations import (activity_digest, anomaly_flags, bill_link_options,
                          calendar_events, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
                          settle_breakdown, settlement_history,
+                         bank_accounts,
                          income_summary, last_shopping_trip,
                          income_trend, low_stock, member_breakdown,
                          new_staple_suggestions,
@@ -1963,6 +1964,84 @@ def unmute_check_in_route():
     except ValueError as e:
         return bad_request(str(e))
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------- bank accounts
+
+def _account_json(a, names):
+    return {
+        "account_id": a["account_id"], "name": a["name"], "label": a["label"],
+        "owner": None if a["member_id"] is None
+                 else {"id": a["member_id"], "name": names.get(a["member_id"], "?")},
+        "charges": a["charges"],
+        "by_payer": [{"id": mid, "name": names.get(mid, "?"), "count": n}
+                     for mid, n in sorted(a["by_payer"].items())],
+        "last_date": a["last_date"], "sample": a["sample"],
+        "mismatched": a["mismatched"], "mismatched_open": a["mismatched_open"],
+    }
+
+
+def _member_names(db):
+    return {r["id"]: r["display_name"] for r in db.execute(
+        "SELECT id, display_name FROM members")}
+
+
+@app.get("/api/accounts")
+@login_required
+def accounts_view():
+    """Every synced bank account and whose it is (`bank_accounts`
+    derivation): the Accounts sheet. `by_payer` shows how its charges are
+    credited today; `mismatched` counts charges credited to someone other
+    than the owner (`mismatched_open`: not yet closed by a settle-up). Pure
+    read."""
+    db = get_db()
+    names = _member_names(db)
+    return jsonify({"accounts": [_account_json(a, names) for a in bank_accounts(db)]})
+
+
+@app.get("/api/transactions/<int:txn_id>/account")
+@login_required
+def transaction_account(txn_id):
+    """The synced bank account a transaction came from, with its owner, or
+    `account: null` for a row that didn't come from the bank sync. The edit
+    dialog asks this after a "who paid" change to offer "count this whole
+    account as theirs from now on". Pure read."""
+    db = get_db()
+    row = db.execute("SELECT external_id, source FROM transactions WHERE id = ?",
+                     (txn_id,)).fetchone()
+    if row is None:
+        return jsonify({"error": "not found"}), 404
+    aid = actions._rule_account(row["external_id"]) if row["source"] == "simplefin" else None
+    if aid is None:
+        return jsonify({"account": None})
+    names = _member_names(db)
+    acct = next((a for a in bank_accounts(db) if a["account_id"] == aid), None)
+    if acct is None:
+        return jsonify({"account": None})
+    return jsonify({"account": _account_json(acct, names)})
+
+
+@app.put("/api/accounts/<path:account_id>/owner")
+@session_required
+def set_account_owner_route(account_id):
+    """Thin caller: set_account_owner — whose bank account this is, so the
+    sync credits that person for charges it imports from now on
+    (`member_id` null clears it). Never rewrites past charges; the response
+    says how many past ones are credited to someone else so the UI can say
+    so. Session-only: a person decides this, never a token."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.set_account_owner(db, ui_actor(db), account_id,
+                                        data.get("member_id"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    names = _member_names(db)
+    acct = next((a for a in bank_accounts(db)
+                 if a["account_id"] == row["account_id"]), None)
+    return jsonify({"account": _account_json(acct, names) if acct else None})
 
 
 @app.get("/api/categories")

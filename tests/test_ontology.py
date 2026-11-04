@@ -189,7 +189,7 @@ class ManifestEdgeTests(unittest.TestCase):
     def test_callers_shape_and_the_paren_less_reference(self):
         c = MANIFEST["callers"]
         self.assertEqual({"ui", "sync", "mcp", "ask", "cli"}, set(c))
-        self.assertEqual(["record_transaction"], c["sync"])
+        self.assertEqual(["note_bank_account", "record_transaction"], c["sync"])
         # reset_money is the ONLY door-less verb; in particular the goal verbs
         # are UI-reachable through a paren-less reference
         # (`actions.contribute_to_goal if cents > 0 else …`), which a

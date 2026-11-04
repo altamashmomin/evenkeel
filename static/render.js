@@ -1802,6 +1802,55 @@
       <button class="btn small ghost" type="button" data-settle-undo="${esc(String(last.transaction_id))}">Undo</button></p>`;
   }
 
+  // The "Whose accounts?" sheet: every synced bank account with a picker for
+  // whose it is. Pure function of the /api/accounts payload + the household
+  // (users) + the viewer. Picking an owner only changes who NEW charges are
+  // credited to; the copy says so, and says how many past charges from that
+  // account still show someone else (they're fixed one at a time from
+  // Activity, or in bulk on the Pi).
+  function accountsSheetHTML(accounts, users, meId) {
+    const list = accounts || [];
+    const nameOf = (id) => (users || []).find((u) => u.id === id);
+    const rows = list.map((a) => {
+      const aid = esc(a.account_id);
+      const picks = (users || []).map((u, idx) => {
+        const on = a.owner && a.owner.id === u.id;
+        const label = u.id === meId ? "Mine" : esc(u.display_name);
+        return `<button type="button" class="${on ? "on" : ""}" style="--pcolor:${idx === 0 ? "var(--p1)" : "var(--p2)"}"
+                  data-acct-owner="${aid}" data-member="${u.id}" aria-pressed="${on ? "true" : "false"}">
+                  <span class="dot"></span>${label}</button>`;
+      }).join("");
+      const credited = (a.by_payer || []).map((p) => `${esc(p.name)} ${p.count}`).join(" · ");
+      let note;
+      if (!a.owner) {
+        note = `Not set yet, so its charges are credited to ${esc((nameOf((a.by_payer[0] || {}).id) || {}).display_name || "the default person")}.`;
+      } else if (a.mismatched) {
+        const owner = esc(a.owner.name);
+        note = `New charges count as ${owner}'s. ${a.mismatched} earlier charge${a.mismatched === 1 ? "" : "s"} from it still show someone else` +
+          (a.mismatched_open !== a.mismatched ? ` (${a.mismatched_open} not settled yet)` : "") +
+          `: tap one in Activity to fix it, or have them fixed all at once on the Pi.`;
+      } else {
+        note = `All its charges count as ${esc(a.owner.name)}'s.`;
+      }
+      const clear = a.owner
+        ? `<button type="button" class="btn small ghost" data-acct-owner="${aid}" data-member="">Not sure</button>` : "";
+      return `<li class="acct">
+        <div class="title">${esc(a.label)}</div>
+        <div class="sub">${a.charges} charge${a.charges === 1 ? "" : "s"}${a.sample ? ` · latest: ${esc(a.sample)}` : ""}${credited ? ` · credited ${credited}` : ""}</div>
+        <div class="seg acct-seg">${picks}</div>
+        <p class="settle-sub acct-note">${note} ${clear}</p>
+      </li>`;
+    }).join("");
+    const body = list.length
+      ? `<ul class="list acct-list">${rows}</ul>`
+      : `<p class="empty">No bank accounts synced yet.</p>`;
+    return `<p class="sheet-title">Whose accounts?</p>
+      <p class="settle-sub">Say whose each bank account is, and Ledger credits that person for its charges and deposits from now on. Nothing already in Ledger changes.</p>
+      ${body}
+      <div class="dlg-actions"><span class="spacer"></span>
+        <button class="btn primary" type="button" id="acct-done">Done</button></div>`;
+  }
+
   // One activity/recent row. `users` is injected (the household members) so the
   // payer name + color stay data-driven without a global.
   function txnRow(t, users) {
@@ -2309,7 +2358,7 @@
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
-           moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML,
+           moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
            listEstimateHTML, priceTrendBadge,
            tripDueHTML, tripClosureHTML,
            staleStaplesHTML,
