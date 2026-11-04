@@ -1,6 +1,6 @@
 """simplefin_sync.py's insert path is now a thin caller of
-record_transaction: dedupe on external_id, the legacy 50/50 split (money
-out) or direction='in' handling and rule-matching (money in), and the
+record_transaction: dedupe on external_id, import_share's shared-or-own
+decision (money out; the legacy 50/50 split only when the card starts shared) or direction='in' handling and rule-matching (money in), and the
 audit row all live in the verb (CORE-DESIGN's record_transaction entry —
 "sync's insert path becomes a call to this; dedupe stays inside it").
 The sync flip (INCOME-DESIGN build-order step 2) removed the old
@@ -114,10 +114,13 @@ class SimplefinSyncTests(unittest.TestCase):
         self.assertEqual("simplefin:acc1:tx1", txn["external_id"])
         self.assertEqual(1, txn["paid_by"])
 
+        # Since #022 a charge starts as the account owner's own spending: no
+        # split rows, so it can't drift the who-owes-whom balance.
+        self.assertEqual(0, txn["is_shared"])
         splits = self.query(
             "SELECT member_id, share_bp FROM splits WHERE transaction_id = ? "
             "ORDER BY member_id", txn["id"])
-        self.assertEqual([5000, 5000], [s["share_bp"] for s in splits])
+        self.assertEqual([], [s["share_bp"] for s in splits])
 
         audit = self.query(
             "SELECT actor, action FROM audit_log WHERE target = ?",
@@ -125,6 +128,26 @@ class SimplefinSyncTests(unittest.TestCase):
         self.assertEqual(
             [("sync", "record_transaction")],
             [(a["actor"], a["action"]) for a in audit])
+
+    def test_a_card_set_to_start_shared_imports_the_legacy_50_50_split(self):
+        self.run_sync({"accounts": [{"id": "acc1", "name": "Checking",
+                                     "transactions": []}]})
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            sys.path.insert(0, str(REPO))
+            import actions
+            actions.set_account_shared_default(conn, "ui:alta", "acc1", True)
+        finally:
+            conn.close()
+        self.run_sync(simplefin_payload())
+        txn = self.query("SELECT * FROM transactions WHERE external_id = ?",
+                         "simplefin:acc1:tx1")[0]
+        self.assertEqual(1, txn["is_shared"])
+        splits = self.query(
+            "SELECT member_id, share_bp FROM splits WHERE transaction_id = ? "
+            "ORDER BY member_id", txn["id"])
+        self.assertEqual([5000, 5000], [s["share_bp"] for s in splits])
 
     def test_rerun_dedupes_on_external_id_and_writes_no_extra_audit(self):
         self.run_sync(simplefin_payload())

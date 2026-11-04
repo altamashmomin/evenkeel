@@ -2430,6 +2430,102 @@ def _is_joint_charge(row, payer_bp, joint_ids):
     return bool(row["is_shared"]) and payer_bp == 10000
 
 
+# Charges that move money rather than buy something the two of you share: a
+# credit card bill payment (the purchases on that card already count, or are
+# that person's own debt), a person-to-person payment, a bank fee or interest,
+# a transfer between accounts. Imported as the owner's own spending even on a
+# card that starts charges shared, so they can never drift the balance. Upper
+# case, matched against the raw bank description.
+_MONEY_MOVEMENT = re.compile(
+    r"CC PYMT|CREDIT ?CARD|CREDIT CRD|CRCARDPMT|APPLECARD|CARD (?:PAYMENT|PMT)"
+    r"|E-?PAYMENT|MOBILE PMT|PAYMENT THANK YOU"
+    r"|VENMO|ZELLE|CASH ?APP|PMNT SENT"
+    r"|INTEREST CHARGE|MAINTENANCE FEE|LATE FEE|OVERDRAFT|FOREIGN TRANSACTION FEE"
+    r"|ONLINE (?:BANKING )?TRANSFER|TRANSFER TO")
+_BILL_NEAR_BP = 5000   # within ±50% of the bill's usual amount, as bill matching
+_MEMORY_LOOKBACK = 500  # most recent person edits searched for a merchant
+
+
+def _payer_pct(db, txn_id, paid_by):
+    row = db.execute("SELECT share_bp FROM splits WHERE transaction_id = ? "
+                     "AND member_id = ?", (txn_id, paid_by)).fetchone()
+    return 50 if row is None else row["share_bp"] // 100
+
+
+def import_share(db, account_id=None, description="", amount_cents=0):
+    """How the sync should record a NEW charge from a bank account: shared
+    (and the payer's share) or as the owner's own spending, with why. The
+    signals, strongest first:
+
+      1. "joint": a joint account (#021): shared, payer's share 100%, so it
+         is household spending that moves nobody's balance.
+      2. "bill": same merchant as the bank charge linked to an active bill
+         last time, at an amount within ±50% of the bill's usual: recorded
+         the way that charge is now (rent stays split however you split it).
+      3. "you decided before": the most recent synced charge from the same
+         merchant whose Shared setting a person saved (an edit_transaction
+         by a person, never the sync or a script): recorded that way.
+      4. "money movement": a card bill payment, Venmo/Zelle, bank fee or
+         interest, or a transfer: the owner's own (not shared).
+      5. "card default": the account's shared_default (#022). Off unless a
+         person turns it on, so an unknown charge starts as the owner's own
+         spending and only a person makes it shared.
+
+    Returns {"is_shared", "payer_share_pct", "why"}. Pure read; the sync
+    passes the result to record_transaction. Called bare (the tripwire) it
+    answers the default for an unknown account."""
+    if account_id and db.execute(
+            "SELECT 1 FROM bank_accounts WHERE account_id = ? AND joint = 1",
+            (account_id,)).fetchone():
+        return {"is_shared": True, "payer_share_pct": 100, "why": "joint"}
+    key = _normalize_merchant(description)
+    if key:
+        seen_bills = set()
+        for r in db.execute(
+                """SELECT bp.bill_id, b.amount_cents AS usual, t.id, t.description,
+                          t.is_shared, t.paid_by
+                   FROM bill_payments bp
+                   JOIN bills b ON b.id = bp.bill_id AND b.active = 1
+                   JOIN transactions t ON t.id = bp.txn_id
+                   WHERE t.source = 'simplefin' AND t.direction = 'out'
+                   ORDER BY bp.period DESC, bp.id DESC""").fetchall():
+            if r["bill_id"] in seen_bills:
+                continue
+            seen_bills.add(r["bill_id"])   # only the latest link per bill
+            near = (abs(abs(amount_cents) - r["usual"]) * 10000
+                    <= r["usual"] * _BILL_NEAR_BP)
+            if near and _normalize_merchant(r["description"]) == key:
+                shared = bool(r["is_shared"])
+                return {"is_shared": shared,
+                        "payer_share_pct": _payer_pct(db, r["id"], r["paid_by"])
+                        if shared else 50, "why": "bill"}
+        seen = set()
+        for r in db.execute(
+                """SELECT t.id, t.description, t.is_shared, t.paid_by
+                   FROM audit_log a
+                   JOIN transactions t ON a.target = 'transaction:' || t.id
+                   WHERE a.action = 'edit_transaction'
+                     AND (a.actor LIKE 'ui:%' OR a.actor LIKE 'mcp:%')
+                     AND json_extract(a.detail_json, '$.changed.is_shared') IS NOT NULL
+                     AND t.source = 'simplefin' AND t.direction = 'out'
+                     AND t.is_transfer = 0
+                   ORDER BY a.id DESC LIMIT ?""", (_MEMORY_LOOKBACK,)).fetchall():
+            if r["id"] in seen:
+                continue
+            seen.add(r["id"])
+            if _normalize_merchant(r["description"]) == key:
+                shared = bool(r["is_shared"])
+                return {"is_shared": shared,
+                        "payer_share_pct": _payer_pct(db, r["id"], r["paid_by"])
+                        if shared else 50, "why": "you decided before"}
+    if _MONEY_MOVEMENT.search((description or "").upper()):
+        return {"is_shared": False, "payer_share_pct": 50, "why": "money movement"}
+    row = db.execute("SELECT shared_default FROM bank_accounts WHERE account_id = ?",
+                     (account_id,)).fetchone() if account_id else None
+    shared = bool(row and row["shared_default"])
+    return {"is_shared": shared, "payer_share_pct": 50, "why": "card default"}
+
+
 _ACCOUNT_ROWS_SQL = """
     SELECT t.id, t.external_id, t.paid_by, t.txn_date, t.description,
            t.amount_cents, t.is_shared, t.source, t.direction,
@@ -2460,7 +2556,7 @@ def bank_accounts(db):
     Money-out rows only (direction='out', source='simplefin'), so no inflow
     can reach a count (tripwire-safe). Pure read; integer counts."""
     owners = {r["account_id"]: dict(r) for r in db.execute(
-        "SELECT account_id, name, member_id, joint FROM bank_accounts")}
+        "SELECT account_id, name, member_id, joint, shared_default FROM bank_accounts")}
     joint_ids = {k for k, v in owners.items() if v["joint"]}
     acc = {}
     for r in db.execute(_ACCOUNT_ROWS_SQL).fetchall():
@@ -2493,7 +2589,9 @@ def bank_accounts(db):
         out.append({
             "account_id": aid, "name": name,
             "label": name or f"Account ending {aid[-4:]}",
-            "member_id": member_id, "joint": joint, "charges": a["charges"],
+            "member_id": member_id, "joint": joint,
+            "shared_default": bool(o.get("shared_default")),
+            "charges": a["charges"],
             "by_payer": a["by_payer"], "last_date": a["last_date"],
             "sample": a["sample"], "mismatched": mismatched,
             "mismatched_open": mismatched_open,

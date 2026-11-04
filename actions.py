@@ -2569,6 +2569,46 @@ def set_account_owner(db, actor, account_id, member_id, joint=False):
                       (account_id,)).fetchone()
 
 
+def set_account_shared_default(db, actor, account_id, shared):
+    """Say whether NEW charges the sync imports from this bank account start
+    shared 50/50 (`shared` True) or as the owner's own spending (False, the
+    default since migration #022). A charge that matches a bill, a merchant a
+    person already decided, or a joint account still follows that signal
+    (derivations.import_share).
+
+    validate — a well-formed account id Ledger has seen (NotFound otherwise);
+    shared is a real true/false.
+    edit — upsert the one bank_accounts row + an audit row with before/after.
+    Never rewrites a past charge (invariant 3): it is a rule for the future,
+    like set_account_owner. Returns the row."""
+    account_id = _clean_account_id(account_id)
+    if not isinstance(shared, bool):
+        raise ActionError("shared must be true or false")
+    flag = 1 if shared else 0
+    with action_transaction(db):
+        if not account_seen(db, account_id):
+            raise NotFound("not found")
+        existing = db.execute(
+            "SELECT * FROM bank_accounts WHERE account_id = ?",
+            (account_id,)).fetchone()
+        now = _now()
+        if existing is None:
+            db.execute(
+                "INSERT INTO bank_accounts (account_id, name, member_id, shared_default, "
+                "created_at, updated_at) VALUES (?, NULL, NULL, ?, ?, ?)",
+                (account_id, flag, now, now))
+        else:
+            db.execute(
+                "UPDATE bank_accounts SET shared_default = ?, updated_at = ? "
+                "WHERE account_id = ?", (flag, now, account_id))
+        _write_audit(db, actor, "set_account_shared_default",
+                     f"bank_account:{account_id}",
+                     {"before": dict(existing) if existing else None,
+                      "shared_default": shared}, at=now)
+    return db.execute("SELECT * FROM bank_accounts WHERE account_id = ?",
+                      (account_id,)).fetchone()
+
+
 # ─────────────── receipts (INVENTORY-DESIGN, receipt-scan amendment) ───────
 
 RECEIPT_LINE_ACTIONS = ("item", "new", "skip")

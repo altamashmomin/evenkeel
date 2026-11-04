@@ -12,7 +12,10 @@ Normal run (designed for a daily systemd timer):
     python simplefin_sync.py
         Pulls transactions from /accounts, dedupes on SimpleFIN's
         transaction id so re-runs never double-insert. Money out inserts
-        shared 50/50 (source='simplefin') — editable later in the app.
+        as the account owner's own spending unless a stronger signal says
+        shared (derivations.import_share: joint account, bill, a merchant you
+        already marked, or the card's "start shared" setting, #022) —
+        editable later in the app.
         Money in inserts as an inflow (direction='in'), owned by
         SYNC_PAID_BY unless a matching income rule overrides the owner,
         and is classified on the spot by the rules engine — a match sets
@@ -186,12 +189,6 @@ def sync(force: bool = False) -> None:
         payer = derivations.account_owner(db, acct_id) or PAID_BY
         if payer not in member_ids:
             payer = PAID_BY   # an owner who has since left the household
-        # A joint account (migration #021) is both of yours: its charges are
-        # household spending that moves nobody's balance, recorded as shared
-        # with the payer's share at 100% (paid_by stays the SYNC_PAID_BY
-        # default, since no one person fronted it).
-        joint = acct_id in derivations.joint_accounts(db)
-        out_share = 100 if joint else 50
         for txn in account.get("transactions", []):
             cents = to_cents(txn.get("amount", "0"))
             if cents == 0:
@@ -208,26 +205,38 @@ def sync(force: bool = False) -> None:
             # dedupe on external_id, direction-aware split handling, the
             # income-rules matching pass for an inflow, and the audit row
             # (CORE-DESIGN's record_transaction verb, "dedupe stays inside
-            # it"). Money out keeps the legacy shared-50/50 default; money
+            # it"). Money out takes import_share's decision; money
             # in gets no share fields at all (INCOME-DESIGN invariant 1) —
             # record_transaction enforces that regardless of what's passed
             # here, but is_shared=False is explicit below anyway so the
             # intent reads without following the call into actions.py.
             if cents < 0:                      # money out
+                # Shared or the owner's own? derivations.import_share decides
+                # from the strongest signal: a joint account (#021, shared at
+                # the payer's 100% so it moves nobody's balance), the charge
+                # linked to a bill last time, a merchant a person already
+                # decided, money movement (card payments, Venmo, fees), then
+                # the card's shared_default (#022, off unless a person turns
+                # it on). So only a person ever makes a charge shared.
+                share = derivations.import_share(db, acct_id, desc, abs(cents))
+                data = {
+                    "date": txn_date,
+                    "amount": str(Decimal(abs(cents)) / 100),
+                    "description": desc,
+                    "paid_by": payer,
+                    "is_shared": share["is_shared"],
+                }
+                if share["is_shared"]:
+                    data["payer_share_pct"] = share["payer_share_pct"]
                 row = actions.record_transaction(
-                    db, actor="sync",
-                    data={
-                        "date": txn_date,
-                        "amount": str(Decimal(abs(cents)) / 100),
-                        "description": desc,
-                        "paid_by": payer,
-                        "is_shared": True,
-                        "payer_share_pct": out_share,
-                    },
+                    db, actor="sync", data=data,
                     source="simplefin", external_id=external_id)
                 if row is not None:
                     inserted_out += 1
-                    print(f"  + {txn_date}  {abs(cents)/100:>9.2f}  {desc[:48]}  [{acct_name}]")
+                    how = (f"shared, {share['why']}" if share["is_shared"]
+                           else f"own, {share['why']}")
+                    print(f"  + {txn_date}  {abs(cents)/100:>9.2f}  {desc[:48]}  "
+                          f"[{acct_name}]  ({how})")
                 else:
                     skipped_dupe += 1
             else:                              # money in -- an inflow

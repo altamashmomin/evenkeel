@@ -1576,6 +1576,17 @@ async function openAccountsSheet() {
       }
       openAccountsSheet();
     }));
+  $$("#accounts-body [data-acct-shared]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      try {
+        await api(`/api/accounts/${encodeURIComponent(el.dataset.acctShared)}/shared`,
+                  { method: "PUT", body: { shared: el.dataset.shared === "1" } });
+      } catch (e) {
+        alert(e.message);
+        return;
+      }
+      openAccountsSheet();
+    }));
 }
 
 $("#btn-txn-delete").addEventListener("click", async () => {
