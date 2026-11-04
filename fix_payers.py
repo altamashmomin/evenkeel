@@ -128,6 +128,14 @@ def run_fix(db, include_settled, account_id):
             change = {"is_shared": True, "payer_share_pct": 100}
         else:
             change = {"paid_by": f["owner"]}
+            # Keep each person's share as it was: edit_transaction carries the
+            # OLD payer's percentage over to the new payer, so a 20/80 split
+            # would flip to 80/20. Hand it the new payer's own share instead.
+            row = db.execute(
+                "SELECT share_bp FROM splits WHERE transaction_id = ? AND member_id = ?",
+                (f["transaction_id"], f["owner"])).fetchone()
+            if row is not None:
+                change["payer_share_pct"] = row["share_bp"] / 100
         actions.edit_transaction(db, ACTOR, f["transaction_id"], change)
     return fixes
 

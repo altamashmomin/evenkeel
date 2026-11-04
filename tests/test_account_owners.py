@@ -392,6 +392,17 @@ class FixPayersScriptTests(_Base):
         self.assertIn("reopens it", out)
         self.assertEqual(self.charlee, self.payers()[self.t1])
 
+    def test_apply_keeps_each_persons_share_on_an_uneven_split(self):
+        uneven = self.charge("ACT-C", "t9", 10000, self.alta, when="2026-10-05")
+        actions.edit_transaction(self.db, "ui:alta", uneven, {"payer_share_pct": 20})
+        shares = lambda: {r["member_id"]: r["share_bp"] for r in self.db.execute(
+            "SELECT member_id, share_bp FROM splits WHERE transaction_id = ?", (uneven,))}
+        self.assertEqual({self.alta: 2000, self.charlee: 8000}, shares())
+        code, out = self.run_main("--apply")
+        self.assertEqual(0, code, out)
+        self.assertEqual(self.charlee, self.payers()[uneven])
+        self.assertEqual({self.alta: 2000, self.charlee: 8000}, shares())
+
     def test_old_schema_is_refused(self):
         self.db.execute("DELETE FROM schema_version WHERE version = 20")
         self.db.commit()
