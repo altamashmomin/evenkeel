@@ -14,7 +14,7 @@
 // the 'Other' fallback group — grouping is presentation, membership is data.
 const OBJ_GROUPS = [
   { g: 'People & shares',  items: ['members', 'splits', 'check_in_mutes'] },
-  { g: 'Money movement',   items: ['transactions', 'links', 'income_rules', 'budgets'] },
+  { g: 'Money movement',   items: ['transactions', 'links', 'income_rules', 'budgets', 'bank_accounts'] },
   { g: 'Commitments',      items: ['bills', 'bill_payments', 'goals', 'goal_contributions'] },
   { g: 'Household',        items: ['items', 'receipts', 'receipt_lines'] },
   { g: 'System of record', items: ['audit_log', 'api_tokens', 'pending_actions'] }
@@ -53,7 +53,7 @@ const VERB_ORDER = [
   'set_rule_enabled', 'apply_rules', 'propose_action', 'confirm_action',
   'add_item', 'set_item_status', 'archive_item', 'set_item_match',
   'set_item_interval', 'set_budget', 'remove_budget', 'mute_check_in',
-  'unmute_check_in', 'create_api_token',
+  'unmute_check_in', 'note_bank_account', 'set_account_owner', 'create_api_token',
   'revoke_api_token', 'reset_money'
 ];
 const DERIV_ORDER = [

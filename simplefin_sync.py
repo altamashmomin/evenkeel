@@ -23,6 +23,8 @@ Environment (.env):
     DATABASE_PATH           path to the app's SQLite file
     SIMPLEFIN_ACCESS_FILE   where the access URL is stored
     SYNC_PAID_BY            user id the imports are attributed to (default 1)
+                            when the account has no owner set in Ledger
+                            (Activity > Whose accounts; bank_accounts, #020)
     SYNC_LOOKBACK_DAYS      how far back each run looks (default 10)
 """
 import argparse
@@ -38,6 +40,7 @@ import requests
 from dotenv import load_dotenv
 
 import actions
+import derivations
 from schema_runtime import connect_existing, require_current_schema
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -172,6 +175,17 @@ def sync(force: bool = False) -> None:
     for account in data.get("accounts", []):
         acct_id = account.get("id", "unknown")
         acct_name = account.get("name", acct_id)
+        # Whose account is this (bank_accounts, migration #020)? Charges and
+        # deposits from it are credited to that person; an account nobody has
+        # set yet keeps the old SYNC_PAID_BY default. Noting the account
+        # (and its current name) is its own verb, so the app can list it.
+        try:
+            actions.note_bank_account(db, "sync", acct_id, account.get("name"))
+        except actions.ActionError:
+            pass   # an id Ledger can't key on still syncs, just unlisted
+        payer = derivations.account_owner(db, acct_id) or PAID_BY
+        if payer not in member_ids:
+            payer = PAID_BY   # an owner who has since left the household
         for txn in account.get("transactions", []):
             cents = to_cents(txn.get("amount", "0"))
             if cents == 0:
@@ -200,7 +214,7 @@ def sync(force: bool = False) -> None:
                         "date": txn_date,
                         "amount": str(Decimal(abs(cents)) / 100),
                         "description": desc,
-                        "paid_by": PAID_BY,
+                        "paid_by": payer,
                         "is_shared": True,
                         "payer_share_pct": 50,
                     },
@@ -217,7 +231,7 @@ def sync(force: bool = False) -> None:
                         "date": txn_date,
                         "amount": str(Decimal(cents) / 100),
                         "description": desc,
-                        "paid_by": PAID_BY,
+                        "paid_by": payer,
                         "is_shared": False,
                     },
                     source="simplefin", external_id=external_id, direction="in")

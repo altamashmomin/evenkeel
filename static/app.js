@@ -13,7 +13,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
-        moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML,
+        moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
         beamHTML, txnRow, calendarAgendaHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
         pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
         receiptSavedText, checkInView, checkInCardHTML, checkInsListHTML } = window.Render;
@@ -710,6 +710,7 @@ async function renderActivity() {
       ${seg("all", "All")}${seg("spending", "Spending")}${seg("income", "Income")}
     </div>
     ${badge}
+    <p class="acct-entry"><button type="button" class="linkish" data-accounts>Charges showing the wrong person? Whose accounts?</button></p>
     <div class="card">${list}</div>`;
 }
 
@@ -1209,6 +1210,7 @@ function wireMain() {
   $$("[data-ask]").forEach((el) =>
     el.addEventListener("click", () => askFrom(el.dataset.ask)));
   $$("[data-help]").forEach((el) => el.addEventListener("click", openHelpSheet));
+  $$("[data-accounts]").forEach((el) => el.addEventListener("click", () => openAccountsSheet()));
   // Budgets (Analytics Tier C): edit/remove by row index; add via the small form.
   // Subscriptions card: "Track as bill" pre-fills the Add-bill dialog.
   $$("[data-bill-from-recurring]").forEach((el) =>
@@ -1504,18 +1506,76 @@ formTxn.addEventListener("submit", async (ev) => {
     is_shared: formTxn.is_shared.checked,
     payer_share_pct: +formTxn.payer_share_pct.value,
   };
+  const edited = state.editingTxn;
   try {
-    if (state.editingTxn) {
-      await api(`/api/transactions/${state.editingTxn.id}`, { method: "PUT", body });
+    if (edited) {
+      await api(`/api/transactions/${edited.id}`, { method: "PUT", body });
     } else {
       await api("/api/transactions", { method: "POST", body });
     }
-    dlgTxn.close();
-    render();
   } catch (e) {
     $("#txn-error").textContent = e.message;
+    return;
   }
+  if (edited && edited.source === "simplefin" && body.paid_by !== edited.paid_by) {
+    await offerAccountOwner(edited.id, body.paid_by);
+  }
+  dlgTxn.close();
+  render();
 });
+
+// "You changed who paid a bank charge — is that whole account theirs?" One
+// question, only when the account isn't already theirs; yes sets the owner
+// for future charges (past ones stay as they are).
+async function offerAccountOwner(txnId, memberId) {
+  let res;
+  try {
+    res = await api(`/api/transactions/${txnId}/account`);
+  } catch {
+    return;
+  }
+  const a = res && res.account;
+  if (!a || (a.owner && a.owner.id === memberId)) return;
+  const who = window.Render.userById(state.users, memberId).display_name;
+  if (!confirm(`Is "${a.label}" ${who}'s account? If so, Ledger will credit ${who} ` +
+               "for every new charge from it. Charges already in Ledger stay as they are.")) return;
+  try {
+    await api(`/api/accounts/${encodeURIComponent(a.account_id)}/owner`,
+              { method: "PUT", body: { member_id: memberId } });
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+/* ---------- whose accounts sheet ---------- */
+const dlgAccounts = $("#dlg-accounts");
+
+async function openAccountsSheet() {
+  const body = $("#accounts-body");
+  body.innerHTML = `<p class="sheet-title">Whose accounts?</p><p class="settle-sub">Loading…</p>`;
+  if (!dlgAccounts.open) dlgAccounts.showModal();
+  let data;
+  try {
+    data = await api("/api/accounts");
+  } catch (e) {
+    body.innerHTML = `<p class="sheet-title">Whose accounts?</p><p class="form-error">${esc(e.message)}</p>`;
+    return;
+  }
+  body.innerHTML = accountsSheetHTML(data.accounts, state.users, state.meId);
+  $("#acct-done")?.addEventListener("click", () => { dlgAccounts.close(); render(); });
+  $$("#accounts-body [data-acct-owner]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      const member = el.dataset.member === "" ? null : +el.dataset.member;
+      try {
+        await api(`/api/accounts/${encodeURIComponent(el.dataset.acctOwner)}/owner`,
+                  { method: "PUT", body: { member_id: member } });
+      } catch (e) {
+        alert(e.message);
+        return;
+      }
+      openAccountsSheet();
+    }));
+}
 
 $("#btn-txn-delete").addEventListener("click", async () => {
   if (!state.editingTxn || !confirm("Delete this transaction?")) return;
@@ -1958,6 +2018,7 @@ function monthDay(iso) {
 }
 $("#settle-even-date").addEventListener("change", refreshEvenAmount);
 $("#settle-even-toggle").addEventListener("click", () => setSettleMode(!settleState.even));
+$("#settle-accounts").addEventListener("click", () => { dlgSettle.close(); openAccountsSheet(); });
 
 // Tap a charge in the breakdown → fix it in the normal edit dialog (who paid,
 // shared or not), then come straight back here with the new number.
