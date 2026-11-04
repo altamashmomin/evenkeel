@@ -2410,6 +2410,38 @@ def account_owner(db, account_id=None):
     return row["member_id"] if row else None
 
 
+def joint_accounts(db):
+    """The synced bank accounts marked joint (migration #021): a sorted list
+    of account ids. A charge from one is household money, imported as shared
+    with the payer's share at 100% so it moves nobody's balance."""
+    return [r["account_id"] for r in db.execute(
+        "SELECT account_id FROM bank_accounts WHERE joint = 1 ORDER BY account_id")]
+
+
+def _is_joint_charge(row, payer_bp, joint_ids):
+    """True when a transaction is a charge from a joint account recorded the
+    joint way (shared, payer's share 100%): what the UI labels "Joint".
+    Derived from the row's shape plus its account, never stored. `row` needs
+    source, direction, is_shared and external_id."""
+    if row["source"] != "simplefin" or row["direction"] != "out":
+        return False
+    if _sync_account(row["external_id"]) not in joint_ids:
+        return False
+    return bool(row["is_shared"]) and payer_bp == 10000
+
+
+_ACCOUNT_ROWS_SQL = """
+    SELECT t.id, t.external_id, t.paid_by, t.txn_date, t.description,
+           t.amount_cents, t.is_shared, t.source, t.direction,
+           (SELECT s.share_bp FROM splits s WHERE s.transaction_id = t.id
+                AND s.member_id = t.paid_by) AS payer_bp,
+           EXISTS (SELECT 1 FROM links l WHERE l.link_type = 'settles'
+                   AND l.to_id = t.id) AS settled
+    FROM transactions t
+    WHERE t.source = 'simplefin' AND t.direction = 'out'
+    ORDER BY t.txn_date, t.id"""
+
+
 def bank_accounts(db):
     """Every synced bank account Ledger knows, with whose it is and how its
     charges are credited today: the Accounts sheet and fix_payers.py read it.
@@ -2417,26 +2449,21 @@ def bank_accounts(db):
     An account is known from a bank_accounts row (the sync notes each one it
     sees) or from its synced charges (accounts imported before migration
     #020). Per account: `charges` (synced money-out rows from it), `by_payer`
-    ({member_id: count} as those rows are credited now), and, when an owner
-    is set, `mismatched` (charges credited to someone else) and
-    `mismatched_open` (the ones no settle-up has closed yet). `label` is the
-    SimpleFIN name, or "Account ending XXXX" until the sync has reported one.
-    `sample` is the latest charge's description, so an unnamed account is
-    still recognisable.
+    ({member_id: count} as those rows are credited now), `joint` (marked as
+    the household's, migration #021), and, when an owner or joint is set,
+    `mismatched` (charges not recorded that way: credited to someone else, or
+    for a joint account not recorded as joint) and `mismatched_open` (the
+    ones no settle-up has closed yet). `label` is the SimpleFIN name, or
+    "Account ending XXXX" until the sync has reported one. `sample` is the
+    latest charge's description, so an unnamed account is still recognisable.
 
     Money-out rows only (direction='out', source='simplefin'), so no inflow
     can reach a count (tripwire-safe). Pure read; integer counts."""
     owners = {r["account_id"]: dict(r) for r in db.execute(
-        "SELECT account_id, name, member_id FROM bank_accounts")}
-    rows = db.execute(
-        """SELECT t.id, t.external_id, t.paid_by, t.txn_date, t.description,
-                  EXISTS (SELECT 1 FROM links l WHERE l.link_type = 'settles'
-                          AND l.to_id = t.id) AS settled
-           FROM transactions t
-           WHERE t.source = 'simplefin' AND t.direction = 'out'
-           ORDER BY t.txn_date, t.id""").fetchall()
+        "SELECT account_id, name, member_id, joint FROM bank_accounts")}
+    joint_ids = {k for k, v in owners.items() if v["joint"]}
     acc = {}
-    for r in rows:
+    for r in db.execute(_ACCOUNT_ROWS_SQL).fetchall():
         aid = _sync_account(r["external_id"])
         if aid is None:
             continue
@@ -2445,17 +2472,20 @@ def bank_accounts(db):
         a["charges"] += 1
         a["by_payer"][r["paid_by"]] = a["by_payer"].get(r["paid_by"], 0) + 1
         a["last_date"], a["sample"] = r["txn_date"], r["description"]
-        a["rows"].append((r["paid_by"], bool(r["settled"])))
+        a["rows"].append((r["paid_by"], bool(r["settled"]),
+                          _is_joint_charge(r, r["payer_bp"], joint_ids)))
     out = []
     for aid in sorted(set(acc) | set(owners)):
         a = acc.get(aid, {"charges": 0, "by_payer": {}, "last_date": None,
                           "sample": None, "rows": []})
         o = owners.get(aid, {})
         member_id = o.get("member_id")
+        joint = bool(o.get("joint"))
         mismatched = mismatched_open = 0
-        if member_id is not None:
-            for paid_by, settled in a["rows"]:
-                if paid_by != member_id:
+        if member_id is not None or joint:
+            for paid_by, settled, is_joint in a["rows"]:
+                wrong = (not is_joint) if joint else (paid_by != member_id)
+                if wrong:
                     mismatched += 1
                     if not settled:
                         mismatched_open += 1
@@ -2463,7 +2493,7 @@ def bank_accounts(db):
         out.append({
             "account_id": aid, "name": name,
             "label": name or f"Account ending {aid[-4:]}",
-            "member_id": member_id, "charges": a["charges"],
+            "member_id": member_id, "joint": joint, "charges": a["charges"],
             "by_payer": a["by_payer"], "last_date": a["last_date"],
             "sample": a["sample"], "mismatched": mismatched,
             "mismatched_open": mismatched_open,
@@ -2472,32 +2502,35 @@ def bank_accounts(db):
 
 
 def payer_fixes(db, include_settled=False, account_id=None):
-    """The synced charges credited to someone other than their account's
-    owner: what fix_payers.py would correct. Only accounts with an owner set
-    count; rows a settle-up already closed are left out unless
-    `include_settled` (re-crediting a settled charge reopens it and moves the
-    balance for a period you already squared). Oldest first.
+    """The synced charges not recorded the way their account says: credited
+    to someone other than the account's owner, or, for a joint account, not
+    recorded as joint (shared, payer's share 100%). What fix_payers.py would
+    correct. Only accounts with an owner or joint set count; rows a settle-up
+    already closed are left out unless `include_settled` (re-crediting a
+    settled charge reopens it and moves the balance for a period you already
+    squared). Oldest first. Each fix has `owner` (a member id, or None for a
+    joint fix) and `joint`.
 
     Money-out rows only (direction='out', source='simplefin'); never a
     settlement, bill or manual row. Pure read; integer cents."""
-    owners = {r["account_id"]: r["member_id"] for r in db.execute(
-        "SELECT account_id, member_id FROM bank_accounts WHERE member_id IS NOT NULL")}
+    rules = {r["account_id"]: (r["member_id"], bool(r["joint"])) for r in db.execute(
+        "SELECT account_id, member_id, joint FROM bank_accounts "
+        "WHERE member_id IS NOT NULL OR joint = 1")}
     if account_id is not None:
-        owners = {k: v for k, v in owners.items() if k == account_id}
-    if not owners:
+        rules = {k: v for k, v in rules.items() if k == account_id}
+    if not rules:
         return []
-    rows = db.execute(
-        """SELECT t.id, t.external_id, t.txn_date, t.description, t.amount_cents,
-                  t.paid_by, t.is_shared,
-                  EXISTS (SELECT 1 FROM links l WHERE l.link_type = 'settles'
-                          AND l.to_id = t.id) AS settled
-           FROM transactions t
-           WHERE t.source = 'simplefin' AND t.direction = 'out'
-           ORDER BY t.txn_date, t.id""").fetchall()
+    joint_ids = {k for k, (_, j) in rules.items() if j}
     out = []
-    for r in rows:
-        owner = owners.get(_sync_account(r["external_id"]))
-        if owner is None or r["paid_by"] == owner:
+    for r in db.execute(_ACCOUNT_ROWS_SQL).fetchall():
+        aid = _sync_account(r["external_id"])
+        if aid not in rules:
+            continue
+        owner, joint = rules[aid]
+        if joint:
+            if _is_joint_charge(r, r["payer_bp"], joint_ids):
+                continue
+        elif r["paid_by"] == owner:
             continue
         if r["settled"] and not include_settled:
             continue
@@ -2505,7 +2538,7 @@ def payer_fixes(db, include_settled=False, account_id=None):
             "transaction_id": r["id"], "date": r["txn_date"],
             "description": r["description"], "amount_cents": r["amount_cents"],
             "is_shared": bool(r["is_shared"]), "settled": bool(r["settled"]),
-            "account_id": _sync_account(r["external_id"]),
-            "paid_by": r["paid_by"], "owner": owner,
+            "account_id": aid, "paid_by": r["paid_by"],
+            "owner": None if joint else owner, "joint": joint,
         })
     return out

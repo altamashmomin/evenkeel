@@ -1,0 +1,6 @@
+{
+  "note": "Migration #021 (bank_accounts.joint -- a bank account the household shares). Adds ONE column, NOT NULL DEFAULT 0, to the table #020 created; no new table and no rows written, so the only changed row count is the schema_version record the migration itself inserts. Nothing reads the column until someone marks an account joint, so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 20, "new": 21}
+  ]
+}

@@ -2517,10 +2517,13 @@ def note_bank_account(db, actor, account_id, name):
                       (account_id,)).fetchone()
 
 
-def set_account_owner(db, actor, account_id, member_id):
+def set_account_owner(db, actor, account_id, member_id, joint=False):
     """Say whose bank account this is, so the sync credits that person for
     the charges it imports from now on. `member_id` None clears it (back to
-    the sync's old default).
+    the sync's old default). `joint` True (with member_id None) says the
+    account is the household's (migration #021): the sync imports its
+    charges as shared with the payer's share at 100%, so they count as
+    household spending and move nobody's balance.
 
     validate — a well-formed account id that Ledger has seen (a bank_accounts
     row or a synced transaction from it; NotFound otherwise); member_id is an
@@ -2533,11 +2536,16 @@ def set_account_owner(db, actor, account_id, member_id):
     fix_payers.py (dry run by default) through edit_transaction.
     Returns the row."""
     account_id = _clean_account_id(account_id)
+    if not isinstance(joint, bool):
+        raise ActionError("joint must be true or false")
+    if joint and member_id is not None:
+        raise ActionError("a joint account has no single owner")
     if member_id is not None:
         if isinstance(member_id, bool) or not isinstance(member_id, int):
             raise ActionError("member must be one of the household")
         if member_id not in {m["id"] for m in active_members(db)}:
             raise ActionError("member must be one of the household")
+    joint_v = 1 if joint else 0
     with action_transaction(db):
         if not account_seen(db, account_id):
             raise NotFound("not found")
@@ -2547,16 +2555,16 @@ def set_account_owner(db, actor, account_id, member_id):
         now = _now()
         if existing is None:
             db.execute(
-                "INSERT INTO bank_accounts (account_id, name, member_id, "
-                "created_at, updated_at) VALUES (?, NULL, ?, ?, ?)",
-                (account_id, member_id, now, now))
+                "INSERT INTO bank_accounts (account_id, name, member_id, joint, "
+                "created_at, updated_at) VALUES (?, NULL, ?, ?, ?, ?)",
+                (account_id, member_id, joint_v, now, now))
         else:
             db.execute(
-                "UPDATE bank_accounts SET member_id = ?, updated_at = ? "
-                "WHERE account_id = ?", (member_id, now, account_id))
+                "UPDATE bank_accounts SET member_id = ?, joint = ?, updated_at = ? "
+                "WHERE account_id = ?", (member_id, joint_v, now, account_id))
         _write_audit(db, actor, "set_account_owner", f"bank_account:{account_id}",
                      {"before": dict(existing) if existing else None,
-                      "member_id": member_id}, at=now)
+                      "member_id": member_id, "joint": joint}, at=now)
     return db.execute("SELECT * FROM bank_accounts WHERE account_id = ?",
                       (account_id,)).fetchone()
 

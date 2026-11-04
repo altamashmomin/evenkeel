@@ -4607,3 +4607,23 @@ PASS against synthetic seed-42 dev.db at v19: exactly the enumerated diff
 (schema 19→20, one empty table; `notes/020-gate-expectation.seed.json`). Not
 browser-smoked; not run against real data. Joint accounts (one account, both
 people) are not modeled; a follow-up if needed. Awaits Alta's review and merge.
+
+**Nov 4, 2026 — joint bank accounts (on `claude/joint-accounts`, NOT deployed).**
+Alta's word: no joint account today, but plan for one. Migration **#021** adds
+`bank_accounts.joint` (NOT NULL DEFAULT 0). "Joint" in Whose accounts? sets it
+(member stays NULL; `set_account_owner(..., joint=True)`, refused with a
+member). Meaning: a joint account's money is already both of yours, so its
+charges are household spending that moves nobody's balance. No new balance
+math: the sync imports a joint charge as shared with the payer's share at 100%
+(paid_by = SYNC_PAID_BY), so `compute_balance` finds no non-payer share.
+"Joint" is derived for display (`_is_joint_charge`: synced outflow, joint
+account, shared, payer share 100%), never stored; the Activity feed carries
+`joint` and the row reads "Joint · joint account" with no payer named.
+`bank_accounts` counts joint accounts' charges not yet recorded that way as
+mismatched; `payer_fixes` / `fix_payers.py` fix them through `edit_transaction`
+(`is_shared` true, payer share 100; who paid untouched), settled rows skipped
+by default as before. A one-person-funded "joint" account should just be set
+to that person instead. Tests: +6 in `test_account_owners.py`, suite **889**,
+render **212** (+1). GATE PASS on synthetic seed-42 dev.db at v20: exactly the
+enumerated diff (schema 20→21; `notes/021-gate-expectation.seed.json`). Not
+browser-smoked. Awaits Alta's review and merge.

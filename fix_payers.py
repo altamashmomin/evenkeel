@@ -9,6 +9,10 @@ script fixes the old ones, through the app's own edit verb (edit_transaction):
 only "who paid" changes. Amounts, dates, categories and the split stay exactly
 as they are, and each change gets its audit row.
 
+A joint account (Whose accounts? > Joint, migration #021) is fixed the joint
+way instead: its charges become shared with the payer's share at 100%, so they
+count as household spending and move nobody's balance. Who paid stays as is.
+
 Usage:
     venv/bin/python fix_payers.py                     # dry run (default)
     venv/bin/python fix_payers.py --apply             # really fix them
@@ -16,7 +20,8 @@ Usage:
     venv/bin/python fix_payers.py --account ACCOUNT_ID
 
 What it touches: synced money-out rows (source 'simplefin') from an account
-that has an owner set, currently credited to someone else. Never manual rows,
+that has an owner set, currently credited to someone else, or from a joint
+account, not yet recorded as joint. Never manual rows,
 bills, settlements, deposits, or accounts with no owner set.
 
 By default it leaves alone charges a settle-up already closed: re-crediting
@@ -102,11 +107,12 @@ def print_accounts(db):
     if not accts:
         print("  none yet (no synced charges)")
     for a in accts:
-        owner = who.get(a["member_id"], "?") if a["member_id"] else "NOT SET"
+        owner = ("JOINT" if a["joint"] else
+                 who.get(a["member_id"], "?") if a["member_id"] else "NOT SET")
         credited = ", ".join(f"{who.get(m, '?')} {n}" for m, n in sorted(a["by_payer"].items()))
         print(f"  {a['label'][:34]:<34} owner: {owner:<10} {a['charges']:>4} charges "
               f"(credited: {credited or '-'})  id {a['account_id']}")
-    unset = [a for a in accts if a["member_id"] is None and a["charges"]]
+    unset = [a for a in accts if a["member_id"] is None and not a["joint"] and a["charges"]]
     if unset:
         print("\n  Accounts with no owner are skipped. Set them in Ledger: "
               "Activity > Whose accounts?")
@@ -116,7 +122,13 @@ def run_fix(db, include_settled, account_id):
     fixes = derivations.payer_fixes(db, include_settled=include_settled,
                                     account_id=account_id)
     for f in fixes:
-        actions.edit_transaction(db, ACTOR, f["transaction_id"], {"paid_by": f["owner"]})
+        if f["joint"]:
+            # Joint account: record it the joint way (shared, payer's share
+            # 100%), so it moves nobody's balance. paid_by stays as it is.
+            change = {"is_shared": True, "payer_share_pct": 100}
+        else:
+            change = {"paid_by": f["owner"]}
+        actions.edit_transaction(db, ACTOR, f["transaction_id"], change)
     return fixes
 
 
@@ -129,7 +141,8 @@ def report(db, fixes, applied, skipped_settled):
         share = "" if f["is_shared"] else "  (personal)"
         print(f"  {f['date']}  {fmt_money(f['amount_cents']):>10}  "
               f"{f['description'][:36]:<36} {who.get(f['paid_by'], '?')} -> "
-              f"{who.get(f['owner'], '?')}{share}{tail}")
+              f"{'joint (nobody owes)' if f['joint'] else who.get(f['owner'], '?')}"
+              f"{share}{tail}")
     if skipped_settled:
         print(f"\nLeft alone: {skipped_settled} charge(s) a settle-up already closed. "
               "Add --include-settled to fix those too.")

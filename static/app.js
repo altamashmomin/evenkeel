@@ -1535,7 +1535,7 @@ async function offerAccountOwner(txnId, memberId) {
     return;
   }
   const a = res && res.account;
-  if (!a || (a.owner && a.owner.id === memberId)) return;
+  if (!a || a.joint || (a.owner && a.owner.id === memberId)) return;
   const who = window.Render.userById(state.users, memberId).display_name;
   if (!confirm(`Is "${a.label}" ${who}'s account? If so, Ledger will credit ${who} ` +
                "for every new charge from it. Charges already in Ledger stay as they are.")) return;
@@ -1565,10 +1565,11 @@ async function openAccountsSheet() {
   $("#acct-done")?.addEventListener("click", () => { dlgAccounts.close(); render(); });
   $$("#accounts-body [data-acct-owner]").forEach((el) =>
     el.addEventListener("click", async () => {
-      const member = el.dataset.member === "" ? null : +el.dataset.member;
+      const joint = el.dataset.member === "joint";
+      const member = el.dataset.member === "" || joint ? null : +el.dataset.member;
       try {
         await api(`/api/accounts/${encodeURIComponent(el.dataset.acctOwner)}/owner`,
-                  { method: "PUT", body: { member_id: member } });
+                  { method: "PUT", body: { member_id: member, joint } });
       } catch (e) {
         alert(e.message);
         return;

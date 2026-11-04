@@ -33,7 +33,7 @@ from derivations import (activity_digest, anomaly_flags, bill_link_options,
                          calendar_events, cash_flow_forecast, category_trend,
                          compute_balance as derive_balance, goal_pace,
                          settle_breakdown, settlement_history,
-                         bank_accounts,
+                         bank_accounts, joint_accounts, _is_joint_charge,
                          income_summary, last_shopping_trip,
                          income_trend, low_stock, member_breakdown,
                          new_staple_suggestions,
@@ -641,6 +641,7 @@ def activity():
         "WHERE direction = 'in' AND income_type = 'unclassified'").fetchone()["c"]
 
     shares = prefetch_payer_shares(db, [r["id"] for r in rows])
+    joint_ids = set(joint_accounts(db))
     return jsonify({
         "month": month,
         "filter": filt,
@@ -648,7 +649,9 @@ def activity():
         "transactions": [
             {**txn_to_json(db, r, shares),
              "direction": r["direction"], "income_type": r["income_type"],
-             "is_transfer": bool(r["is_transfer"])}
+             "is_transfer": bool(r["is_transfer"]),
+             "joint": _is_joint_charge(r, shares.get((r["id"], r["paid_by"])),
+                                      joint_ids)}
             for r in rows
         ],
         "unclassified_count": unclassified,
@@ -1973,6 +1976,7 @@ def _account_json(a, names):
         "account_id": a["account_id"], "name": a["name"], "label": a["label"],
         "owner": None if a["member_id"] is None
                  else {"id": a["member_id"], "name": names.get(a["member_id"], "?")},
+        "joint": a["joint"],
         "charges": a["charges"],
         "by_payer": [{"id": mid, "name": names.get(mid, "?"), "count": n}
                      for mid, n in sorted(a["by_payer"].items())],
@@ -2026,14 +2030,16 @@ def transaction_account(txn_id):
 def set_account_owner_route(account_id):
     """Thin caller: set_account_owner — whose bank account this is, so the
     sync credits that person for charges it imports from now on
-    (`member_id` null clears it). Never rewrites past charges; the response
+    (`member_id` null clears it; `joint: true` with no member marks it the
+    household's, migration #021). Never rewrites past charges; the response
     says how many past ones are credited to someone else so the UI can say
     so. Session-only: a person decides this, never a token."""
     db = get_db()
     data = request.get_json(silent=True) or {}
     try:
         row = actions.set_account_owner(db, ui_actor(db), account_id,
-                                        data.get("member_id"))
+                                        data.get("member_id"),
+                                        joint=data.get("joint", False))
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
     except ValueError as e:

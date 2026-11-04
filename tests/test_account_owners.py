@@ -401,3 +401,114 @@ class FixPayersScriptTests(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JointAccountTests(_Base):
+    """Migration #021: a joint account's charges are household spending that
+    move nobody's balance (shared, payer's share 100%)."""
+
+    def payer_bp(self, txn_id):
+        return self.db.execute(
+            "SELECT s.share_bp FROM splits s JOIN transactions t ON t.id = s.transaction_id "
+            "WHERE t.id = ? AND s.member_id = t.paid_by", (txn_id,)).fetchone()[0]
+
+    def test_joint_needs_no_single_owner_and_is_audited(self):
+        self.charge("JNT", "t1", 1000, self.alta)
+        with self.assertRaises(actions.ActionError):
+            actions.set_account_owner(self.db, "ui:alta", "JNT", self.alta, joint=True)
+        with self.assertRaises(actions.ActionError):
+            actions.set_account_owner(self.db, "ui:alta", "JNT", None, joint="yes")
+        row = actions.set_account_owner(self.db, "ui:alta", "JNT", None, joint=True)
+        self.assertEqual(1, row["joint"])
+        self.assertIsNone(row["member_id"])
+        self.assertEqual(["JNT"], derivations.joint_accounts(self.db))
+        # Picking a person afterwards clears joint.
+        row = actions.set_account_owner(self.db, "ui:alta", "JNT", self.charlee)
+        self.assertEqual(0, row["joint"])
+        self.assertEqual([], derivations.joint_accounts(self.db))
+
+    def test_marking_joint_moves_no_money_until_fixed(self):
+        self.charge("JNT", "t1", 3000, self.alta)
+        before = (self.txn_snapshot(), derivations.compute_balance(self.db))
+        actions.set_account_owner(self.db, "ui:alta", "JNT", None, joint=True)
+        self.assertEqual(before, (self.txn_snapshot(), derivations.compute_balance(self.db)))
+        a = {x["account_id"]: x for x in derivations.bank_accounts(self.db)}["JNT"]
+        self.assertTrue(a["joint"])
+        self.assertEqual(1, a["mismatched"])
+
+    def test_payer_fixes_records_joint_charges_the_joint_way(self):
+        t1 = self.charge("JNT", "t1", 3000, self.alta, when="2026-10-01")
+        t2 = self.charge("JNT", "t2", 2000, self.charlee, when="2026-10-02", shared=False)
+        actions.set_account_owner(self.db, "ui:alta", "JNT", None, joint=True)
+        fixes = derivations.payer_fixes(self.db)
+        self.assertEqual([t1, t2], [f["transaction_id"] for f in fixes])
+        self.assertTrue(all(f["joint"] and f["owner"] is None for f in fixes))
+        months = {m: v["total_cents"] for m, v in derivations.spending_summary(self.db).items()}
+        for f in fixes:
+            actions.edit_transaction(self.db, "cli:fix_payers", f["transaction_id"],
+                                     {"is_shared": True, "payer_share_pct": 100})
+        self.assertEqual([], derivations.payer_fixes(self.db))
+        self.assertEqual(10000, self.payer_bp(t1))
+        self.assertEqual("settled", derivations.compute_balance(self.db)["state"])
+        self.assertEqual(months, {m: v["total_cents"] for m, v in
+                                  derivations.spending_summary(self.db).items()})
+        a = {x["account_id"]: x for x in derivations.bank_accounts(self.db)}["JNT"]
+        self.assertEqual(0, a["mismatched"])
+
+    def test_fix_payers_script_handles_joint(self):
+        spec = importlib.util.spec_from_file_location("fix_payers_joint", REPO / "fix_payers.py")
+        fp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fp)
+        t1 = self.charge("JNT", "t1", 3000, self.alta)
+        actions.set_account_owner(self.db, "ui:alta", "JNT", None, joint=True)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = fp.main(["--db", str(self.db_path), "--apply"])
+        self.assertEqual(0, code, out.getvalue())
+        self.assertIn("joint (nobody owes)", out.getvalue())
+        self.assertIn("JOINT", out.getvalue())
+        self.assertEqual(10000, self.payer_bp(t1))
+        self.assertEqual(self.alta, self.db.execute(
+            "SELECT paid_by FROM transactions WHERE id = ?", (t1,)).fetchone()[0])
+
+
+class JointSyncAndRouteTests(SyncUsesOwnerTests):
+    def test_joint_account_imports_move_nobodys_balance(self):
+        now = int(time.time())
+        self.run_sync([{"id": "t1", "amount": "-30.00", "posted": now, "description": "Target"}])
+        db = _connect(self.db_path)
+        try:
+            actions.set_account_owner(db, "ui:alta", "accC", None, joint=True)
+            bal_before = derivations.compute_balance(db)
+        finally:
+            db.close()
+        self.run_sync([{"id": "t2", "amount": "-80.00", "posted": now,
+                        "description": "Costco"}])
+        db = _connect(self.db_path)
+        try:
+            row = db.execute("SELECT * FROM transactions WHERE external_id = ?",
+                             ("simplefin:accC:t2",)).fetchone()
+            bp = db.execute("SELECT share_bp FROM splits WHERE transaction_id = ? "
+                            "AND member_id = ?", (row["id"], row["paid_by"])).fetchone()[0]
+            self.assertEqual(1, row["is_shared"])
+            self.assertEqual(10000, bp)
+            self.assertEqual(bal_before, derivations.compute_balance(db))
+        finally:
+            db.close()
+        os.environ["SECRET_KEY"] = os.environ.get("SECRET_KEY", "joint-route-secret")
+        spec = importlib.util.spec_from_file_location("app_joint_test", REPO / "app.py")
+        app_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(app_module)
+        app_module.app.config["TESTING"] = True
+        c = app_module.app.test_client()
+        with c.session_transaction() as session:
+            session["user_id"] = 1
+        month = time.strftime("%Y-%m")
+        feed = c.get(f"/api/activity?month={month}").get_json()["transactions"]
+        joint = {t["description"]: t["joint"] for t in feed if t["source"] == "simplefin"}
+        self.assertTrue(joint["Costco"])
+        self.assertFalse(joint["Target"])   # still split the old way
+        accts = c.get("/api/accounts").get_json()["accounts"]
+        self.assertTrue(next(a for a in accts if a["account_id"] == "accC")["joint"])
+        r = c.put("/api/accounts/accC/owner", json={"member_id": 1, "joint": True})
+        self.assertEqual(400, r.status_code)

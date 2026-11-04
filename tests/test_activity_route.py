@@ -105,7 +105,7 @@ class ActivityRouteTests(unittest.TestCase):
         row = next(t for t in body["transactions"] if t["income_type"] == "paycheck")
         self.assertEqual(
             ["amount", "category", "date", "description", "direction", "id",
-             "income_type", "is_shared", "is_transfer", "paid_by",
+             "income_type", "is_shared", "is_transfer", "joint", "paid_by",
              "payer_share_pct", "source"],
             sorted(row))
         self.assertEqual("in", row["direction"])

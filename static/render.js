@@ -1819,10 +1819,18 @@
         return `<button type="button" class="${on ? "on" : ""}" style="--pcolor:${idx === 0 ? "var(--p1)" : "var(--p2)"}"
                   data-acct-owner="${aid}" data-member="${u.id}" aria-pressed="${on ? "true" : "false"}">
                   <span class="dot"></span>${label}</button>`;
-      }).join("");
+      }).join("") +
+        `<button type="button" class="${a.joint ? "on" : ""}" style="--pcolor:var(--brass-dim)"
+                  data-acct-owner="${aid}" data-member="joint" aria-pressed="${a.joint ? "true" : "false"}">
+                  <span class="dot"></span>Joint</button>`;
       const credited = (a.by_payer || []).map((p) => `${esc(p.name)} ${p.count}`).join(" · ");
       let note;
-      if (!a.owner) {
+      if (a.joint) {
+        note = "Joint: its charges count as household spending and don't change who owes whom." +
+          (a.mismatched ? ` ${a.mismatched} earlier charge${a.mismatched === 1 ? " is" : "s are"} still split the old way` +
+            (a.mismatched_open !== a.mismatched ? ` (${a.mismatched_open} not settled yet)` : "") +
+            ": fix them all at once on the Pi." : "");
+      } else if (!a.owner) {
         note = `Not set yet, so its charges are credited to ${esc((nameOf((a.by_payer[0] || {}).id) || {}).display_name || "the default person")}.`;
       } else if (a.mismatched) {
         const owner = esc(a.owner.name);
@@ -1832,7 +1840,7 @@
       } else {
         note = `All its charges count as ${esc(a.owner.name)}'s.`;
       }
-      const clear = a.owner
+      const clear = (a.owner || a.joint)
         ? `<button type="button" class="btn small ghost" data-acct-owner="${aid}" data-member="">Not sure</button>` : "";
       return `<li class="acct">
         <div class="title">${esc(a.label)}</div>
@@ -1845,7 +1853,7 @@
       ? `<ul class="list acct-list">${rows}</ul>`
       : `<p class="empty">No bank accounts synced yet.</p>`;
     return `<p class="sheet-title">Whose accounts?</p>
-      <p class="settle-sub">Say whose each bank account is, and Ledger credits that person for its charges and deposits from now on. Nothing already in Ledger changes.</p>
+      <p class="settle-sub">Say whose each bank account is, and Ledger credits that person for its charges and deposits from now on. Pick Joint for an account you share. Nothing already in Ledger changes.</p>
       ${body}
       <div class="dlg-actions"><span class="spacer"></span>
         <button class="btn primary" type="button" id="acct-done">Done</button></div>`;
@@ -1917,18 +1925,24 @@
         </div>
       </li>`;
     }
-    const shared = t.is_shared
+    // A charge from a joint account (migration #021) is both of yours: no one
+    // fronted it, so name the account, not a payer.
+    const shared = t.joint ? "joint account"
+      : t.is_shared
       ? t.payer_share_pct === 50 ? "shared 50/50" : `shared · payer ${t.payer_share_pct}%`
       : "personal";
     const src = t.source === "manual" ? "" :
       ` · <span class="badge">${esc(t.source)}</span>`;
+    const who = t.joint
+      ? `<span class="dot" style="--pcolor:var(--brass-dim)"></span>Joint`
+      : `<span class="dot" style="--pcolor:${userColor(users, t.paid_by)}"></span>${esc(payer.display_name)}`;
     return `
       <li class="tap" data-txn="${t.id}">
         <span class="ic">${catEmoji(t.category)}</span>
         <div class="grow">
           <div class="title">${esc(t.description)}</div>
           <div class="sub">
-            <span class="dot" style="--pcolor:${userColor(users, t.paid_by)}"></span>${esc(payer.display_name)}
+            ${who}
             · ${esc(t.category)} · ${shared}${src}
           </div>
         </div>

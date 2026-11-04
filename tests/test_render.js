@@ -2058,4 +2058,22 @@ check("accountsSheetHTML shows an owner picker and says what's left", () => {
   assert.ok(R.accountsSheetHTML([], users, 1).includes("No bank accounts synced yet"));
 });
 
+check("Joint: accounts sheet offers it and Activity names the account, not a payer", () => {
+  const users = [{ id: 1, display_name: "Alta" }, { id: 2, display_name: "Charlee" }];
+  const sheet = R.accountsSheetHTML([
+    { account_id: "JNT", label: "Joint checking", owner: null, joint: true, charges: 2,
+      sample: "Costco", by_payer: [{ id: 1, name: "Alta", count: 2 }], mismatched: 1, mismatched_open: 1 }],
+    users, 1);
+  assert.ok(/data-member="joint" aria-pressed="true"/.test(sheet));
+  assert.ok(sheet.includes("don't change who owes whom"));
+  assert.ok(sheet.includes("1 earlier charge is still split the old way"));
+  assert.ok(sheet.includes('data-member=""'), "a joint account can be cleared");
+  const row = R.txnRow({ id: 8, source: "simplefin", direction: "out", joint: true,
+    description: "Costco", amount: 80, date: "2026-11-03", paid_by: 1,
+    category: "Groceries", is_shared: true, payer_share_pct: 100 }, users);
+  assert.ok(row.includes("Joint") && row.includes("joint account"));
+  assert.ok(!row.includes("Alta"), "no payer named on a joint charge");
+  assert.ok(!row.includes("payer 100%"));
+});
+
 console.log(`render tests passed (${passed} checks)`);
