@@ -4581,3 +4581,29 @@ you last settled or marked even. No migration, no schema change. Tests:
 `test_settle_even.py` (+13), suite **867**, render **210** (+5). GATE PASS
 zero-diff (45 values) on synthetic seed-42 dev.db. Not browser-smoked. Awaits
 Alta's review and merge.
+
+**Nov 4, 2026 — whose bank account is it (on `claude/account-owners`, stacked on
+`claude/settle-up-override`, NOT deployed).** Alta's report: Activity sometimes
+names Altamash for Charlee's charges. Root cause: `simplefin_sync.py` stamped
+every imported row `paid_by = SYNC_PAID_BY` (Altamash), whatever account it came
+from, so Charlee's card charges read "Altamash paid" and the balance asked
+Charlee to pay back half of her own spending. Migration **#020** (`bank_accounts`:
+account id, SimpleFIN name, owner, NULL = not set). Verbs **`note_bank_account`**
+(sync only; insert or rename, audit only on a change, never the owner) and
+**`set_account_owner`** (UI session only; never rewrites a past row). The sync
+notes each account and credits its owner for new imports, falling back to
+SYNC_PAID_BY when none is set. Derivations `bank_accounts` (per account: charges,
+how they're credited, mismatches, open mismatches) and `payer_fixes`. Routes
+`GET /api/accounts`, `GET /api/transactions/<id>/account`,
+`PUT /api/accounts/<id>/owner`. UI: a "Whose accounts?" sheet reached from
+Activity and from Settle up; after changing who paid on a bank charge, the edit
+dialog offers to set that account's owner. Past rows: **`fix_payers.py`**,
+dry run by default on a temp copy, `--apply` writes a backup first, re-credits
+through `edit_transaction` (only `paid_by` changes), leaves charges a settle-up
+closed alone unless `--include-settled`, and checks every amount, monthly total
+and the row count stayed the same while printing the balance before and after.
+Tests: `test_account_owners.py` (+16), suite **883**, render **211** (+1). GATE
+PASS against synthetic seed-42 dev.db at v19: exactly the enumerated diff
+(schema 19→20, one empty table; `notes/020-gate-expectation.seed.json`). Not
+browser-smoked; not run against real data. Joint accounts (one account, both
+people) are not modeled; a follow-up if needed. Awaits Alta's review and merge.
