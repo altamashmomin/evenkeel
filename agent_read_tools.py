@@ -1,7 +1,7 @@
 """agent_read_tools — the ONE read-tool surface both assistant doors consume.
 
 Charlee's in-app Ask loop and Alta's `ledger_mcp` server answer the same
-money questions from the same 20 reads; their *descriptions* are the product
+money questions from the same 21 reads; their *descriptions* are the product
 (they're the only instructions the model reliably follows), so they must not
 drift between the two doors. This module is that single source: each tool's
 name, description, and input schema live here once.
@@ -342,6 +342,26 @@ READ_TOOLS = [
             "and supplies, never money; nothing here changes anything.",
         "input_schema": _obj(),
         "fetch": lambda g, a: g("/api/inventory/pulse", {}),
+    },
+    {
+        "name": "ledger_check_ins",
+        "description":
+            "What Ledger would check in about today, most pressing first (at "
+            "most 3, with `total` saying how many in all): bill_due (an unpaid, "
+            "not-autopay bill due soon or overdue), bill_looks_paid (a bank "
+            "charge looks like it paid a bill — linking it happens in the "
+            "Calendar), budget (a category at 90%+ or over its budget), "
+            "spend_spike (a category well above its usual month), "
+            "unusual_charge (a recent charge far above that merchant's usual), "
+            "restock_due (a stocked staple the forecast says is running out), "
+            "order_waiting (ordered a while ago, not arrived). Already filtered "
+            "by what this person dismissed, snoozed or turned off. Use it for "
+            "'anything I should know?' / 'what needs attention?', and to "
+            "recheck the facts when a conversation starts from a check-in. "
+            "Suggestions only: nothing here changes anything, and settling, "
+            "paying or linking a bill still happens in the app.",
+        "input_schema": _obj(),
+        "fetch": lambda g, a: g("/api/check-ins", {}),
     },
 ]
 

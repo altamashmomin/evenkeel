@@ -1,0 +1,7 @@
+{
+  "note": "Migration #019 (check_in_mutes -- per-person 'stop asking me about this' for the Ask check-ins). Adds ONE new, empty table: no existing table changes and no rows are written, so the new table enters row_counts at 0 and the only changed row count is the schema_version record the migration itself inserts. No money derivation reads it, and the verbs that write it (mute_check_in, unmute_check_in) write only check_in_mutes and audit_log, so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 18, "new": 19},
+    {"path": "row_counts.check_in_mutes", "old": null, "new": 0}
+  ]
+}

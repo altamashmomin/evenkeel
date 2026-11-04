@@ -425,12 +425,12 @@ class AskWriteTests(AskWriteBase):
     def test_write_tools_present_only_when_caller_given(self):
         read_only = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(read_only)  # no caller
-        self.assertEqual(20, len(read_only.calls[0]["tools"]))
+        self.assertEqual(21, len(read_only.calls[0]["tools"]))
 
         with_write = MockAnthropic([resp([text_block("hi")], "end_turn")])
         self.ask(with_write, caller=self.caller)
         tools = with_write.calls[0]["tools"]
-        self.assertEqual(36, len(tools))  # 20 read + 16 write
+        self.assertEqual(37, len(tools))  # 21 read + 16 write
         names = [t["name"] for t in tools]
         self.assertIn("ledger_classify_inflow", names)
         self.assertIn("ledger_recategorize_transaction", names)

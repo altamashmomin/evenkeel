@@ -291,6 +291,16 @@ def system_prompt(period):
         "first so you reuse an existing category's exact name (setting the same "
         "one again just changes its limit). Say plainly what you set; it's "
         "reversible (removing a budget happens in the app).\n"
+        "- CHECK-INS: Ledger sometimes starts the conversation itself with a "
+        "short check-in (a bill due, a staple running low, a budget nearly "
+        "used, an unusual charge). When the chat opens with one, the first "
+        "message tells you what it noticed; recheck the facts with the tools "
+        "(ledger_check_ins, or the read for that area) before answering, keep "
+        "it brief, and offer the next step. You can do what your other rules "
+        "already allow (a pantry update, a budget or recategorize after they "
+        "say yes), but you never pay, settle, link or mark a bill paid — point "
+        "them to the Calendar for that. 'Anything I should know?' → "
+        "ledger_check_ins.\n"
         "- If a tool errors or you're unsure, say so plainly rather than guessing."
     )
 

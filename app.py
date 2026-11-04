@@ -27,6 +27,7 @@ import receipt_reader
 from actions import (active_members, current_period, payer_share_pct,
                      prefetch_payer_shares, to_cents)
 from derivations import (activity_digest, anomaly_flags, bill_link_options,
+                         CHECK_IN_KINDS, check_ins,
                          bill_payment_candidates, bill_variance,
                          budget_status,
                          calendar_events, cash_flow_forecast, category_trend,
@@ -1872,6 +1873,96 @@ def ask():
         return jsonify({"error": "The assistant isn't set up yet — no API key "
                                  "is configured on the server."}), 503
     return jsonify(result)
+
+
+# ── check-ins: the assistant starts the conversation (#019) ────────────────
+# The rules run here, locally (derivations.check_ins), so listing check-ins
+# costs no API call; the model only runs when a person taps one to chat
+# (POST /api/ask, rate-limited above). Content is household-wide (both members
+# see the same bills and pantry); what each person dismissed, snoozed or turned
+# off is theirs alone (check_in_mutes is keyed by member).
+
+CHECK_IN_CAP = 3   # never more than this many waiting at once
+
+
+def _check_in_to_json(c):
+    """Money fields (`*_cents`) become {cents, display} at the edge, named
+    without the suffix, like every other assistant-facing payload."""
+    out = {}
+    for k, v in c.items():
+        if k.endswith("_cents") and isinstance(v, int):
+            out[k[:-len("_cents")]] = money(v)
+        else:
+            out[k] = v
+    return out
+
+
+def _check_in_mutes_for(db, member_id):
+    return db.execute(
+        "SELECT key, until FROM check_in_mutes WHERE member_id = ? ORDER BY key",
+        (member_id,)).fetchall()
+
+
+@app.get("/api/check-ins")
+@login_required
+def check_ins_view():
+    """What the assistant would ask about today, most pressing first, capped at
+    CHECK_IN_CAP, with this person's mutes applied. `today` is the viewer's
+    local date (the SPA passes it; derivations stay clock-free). Also returns
+    which kinds this person turned off and their open snoozes, so the Ask tab
+    can offer "turn back on". Read only."""
+    db = get_db()
+    today = request.args.get("today") or date.today().isoformat()
+    try:
+        today = actions.parse_iso_date(today, "today")
+    except ValueError as e:
+        return bad_request(str(e))
+    member_id = g.auth["user_id"]
+    mutes = _check_in_mutes_for(db, member_id)
+    found = check_ins(db, today, mutes)
+    live = [dict(m) for m in mutes if m["until"] is None or m["until"] > today]
+    off = {m["key"][len("kind:"):] for m in live if m["key"].startswith("kind:")}
+    return jsonify({
+        "today": today,
+        "check_ins": [_check_in_to_json(c) for c in found[:CHECK_IN_CAP]],
+        "total": len(found),
+        "kinds": [{"kind": k, "on": k not in off} for k in CHECK_IN_KINDS],
+        "mutes": live,
+    })
+
+
+@app.post("/api/check-ins/mute")
+@session_required
+def mute_check_in_route():
+    """Thin caller: mute_check_in — dismiss one check-in, snooze it to a date,
+    or turn a whole kind off ('kind:<kind>'), for the signed-in person only.
+    Session-only: a person's own preference, never a token's."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.mute_check_in(db, ui_actor(db), session["user_id"],
+                                    data.get("key"), data.get("until"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify({"key": row["key"], "until": row["until"]}), 201
+
+
+@app.delete("/api/check-ins/mute")
+@session_required
+def unmute_check_in_route():
+    """Thin caller: unmute_check_in — turn a muted check-in or kind back on."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        actions.unmute_check_in(db, ui_actor(db), session["user_id"],
+                                data.get("key"))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    return jsonify({"ok": True})
 
 
 @app.get("/api/categories")
