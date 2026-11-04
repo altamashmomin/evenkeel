@@ -186,6 +186,12 @@ def sync(force: bool = False) -> None:
         payer = derivations.account_owner(db, acct_id) or PAID_BY
         if payer not in member_ids:
             payer = PAID_BY   # an owner who has since left the household
+        # A joint account (migration #021) is both of yours: its charges are
+        # household spending that moves nobody's balance, recorded as shared
+        # with the payer's share at 100% (paid_by stays the SYNC_PAID_BY
+        # default, since no one person fronted it).
+        joint = acct_id in derivations.joint_accounts(db)
+        out_share = 100 if joint else 50
         for txn in account.get("transactions", []):
             cents = to_cents(txn.get("amount", "0"))
             if cents == 0:
@@ -216,7 +222,7 @@ def sync(force: bool = False) -> None:
                         "description": desc,
                         "paid_by": payer,
                         "is_shared": True,
-                        "payer_share_pct": 50,
+                        "payer_share_pct": out_share,
                     },
                     source="simplefin", external_id=external_id)
                 if row is not None:
