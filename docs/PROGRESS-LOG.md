@@ -4560,3 +4560,24 @@ background job on the Pi. Known gap: last month's unpaid bills aren't raised
 synthetic seed-42 dev.db migrated to v18: exactly the enumerated diff (schema
 18→19, one empty table). Re-gate on the Pi before deploy. Not browser-smoked.
 Awaits Alta's review, merge and deploy.
+
+**Nov 4, 2026 — Settle up: "We're already even", fix from the breakdown, undo (on
+`claude/settle-up-override`, NOT deployed).** Alta's ask: there was no way to look
+at the charges behind the number and say "we were actually even already". Settle
+up now has a **"We're already even"** mode: `settle_up` takes `method`
+(`paid` default, or `already_even`) and an optional note (≤120 chars). An even
+mark is exactly a settlement in the money sense (same amount, splits and
+`settles` links, so the balance lands on zero the same way) but is labeled
+"Marked even, no money moved", can't be dated in the future or before the last
+settle-up, and records method and note in its audit row. Undo is deleting that
+row, which reopens what it closed; the last settle-up shows an Undo, and a
+settle-up row in Activity opens the same undo. `derivations.settlement_history`
+(method read from the audit row, legacy rows read as paid);
+`GET /api/settle/history`; `/api/settle/breakdown?as_of=` for the even-as-of
+amount, and each breakdown line now carries its transaction so tapping it opens
+the edit dialog (fix who paid or whether it's shared) and returns to Settle up.
+The landing hero reads from the viewer's side ("Charlee owes you") and says when
+you last settled or marked even. No migration, no schema change. Tests:
+`test_settle_even.py` (+13), suite **867**, render **210** (+5). GATE PASS
+zero-diff (45 values) on synthetic seed-42 dev.db. Not browser-smoked. Awaits
+Alta's review and merge.
