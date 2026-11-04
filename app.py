@@ -1977,6 +1977,7 @@ def _account_json(a, names):
         "owner": None if a["member_id"] is None
                  else {"id": a["member_id"], "name": names.get(a["member_id"], "?")},
         "joint": a["joint"],
+        "shared_default": a["shared_default"],
         "charges": a["charges"],
         "by_payer": [{"id": mid, "name": names.get(mid, "?"), "count": n}
                      for mid, n in sorted(a["by_payer"].items())],
@@ -2040,6 +2041,28 @@ def set_account_owner_route(account_id):
         row = actions.set_account_owner(db, ui_actor(db), account_id,
                                         data.get("member_id"),
                                         joint=data.get("joint", False))
+    except actions.NotFound as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return bad_request(str(e))
+    names = _member_names(db)
+    acct = next((a for a in bank_accounts(db)
+                 if a["account_id"] == row["account_id"]), None)
+    return jsonify({"account": _account_json(acct, names) if acct else None})
+
+
+@app.put("/api/accounts/<path:account_id>/shared")
+@session_required
+def set_account_shared_route(account_id):
+    """Thin caller: set_account_shared_default — whether new charges the
+    sync imports from this account start shared 50/50 (`shared: true`) or
+    as the owner's own spending (`shared: false`, the default, migration
+    #022). Never rewrites past charges. Session-only, like the owner."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    try:
+        row = actions.set_account_shared_default(db, ui_actor(db), account_id,
+                                                 data.get("shared"))
     except actions.NotFound as e:
         return jsonify({"error": str(e)}), 404
     except ValueError as e:

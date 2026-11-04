@@ -2076,4 +2076,26 @@ check("Joint: accounts sheet offers it and Activity names the account, not a pay
   assert.ok(!row.includes("payer 100%"));
 });
 
+check("accounts sheet: new charges start as the owner's own unless set shared", () => {
+  const users = [{ id: 1, display_name: "Alta" }, { id: 2, display_name: "Charlee" }];
+  const own = R.accountsSheetHTML([
+    { account_id: "C1", label: "Charlee checking", owner: { id: 2, name: "Charlee" },
+      shared_default: false, charges: 1, sample: "Target", by_payer: [], mismatched: 0,
+      mismatched_open: 0 }], users, 1);
+  assert.ok(own.includes("New charges start as:"));
+  assert.ok(/data-acct-shared="C1" data-shared="0" aria-pressed="true"[^>]*>\s*<span class="dot"><\/span>Charlee's/.test(own),
+    "owner's own is pressed by default");
+  assert.ok(/data-shared="1" aria-pressed="false"/.test(own));
+  const shared = R.accountsSheetHTML([
+    { account_id: "A1", label: "My card", owner: { id: 1, name: "Alta" },
+      shared_default: true, charges: 1, sample: "Weis", by_payer: [], mismatched: 0,
+      mismatched_open: 0 }], users, 1);
+  assert.ok(/data-shared="1" aria-pressed="true"[^>]*>\s*<span class="dot"><\/span>Shared 50\/50/.test(shared));
+  assert.ok(shared.includes("</span>Mine"), "viewer's card reads Mine");
+  const joint = R.accountsSheetHTML([
+    { account_id: "J1", label: "Joint", owner: null, joint: true, charges: 0,
+      sample: null, by_payer: [], mismatched: 0, mismatched_open: 0 }], users, 1);
+  assert.ok(!joint.includes("data-acct-shared"), "a joint account has no start choice");
+});
+
 console.log(`render tests passed (${passed} checks)`);

@@ -1,0 +1,6 @@
+{
+  "note": "Migration #022 (bank_accounts.shared_default -- whether new charges from a card start shared). Adds ONE column, NOT NULL DEFAULT 0, to the bank_accounts table; no new table and no rows written, so the only changed row count is the schema_version record the migration itself inserts. The column only shapes charges the sync imports after the deploy, so the who-owes-whom balance and every monthly total are byte-identical -- they are deliberately absent from this list.",
+  "diffs": [
+    {"path": "row_counts.schema_version", "old": 21, "new": 22}
+  ]
+}

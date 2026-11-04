@@ -4627,3 +4627,26 @@ to that person instead. Tests: +6 in `test_account_owners.py`, suite **889**,
 render **212** (+1). GATE PASS on synthetic seed-42 dev.db at v20: exactly the
 enumerated diff (schema 20→21; `notes/021-gate-expectation.seed.json`). Not
 browser-smoked. Awaits Alta's review and merge.
+
+**Nov 4, 2026 — new synced charges start as the owner's own (on `claude/start-own-not-shared`, NOT deployed).**
+Why: the sync imported EVERY outflow shared 50/50, so card bill payments,
+person-to-person payments and each person's own purchases all counted as
+half-owed, and the balance drifted. Alta chose to leave already-settled rows as
+they are and asked that drift not recur. Migration **#022** adds
+`bank_accounts.shared_default` (NOT NULL DEFAULT 0, so every card now starts
+charges as the owner's own spending). `derivations.import_share` decides each
+new outflow, strongest signal first: joint account (shared at payer 100%);
+same merchant as the bank charge last linked to an active bill and within ±50%
+of its usual amount (copies that charge's split, so rent stays split); the
+latest synced charge from the same merchant whose Shared setting a person
+saved (`edit_transaction` by a `ui:`/`mcp:` actor with `is_shared` in
+`changed`; never the sync or a script); money movement (card payments, Venmo,
+Zelle, Cash App, fees, interest, transfers: own); then the card's
+`shared_default`. New verb `set_account_shared_default` (session only) and
+`PUT /api/accounts/<id>/shared`; Whose accounts? gets "New charges start as:
+Mine / Shared 50/50" per card. Nothing past is rewritten. Tests: +11 in
+`test_import_share.py`, +1 sync test, suite **902**, render **213** (+1). GATE
+PASS on synthetic seed-42 dev.db at v21: exactly schema 21→22
+(`notes/022-gate-expectation.seed.json`); `verify_live_migration` from v21:
+balance and monthly totals unchanged. Not browser-smoked. Awaits Alta's review
+and merge.

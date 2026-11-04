@@ -1840,6 +1840,19 @@
       } else {
         note = `All its charges count as ${esc(a.owner.name)}'s.`;
       }
+      // How NEW charges from it start (#022): the owner's own spending unless
+      // someone turns "Shared" on. A joint account has no choice to make.
+      let startSeg = "";
+      if (!a.joint) {
+        const own = a.owner
+          ? (a.owner.id === meId ? "Mine" : `${esc(a.owner.name)}'s`) : "Own";
+        const opt = (on, val, label) =>
+          `<button type="button" class="${on ? "on" : ""}" style="--pcolor:var(--brass-dim)"
+                  data-acct-shared="${aid}" data-shared="${val}" aria-pressed="${on ? "true" : "false"}">
+                  <span class="dot"></span>${label}</button>`;
+        startSeg = `<p class="settle-sub acct-note">New charges start as:</p>
+        <div class="seg acct-seg">${opt(!a.shared_default, "0", own)}${opt(!!a.shared_default, "1", "Shared 50/50")}</div>`;
+      }
       const clear = (a.owner || a.joint)
         ? `<button type="button" class="btn small ghost" data-acct-owner="${aid}" data-member="">Not sure</button>` : "";
       return `<li class="acct">
@@ -1847,13 +1860,14 @@
         <div class="sub">${a.charges} charge${a.charges === 1 ? "" : "s"}${a.sample ? ` · latest: ${esc(a.sample)}` : ""}${credited ? ` · credited ${credited}` : ""}</div>
         <div class="seg acct-seg">${picks}</div>
         <p class="settle-sub acct-note">${note} ${clear}</p>
+        ${startSeg}
       </li>`;
     }).join("");
     const body = list.length
       ? `<ul class="list acct-list">${rows}</ul>`
       : `<p class="empty">No bank accounts synced yet.</p>`;
     return `<p class="sheet-title">Whose accounts?</p>
-      <p class="settle-sub">Say whose each bank account is, and Ledger credits that person for its charges and deposits from now on. Pick Joint for an account you share. Nothing already in Ledger changes.</p>
+      <p class="settle-sub">Say whose each bank account is, and Ledger credits that person for its charges and deposits from now on. Pick Joint for an account you share. New charges start as that person's own spending; tap one in Activity to make it shared, and Ledger remembers that merchant next time. Card payments, Venmo and fees never start shared. Nothing already in Ledger changes.</p>
       ${body}
       <div class="dlg-actions"><span class="spacer"></span>
         <button class="btn primary" type="button" id="acct-done">Done</button></div>`;
