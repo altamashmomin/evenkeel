@@ -773,9 +773,16 @@
       const tag = mine
         ? `<span class="amt amount pos">+${fmt(amt)}</span>`
         : `<span class="amt amount neg">−${fmt(amt)}</span>`;
-      return `<li>
+      // share_pct is the NON-payer's share; say it from that person's side.
+      const nonPayer = members.find((m) => !ln.paid_by || m.id !== ln.paid_by.id);
+      const who = nonPayer ? (nonPayer.id === meId ? "your" : `${esc(nonPayer.name)}'s`) : "their";
+      const split = ln.share_pct === 50 ? "split 50/50" : `${who} share ${ln.share_pct}%`;
+      // Each line opens the charge itself (data-settle-fix), so a wrong payer
+      // or a charge that was never shared is fixed right where it shows up.
+      const fix = ln.transaction_id != null ? ` data-settle-fix="${esc(String(ln.transaction_id))}"` : "";
+      return `<li class="tap"${fix}>
         <div class="grow"><div class="title">${esc(ln.description)}</div>
-          <div class="sub">${esc(shortDate((ln.date || "").slice(0, 10)))} · ${esc(ln.paid_by ? ln.paid_by.name : "?")} paid ${esc(ln.amount.display)} · your ${ln.share_pct}%</div></div>
+          <div class="sub">${esc(shortDate((ln.date || "").slice(0, 10)))} · ${esc(ln.paid_by ? ln.paid_by.name : "?")} paid ${esc(ln.amount.display)} · ${split}</div></div>
         ${tag}</li>`;
     }).join("");
     // The carryover line only appears when history the settle-links don't
@@ -788,6 +795,7 @@
     const ledger = lines.length || carry
       ? `<details class="settle-ledger">
            <summary>See the ${lines.length} expense${lines.length === 1 ? "" : "s"} behind this</summary>
+           <p class="settle-sub settle-fix-hint">Something off? Tap a charge to fix who paid it or whether it's shared.</p>
            <ul class="list">${rows}${carryRow}</ul>
          </details>`
       : "";
@@ -1741,22 +1749,57 @@
   }
 
   // The Garden hero: the who-owes-who number as the emotional centerpiece.
-  function beamHTML(bal) {
-    const msg = bal.settled
-      ? `<p class="bh-who">All settled up</p>
-         <p class="bh-sub">No one owes anything on shared expenses</p>`
-      : `<p class="bh-who">${esc(bal.owes.name)} owes ${esc(bal.owed.name)}
-           <b>${fmt(bal.amount)}</b></p>
-         <p class="bh-sub">across all shared expenses</p>`;
-    const settleBtn = bal.settled
+  // The landing page's "who owes whom" card, told from the viewer's side when
+  // meId is given ("Charlee owes you", "You owe Charlee"). `last` is the newest
+  // settle-up from /api/settle/history (optional), so the line can say since
+  // when. Two ways in: Settle up (money moved) and Already even? (nothing
+  // moved, the number was just wrong), both opening the settle dialog.
+  function beamHTML(bal, meId, last) {
+    const sinceText = last
+      ? (last.method === "already_even" ? "since you marked even on " : "since you settled up on ")
+        + shortDate((last.date || "").slice(0, 10))
+      : "";
+    let who;
+    if (bal.settled) {
+      who = `<p class="bh-who">All settled up</p>
+         <p class="bh-sub">${last
+           ? esc((last.method === "already_even" ? "You marked even on " : "You last settled up on ")
+               + shortDate((last.date || "").slice(0, 10)))
+           : "No one owes anything on shared expenses"}</p>`;
+    } else {
+      const owesMe = meId != null && bal.owed && bal.owed.id === meId;
+      const iOwe = meId != null && bal.owes && bal.owes.id === meId;
+      const line = owesMe ? `${esc(bal.owes.name)} owes you`
+        : iOwe ? `You owe ${esc(bal.owed.name)}`
+        : `${esc(bal.owes.name)} owes ${esc(bal.owed.name)}`;
+      who = `<p class="bh-who">${line} <b>${fmt(bal.amount)}</b></p>
+         <p class="bh-sub">${sinceText ? `on shared expenses ${esc(sinceText)}` : "across all shared expenses"}</p>`;
+    }
+    const buttons = bal.settled
       ? ""
-      : `<button class="bh-settle" id="btn-settle" type="button">Settle up</button>`;
+      : `<div class="bh-actions">
+           <button class="bh-settle" id="btn-settle" type="button">Settle up</button>
+           <button class="bh-even" id="btn-settle-even" type="button">Already even?</button>
+         </div>`;
     return `
       <div class="balance-hero">
         <p class="bh-eyebrow">Between you two</p>
-        ${msg}
-        ${settleBtn}
+        ${who}
+        ${buttons}
       </div>`;
+  }
+
+  // The settle dialog's "last settle-up" line with its Undo: only the newest
+  // settlement is offered (undoing it = deleting that row, which reopens what
+  // it covered). Empty string when there's no history.
+  function settleLastHTML(history) {
+    const last = (history || []).find((h) => h.is_latest);
+    if (!last) return "";
+    const how = last.method === "already_even" ? "marked even, no money moved"
+      : `${esc(last.paid_by ? last.paid_by.name : "?")} paid ${esc(last.owed ? last.owed.name : "?")} ${esc(last.amount.display)}`;
+    const note = last.note ? ` · ${esc(last.note)}` : "";
+    return `<p class="settle-last">Last settle-up ${esc(shortDate((last.date || "").slice(0, 10)))}: ${how}${note}
+      <button class="btn small ghost" type="button" data-settle-undo="${esc(String(last.transaction_id))}">Undo</button></p>`;
   }
 
   // One activity/recent row. `users` is injected (the household members) so the
@@ -1781,6 +1824,22 @@
         </div>
         <div style="text-align:right">
           <div class="amt amount transfer-amt">${sign}${fmt(t.amount)}</div>
+          <div class="sub">${t.date.slice(5)}</div>
+        </div>
+      </li>`;
+    }
+    // A settle-up (or a "marked even") is a record between you two, not
+    // spending: a handshake row that says what it was. Tapping offers Undo.
+    if (t.source === "settlement") {
+      return `
+      <li class="tap" data-txn="${t.id}">
+        <span class="ic">🤝</span>
+        <div class="grow">
+          <div class="title">${esc(t.description)}</div>
+          <div class="sub">settle-up · tap to undo</div>
+        </div>
+        <div style="text-align:right">
+          <div class="amt amount transfer-amt">${fmt(t.amount)}</div>
           <div class="sub">${t.date.slice(5)}</div>
         </div>
       </li>`;
@@ -2250,7 +2309,7 @@
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
-           moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML,
+           moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML,
            listEstimateHTML, priceTrendBadge,
            tripDueHTML, tripClosureHTML,
            staleStaplesHTML,

@@ -486,6 +486,11 @@ def delete_transaction(db, actor, txn_id):
                      {"deleted": deleted})
 
 
+# How a settlement happened. Both close the books identically; the word only
+# changes the label so the history reads honestly ("we paid" vs "we were even").
+SETTLE_METHODS = ("paid", "already_even")
+
+
 def settle_up(db, actor, data):
     """Record a settlement and link the shared rows it closes the books on.
 
@@ -505,10 +510,38 @@ def settle_up(db, actor, data):
     audit row.
     side effects — none yet.
     Returns the settlement transaction row.
+
+    `method` (optional): 'paid' (default: money changed hands) or
+    'already_even' (the household says they were already square as of the
+    date, e.g. the balance only looked lopsided because charges were credited
+    to the wrong person). Both write the SAME record (same amount, splits and
+    links), so the balance math is identical; only the description and the
+    audit row say which it was. Undo is delete_transaction on the row, which
+    reopens what it covered. 'already_even' may be backdated, but never to
+    before the latest existing settlement (that one already closed those
+    days, so a second close there would push the books past zero) and never
+    into the future. `note` (optional, <= 120 chars) rides in the description
+    and the audit row.
     """
+    method = data.get("method") or "paid"
+    if method not in SETTLE_METHODS:
+        raise ActionError("method must be 'paid' or 'already_even'")
+    note = data.get("note")
+    if note is not None and not isinstance(note, str):
+        raise ActionError("note must be text")
+    note = " ".join((note or "").split())[:120]
     with action_transaction(db):
         cols = validate_txn_payload(db, data)
         submitted_pct = cols.pop("payer_share_pct", 50)
+        if method == "already_even":
+            if cols["txn_date"] > date.today().isoformat():
+                raise ActionError("the even-as-of date can't be in the future")
+            latest = db.execute(
+                "SELECT MAX(txn_date) FROM transactions "
+                "WHERE source = 'settlement'").fetchone()[0]
+            if latest is not None and cols["txn_date"] < latest:
+                raise ActionError(
+                    f"you last settled on {latest}; pick that day or later")
         members = active_members(db)
         if len(members) != 2:
             raise ActionError("settle up requires exactly two active members")
@@ -524,10 +557,17 @@ def settle_up(db, actor, data):
                 cols["paid_by"] != balance["ower"]["id"]):
             raise ActionError("balance changed; refresh and try again")
 
+        if method == "already_even":
+            description = (f"Marked even — {balance['ower']['display_name']} and "
+                           f"{balance['owed']['display_name']}, no money moved")
+        else:
+            description = (f"Settlement — {balance['ower']['display_name']} → "
+                           f"{balance['owed']['display_name']}")
+        if note:
+            description = f"{description} · {note}"
         cols.update({
             "amount_cents": balance["amount_cents"],
-            "description": (f"Settlement — {balance['ower']['display_name']} → "
-                            f"{balance['owed']['display_name']}"),
+            "description": description[:200],
             "category": "Settlement",
             "paid_by": balance["ower"]["id"],
             "is_shared": 1,
@@ -564,7 +604,8 @@ def settle_up(db, actor, data):
             db, actor, "settle_up", f"transaction:{txn_id}",
             {"amount_cents": cols["amount_cents"],
              "paid_by": cols["paid_by"], "owed": balance["owed"]["id"],
-             "as_of": cols["txn_date"], "covers": covered}, at=now)
+             "as_of": cols["txn_date"], "covers": covered,
+             "method": method, "note": note or None}, at=now)
     return db.execute(
         "SELECT * FROM transactions WHERE id = ?", (txn_id,)).fetchone()
 

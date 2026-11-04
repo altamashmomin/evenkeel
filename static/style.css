@@ -481,6 +481,14 @@ main {
   padding: 9px 16px; cursor: pointer;
 }
 .bh-settle:active { transform: translateY(1px); }
+.bh-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 15px; }
+.bh-actions .bh-settle { margin-top: 0; }
+.bh-even {
+  font-family: var(--mono); font-size: 12.5px; color: #C6DBCC; background: none;
+  border: 1px solid rgba(198, 219, 204, .45); border-radius: 999px;
+  padding: 8px 14px; cursor: pointer;
+}
+.bh-even:active { transform: translateY(1px); }
 
 /* ---------- dashboard stats ---------- */
 .stat-big {
@@ -696,6 +704,12 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .settle-ledger .list { margin-top: 6px; max-height: 40vh; overflow-y: auto; }
 .settle-ledger .amount.pos { color: var(--ok); }
 .settle-ledger .amount.neg { color: var(--danger); }
+.settle-ledger li.tap { cursor: pointer; }
+.settle-fix-hint { margin: 6px 0 0; }
+.settle-last { font-size: 12.5px; color: var(--muted); margin: 10px 0 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#settle-even label { display: block; font-size: 13px; margin: 8px 0; }
+#settle-even input { width: 100%; }
 
 /* ---- analytics: income-vs-spend chart ---- */
 .chart-headline { font-family: var(--mono); font-size: 30px; font-weight: 600;

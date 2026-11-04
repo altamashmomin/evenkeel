@@ -1988,4 +1988,54 @@ check("askThreadHTML hides context lines and shows chips on the latest opener", 
   assert.deepStrictEqual(R.askFollowups(msgs), [], "chips replace the follow-up suggestions");
 });
 
+// ---- settle up: viewer-aware hero, already-even entry, undo line, fix lines ----
+check("beamHTML speaks from the viewer's side and offers Already even", () => {
+  const bal = { settled: false, owes: { id: 2, name: "Charlee" },
+    owed: { id: 1, name: "Alta" }, amount: 40 };
+  const alta = R.beamHTML(bal, 1);
+  assert.ok(alta.includes("Charlee owes you"), "owed viewer reads 'owes you'");
+  const charlee = R.beamHTML(bal, 2);
+  assert.ok(charlee.includes("You owe Alta"), "ower viewer reads 'You owe'");
+  assert.ok(alta.includes('id="btn-settle-even"'), "Already even? button");
+  assert.ok(R.beamHTML(bal).includes("Charlee owes Alta"), "no viewer: names both");
+});
+check("beamHTML says since when, from the last settle-up", () => {
+  const bal = { settled: false, owes: { id: 2, name: "Charlee" },
+    owed: { id: 1, name: "Alta" }, amount: 40 };
+  const paid = R.beamHTML(bal, 1, { date: "2026-10-01", method: "paid" });
+  assert.ok(/since you settled up on Oct 1/.test(paid));
+  const even = R.beamHTML({ settled: true }, 1, { date: "2026-11-03", method: "already_even" });
+  assert.ok(/You marked even on Nov 3/.test(even));
+  assert.ok(!even.includes("btn-settle-even"), "settled: no buttons");
+});
+check("settleLastHTML offers Undo on the latest settle-up only", () => {
+  assert.strictEqual("", R.settleLastHTML([]));
+  const html = R.settleLastHTML([
+    { transaction_id: 9, date: "2026-11-03", method: "already_even", note: "we're <b>square</b>",
+      amount: { cents: 4000, display: "$40.00" }, paid_by: { id: 2, name: "Charlee" },
+      owed: { id: 1, name: "Alta" }, is_latest: true },
+    { transaction_id: 4, date: "2026-10-01", method: "paid",
+      amount: { cents: 100, display: "$1.00" }, paid_by: { id: 1, name: "Alta" },
+      owed: { id: 2, name: "Charlee" }, is_latest: false }]);
+  assert.ok(html.includes('data-settle-undo="9"'));
+  assert.ok(!html.includes('data-settle-undo="4"'));
+  assert.ok(html.includes("marked even, no money moved"));
+  assert.ok(!html.includes("<b>"), "note is escaped");
+});
+check("settleBreakdownHTML lines open the charge for a fix", () => {
+  const html = R.settleBreakdownHTML(SB, 1);
+  assert.ok(html.includes('data-settle-fix="10"') && html.includes('data-settle-fix="11"'));
+  assert.ok(/Tap a charge to fix who paid/.test(html));
+  assert.ok(html.includes("split 50/50"));
+});
+check("txnRow renders a settle-up as a handshake row, not spending", () => {
+  const html = R.txnRow({ id: 5, source: "settlement", direction: "out",
+    description: "Marked even — Charlee and Alta, no money moved", amount: 40,
+    date: "2026-11-03", paid_by: 2, category: "Settlement", is_shared: true,
+    payer_share_pct: 0 }, [{ id: 1, display_name: "Alta" }, { id: 2, display_name: "Charlee" }]);
+  assert.ok(html.includes("🤝"));
+  assert.ok(html.includes("tap to undo"));
+  assert.ok(!html.includes("payer 0%"), "no confusing split label");
+});
+
 console.log(`render tests passed (${passed} checks)`);

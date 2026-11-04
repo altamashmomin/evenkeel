@@ -66,7 +66,10 @@ class SettleBreakdownRouteTests(unittest.TestCase):
         ln = bd["lines"][0]
         self.assertEqual(
             ["amount", "category", "date", "description", "owed", "paid_by",
-             "share_pct", "transaction_id"], sorted(ln))
+             "share_pct", "transaction_id", "txn"], sorted(ln))
+        # The fix-from-the-breakdown path opens the row itself.
+        self.assertEqual(ln["transaction_id"], ln["txn"]["id"])
+        self.assertEqual(ln["paid_by"]["id"], ln["txn"]["paid_by"])
         self.assertEqual(["cents", "display"], sorted(ln["amount"]))
         self.assertEqual(["id", "name"], sorted(ln["paid_by"]))
         self.assertIn("$", ln["owed"]["display"])

@@ -153,6 +153,59 @@ def settle_breakdown(db, as_of=None):
     }
 
 
+def settlement_history(db, limit=5):
+    """The household's most recent settle-ups, newest first: what the landing
+    page's "last settled" line and the settle dialog's Undo read.
+
+    One row per settlement transaction (source='settlement'), with how it
+    happened: 'already_even' when settle_up's audit row says so (the "we
+    were already square" record), else 'paid' (every settlement from before
+    that option existed reads as paid, which is what they were). `owed` is
+    the member the settlement credited: the active member who isn't the
+    settlement's payer. `is_latest` marks the only one the UI offers to undo,
+    since undoing an older one while a newer one stands is confusing (it is
+    still possible from Activity: deleting any settlement reopens its rows).
+
+    Settlement rows only, so no inflow can reach it (an inflow is never
+    source='settlement'). Integer cents. Pure read."""
+    limit = max(1, min(int(limit or 5), 50))
+    members = db.execute(
+        "SELECT id, display_name FROM members WHERE active = 1 ORDER BY id"
+    ).fetchall()
+    rows = db.execute(
+        """SELECT t.id, t.txn_date, t.amount_cents, t.paid_by, t.description,
+                  (SELECT a.detail_json FROM audit_log a
+                    WHERE a.action = 'settle_up'
+                      AND a.target = 'transaction:' || t.id
+                    ORDER BY a.id DESC LIMIT 1) AS detail_json,
+                  (SELECT COUNT(*) FROM links l
+                    WHERE l.link_type = 'settles' AND l.from_id = t.id) AS covers
+           FROM transactions t
+           WHERE t.source = 'settlement' AND t.direction = 'out'
+           ORDER BY t.txn_date DESC, t.id DESC
+           LIMIT ?""", (limit,)).fetchall()
+    out = []
+    for i, r in enumerate(rows):
+        method, note = "paid", None
+        if r["detail_json"]:
+            try:
+                detail = json.loads(r["detail_json"])
+            except ValueError:
+                detail = {}
+            if detail.get("method") == "already_even":
+                method = "already_even"
+            note = detail.get("note") or None
+        owed = next((m for m in members if m["id"] != r["paid_by"]), None)
+        out.append({
+            "transaction_id": r["id"], "date": r["txn_date"],
+            "amount_cents": r["amount_cents"], "paid_by": r["paid_by"],
+            "owed": owed["id"] if owed else None,
+            "method": method, "note": note, "covers": r["covers"],
+            "is_latest": i == 0,
+        })
+    return out
+
+
 def spending_summary(db, month=None):
     """Net spend by month/category: outflows minus the refunds that reverse
     them, excluding settlement transactions.
