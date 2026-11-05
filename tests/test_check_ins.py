@@ -285,9 +285,125 @@ class MuteVerbTests(CheckInBase):
                          [r["key"] for r in self.rows()])
 
 
+NOW = "2026-11-04T15:00:00+00:00"
+GREEN = {"version": 1, "level": "green", "worst": 0,
+         "checked_at": "2026-11-04T07:00:03-05:00", "checked_epoch": 1793793603,
+         "ok_count": 12, "problems": []}
+
+
+class UpkeepRuleTests(CheckInBase):
+    """approval_waiting + ops_health: the check-ins that replaced the Pi jobs
+    which filed GitHub issues nobody read."""
+
+    def propose(self, member=1, created_by=None):
+        return actions.propose_action(
+            self.db, ACTOR, created_by, "apply_rules", {}, proposed_by_user=member)
+
+    def upkeep(self, member_id=1, ops_status=None, now=NOW, mutes=None):
+        return [c for c in derivations.check_ins(self.db, TODAY, mutes, now=now,
+                                                 member_id=member_id,
+                                                 ops_status=ops_status)
+                if c["kind"] in ("approval_waiting", "ops_health")]
+
+    def test_approval_waiting_is_terse_and_scoped_to_who_can_confirm(self):
+        res = self.propose(member=1)
+        found = self.upkeep(member_id=1)
+        self.assertEqual(1, len(found))
+        ci = found[0]
+        pid = self.db.execute("SELECT id FROM pending_actions").fetchone()[0]
+        self.assertEqual(f"approval_waiting:{pid}", ci["key"])
+        self.assertEqual("apply_rules", ci["action_type"])
+        self.assertEqual("in the app", ci["proposed_by"])
+        # Never the confirmation token, the payload or the preview.
+        flat = repr(ci)
+        self.assertNotIn(res["confirmation_token"], flat)
+        self.assertNotIn("payload", flat)
+        self.assertNotIn("preview", flat)
+        # Bound to member 1 (#016), so member 2 isn't asked to approve it.
+        self.assertEqual([], self.upkeep(member_id=2))
+        # A bare member_id (the tripwire, a household-wide read) sees it.
+        self.assertEqual(1, len(self.upkeep(member_id=None)))
+
+    def test_unbound_expired_and_settled_proposals(self):
+        self.db.execute(
+            "INSERT INTO pending_actions (token, action_type, payload_json, "
+            "preview_json, created_at, expires_at, status) VALUES "
+            "('t-legacy', 'apply_rules', '{}', '{}', '2026-11-04T10:00:00+00:00', "
+            "'2026-11-05T10:00:00+00:00', 'pending'), "
+            "('t-old', 'apply_rules', '{}', '{}', '2026-11-03T10:00:00+00:00', "
+            "'2026-11-04T10:00:00+00:00', 'pending'), "
+            "('t-done', 'apply_rules', '{}', '{}', '2026-11-04T10:00:00+00:00', "
+            "'2026-11-05T10:00:00+00:00', 'confirmed')")
+        self.db.commit()
+        found = self.upkeep(member_id=2)
+        self.assertEqual(1, len(found), found)      # only the unbound live one
+        self.assertEqual(19, found[0]["expires_in_hours"])
+        # Clock-free: no `now`, no approvals.
+        self.assertEqual([], derivations.approvals_waiting(self.db))
+
+    def test_ops_health_levels(self):
+        red = dict(GREEN, level="red", worst=2, problems=[
+            {"severity": "warn", "text": "disk 82% full"},
+            {"severity": "crit", "text": "last SimpleFIN sync FAILED (exit 1)"}])
+        (ci,) = self.upkeep(ops_status=red)
+        self.assertEqual("ops_health:red:2026-11-04", ci["key"])
+        self.assertEqual(5, ci["priority"])                   # before everything
+        self.assertEqual("crit", ci["problems"][0]["severity"])  # crit first
+        self.assertEqual(2, ci["problem_count"])
+        amber = dict(GREEN, level="amber", worst=1,
+                     problems=[{"severity": "warn", "text": "disk 82% full"}])
+        self.assertEqual("amber", self.upkeep(ops_status=amber)[0]["level"])
+        self.assertEqual([], self.upkeep(ops_status=GREEN))   # green says nothing
+        self.assertEqual([], self.upkeep(ops_status=None))    # not checked here
+        self.assertEqual([], self.upkeep(ops_status=red, now=None))  # clock-free
+
+    def test_a_silent_guardian_is_itself_a_check_in(self):
+        for status, reason in (({"missing": True}, "missing"),
+                               ({"unreadable": True}, "unreadable"),
+                               ({"level": "green"}, "unreadable")):
+            (ci,) = self.upkeep(ops_status=status)
+            self.assertEqual(("stale", reason), (ci["level"], ci["reason"]))
+            self.assertEqual(f"ops_health:stale:{TODAY}", ci["key"])
+        # 26h is fine, 27h is stale (the timer is daily at 07:00).
+        at = derivations._iso_to_epoch(NOW)
+        ok = dict(GREEN, checked_epoch=at - 26 * 3600)
+        self.assertEqual([], self.upkeep(ops_status=ok))
+        old = dict(GREEN, checked_epoch=at - 27 * 3600)
+        (ci,) = self.upkeep(ops_status=old)
+        self.assertEqual(("stale", "old", 27), (ci["level"], ci["reason"], ci["age_hours"]))
+        # A stale red verdict reports the silence, not yesterday's problems.
+        stale_red = dict(old, level="red", problems=[{"severity": "crit", "text": "x"}])
+        self.assertEqual("stale", self.upkeep(ops_status=stale_red)[0]["level"])
+
+    def test_dismissing_todays_verdict_doesnt_silence_tomorrows(self):
+        red = dict(GREEN, level="red", worst=2,
+                   problems=[{"severity": "crit", "text": "web app is NOT active"}])
+        mutes = [{"key": "ops_health:red:2026-11-04", "until": None}]
+        self.assertEqual([], self.upkeep(ops_status=red, mutes=mutes))
+        tomorrow = dict(red, checked_at="2026-11-05T07:00:02-05:00",
+                        checked_epoch=1793880002)
+        self.assertEqual(1, len(self.upkeep(ops_status=tomorrow, mutes=mutes,
+                                            now="2026-11-05T15:00:00+00:00")))
+        off = [{"key": "kind:ops_health", "until": None}]
+        self.assertEqual([], self.upkeep(ops_status=tomorrow, mutes=off,
+                                         now="2026-11-05T15:00:00+00:00"))
+
+    def test_upkeep_check_ins_write_nothing(self):
+        self.propose()
+        before = snapshot_rest(self.db)
+        self.upkeep(ops_status={"missing": True})
+        self.assertEqual(before, snapshot_rest(self.db))
+
+
 class CheckInRouteTests(CheckInBase):
     def setUp(self):
         super().setUp()
+        # The guardian's JSON verdict: green unless a test rewrites it.
+        self.ops_json = Path(self.tmp.name) / "ops-status.json"
+        self.write_ops(dict(GREEN, checked_epoch=int(__import__("time").time())))
+        self._old_ops_env = os.environ.get("OPS_STATUS_JSON")
+        os.environ["OPS_STATUS_JSON"] = str(self.ops_json)
+        self.addCleanup(self._restore_ops_env)
         os.environ["DATABASE_PATH"] = str(self.db_path)
         os.environ.setdefault("SECRET_KEY", "check-in-route-secret")
         spec = importlib.util.spec_from_file_location("app_checkin_test", REPO / "app.py")
@@ -295,12 +411,53 @@ class CheckInRouteTests(CheckInBase):
         spec.loader.exec_module(self.app_module)
         self.app_module.app.config["TESTING"] = True
 
+    def _restore_ops_env(self):
+        if self._old_ops_env is None:
+            os.environ.pop("OPS_STATUS_JSON", None)
+        else:
+            os.environ["OPS_STATUS_JSON"] = self._old_ops_env
+
+    def write_ops(self, status):
+        import json
+        self.ops_json.write_text(json.dumps(status), encoding="utf-8")
+
     def client(self, user_id=1):
         c = self.app_module.app.test_client()
         if user_id is not None:
             with c.session_transaction() as s:
                 s["user_id"] = user_id
         return c
+
+    def test_route_raises_health_and_approvals_first(self):
+        import time
+        self.bill("Internet", 70, 6)
+        self.write_ops(dict(GREEN, level="red", worst=2, checked_epoch=int(time.time()),
+                            problems=[{"severity": "crit", "text": "web app is NOT active"}]))
+        actions.propose_action(self.db, ACTOR, None, "apply_rules", {}, proposed_by_user=1)
+        body = self.client(1).get(f"/api/check-ins?today={TODAY}").get_json()
+        kinds = [c["kind"] for c in body["check_ins"]]
+        self.assertEqual(["ops_health", "approval_waiting", "bill_due"], kinds)
+        self.assertNotIn("token", body["check_ins"][1])
+        # Member 2 didn't propose it, so isn't asked to approve it.
+        two = self.client(2).get(f"/api/check-ins?today={TODAY}").get_json()
+        self.assertEqual(["ops_health", "bill_due"], [c["kind"] for c in two["check_ins"]])
+
+    def test_route_missing_and_garbled_status_file(self):
+        self.ops_json.unlink()
+        body = self.client().get(f"/api/check-ins?today={TODAY}").get_json()
+        self.assertEqual([("ops_health", "stale")],
+                         [(c["kind"], c["level"]) for c in body["check_ins"]])
+        self.assertEqual("missing", body["check_ins"][0]["reason"])
+        self.ops_json.write_text("{not json", encoding="utf-8")
+        body = self.client().get(f"/api/check-ins?today={TODAY}").get_json()
+        self.assertEqual("unreadable", body["check_ins"][0]["reason"])
+        self.ops_json.write_text("[1, 2]", encoding="utf-8")
+        body = self.client().get(f"/api/check-ins?today={TODAY}").get_json()
+        self.assertEqual("unreadable", body["check_ins"][0]["reason"])
+
+    def test_green_guardian_adds_nothing(self):
+        body = self.client().get(f"/api/check-ins?today={TODAY}").get_json()
+        self.assertEqual([], body["check_ins"])
 
     def test_list_caps_converts_money_and_reports_kinds(self):
         for name, day in (("A", 2), ("B", 3), ("C", 5), ("D", 6)):

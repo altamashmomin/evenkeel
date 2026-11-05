@@ -83,7 +83,7 @@ SERVICES = [
     {"id": "guardian", "kind": "routine", "name": "Pi Ops guardian",
      "group": "ops", "icon": "🌡️", "access": "read-only",
      "model": "—", "surface": "Pi timer", "cadence": "daily · 07:00",
-     "tagline": "Checks services, disk, backups, and keys; alerts on trouble."},
+     "tagline": "Checks services, disk, backups, and keys; flags trouble as a check-in."},
 ]
 
 # Plain-language explanations for every pill, so anyone — not just Alta —

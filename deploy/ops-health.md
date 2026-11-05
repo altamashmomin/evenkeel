@@ -26,8 +26,13 @@ stale, a backup that won't restore, a credential about to expire.
 | `SECRET_KEY` set | missing (sessions unstable across workers) | — |
 | `ANTHROPIC_API_KEY` | missing, or ≤14d to `ASK_KEY_EXPIRES` | expired |
 
-Exit code = worst severity (0 green / 1 amber / 2 red). Output goes to the journal
-and to `ops-status.txt` (a heartbeat you can `cat` to see the last verdict). It
+Exit code = worst severity (0 green / 1 amber / 2 red). Output goes to the journal,
+to `ops-status.txt` (a heartbeat you can `cat` to see the last verdict), and to
+`ops-status.json` beside it (the same verdict as JSON — level, `checked_at`,
+the warning/critical lines — written in plain shell, so it still appears when
+Python is broken). The app reads the JSON and raises an **`ops_health` check-in**
+on amber/red, or when the file is missing or older than 26h (a guardian that
+stopped reporting). It
 **never opens `finance.db`** — sync freshness is read from systemd, and only
 `*.bak-*` files are ever opened, read-only (CORE-DESIGN invariant 6).
 
@@ -65,12 +70,14 @@ The unit loads the app's `.env`, so overrides go there (values, not shell export
 ```
 # Remind before the key dies (billing carries over on rotation):
 ASK_KEY_EXPIRES=2026-08-30
-# Bridge alerts to the cloud Chief of Staff by filing a GitHub issue on amber/red
-# (via a curl POST to the GitHub API — no gh CLI needed). Set BOTH the repo and a
-# fine-grained PAT scoped to that repo with issues:write. Leave unset to keep
-# alerts local (journal + ops-status.txt only).
-OPS_ALERT_GH_REPO=altamashmomin/evenkeel
-OPS_ALERT_GH_TOKEN=github_pat_xxx   # fine-grained PAT, evenkeel, issues:write
+# OPTIONAL, off by default: ALSO file a GitHub issue on amber/red (curl POST,
+# no gh CLI). Amber/red already show in the app as a check-in, so most setups
+# leave these unset. Set BOTH to turn it on.
+# OPS_ALERT_GH_REPO=altamashmomin/evenkeel
+# OPS_ALERT_GH_TOKEN=github_pat_xxx   # fine-grained PAT, that repo, issues:write
+# Where the JSON verdict goes (default: ops-status.txt's path with .json). The
+# app looks in the same place unless you set OPS_STATUS_JSON in .env for both.
+# OPS_STATUS_JSON=/home/altamash/pifinance-ops/ops-status.json
 # Threshold overrides (defaults shown):
 # DISK_WARN_PCT=80  DISK_CRIT_PCT=90  MAX_SYNC_AGE_H=26  MAX_BACKUP_AGE_H=168
 # MAX_BACKUPS=12
@@ -78,8 +85,12 @@ OPS_ALERT_GH_TOKEN=github_pat_xxx   # fine-grained PAT, evenkeel, issues:write
 
 ## How alerts surface (and reach the Chief of Staff)
 
-1. **Always:** the journal (`journalctl -u pifinance-ops.service`) and `ops-status.txt`.
-2. **On amber/red, optionally:** a GitHub issue labelled `ops-alert` on
+1. **Always:** the journal (`journalctl -u pifinance-ops.service`), `ops-status.txt`,
+   and `ops-status.json`.
+2. **In the app, on amber/red or silence:** an `ops_health` check-in card on the
+   Ask tab (both members; each can snooze or dismiss it, and "stop asking"
+   turns the kind off for that person). The full report is on the Agents tab.
+3. **On amber/red, only if configured:** a GitHub issue labelled `ops-alert` on
    `OPS_ALERT_GH_REPO` (curl POST to the GitHub API with `OPS_ALERT_GH_TOKEN`;
    ~one per problem-day) — this is the bridge the **cloud Chief of Staff** reads,
    since it can't reach the tailnet. Without the token set, run the **`ledger-ops`**

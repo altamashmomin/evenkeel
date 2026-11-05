@@ -2209,6 +2209,13 @@
     unusual_charge: "unusual charges",
     restock_due: "pantry restocks",
     order_waiting: "orders on the way",
+    approval_waiting: "approvals waiting on you",
+    ops_health: "Ledger's health check",
+  };
+
+  const APPROVAL_KIND_TEXT = {
+    create_rule: "A new auto-tagging rule",
+    apply_rules: "A sweep that applies your rules to older deposits",
   };
 
   function checkInKindLabel(kind) {
@@ -2322,6 +2329,64 @@
           { label: "It came", do: "item", item_id: ci.item_id, status: "stocked" },
           { label: "Still waiting", do: "snooze", days: 3 },
           { label: "It never came", do: "item", item_id: ci.item_id, status: "out" },
+        ],
+      };
+    }
+    if (k === "approval_waiting") {
+      const what = APPROVAL_KIND_TEXT[ci.action_type] || "A proposed change";
+      const via = ci.proposed_by === "in the app" ? "in the app" : `by ${ci.proposed_by}`;
+      const left = ci.expires_in_hours >= 1
+        ? `It expires in about ${ci.expires_in_hours} hour${ci.expires_in_hours === 1 ? "" : "s"}.`
+        : "It expires within the hour.";
+      return {
+        opener: `${what} is waiting for your okay. It was proposed ${via}. ${left}`,
+        context: `Ledger check-in: ${lower(what)} proposed ${via} is waiting for ` +
+          "a person to approve or dismiss it on the Home tab. Nothing changes until they do.",
+        chips: [
+          { label: "Review it on Home", do: "nav", tab: "dashboard" },
+          { label: "Remind me tomorrow", do: "snooze", days: 1 },
+        ],
+      };
+    }
+    if (k === "ops_health") {
+      if (ci.level === "stale") {
+        const opener = ci.reason === "old"
+          ? `Ledger's daily health check last reported ${Math.floor(ci.age_hours / 24)} ` +
+            `day${Math.floor(ci.age_hours / 24) === 1 ? "" : "s"} ago, so a failed sync ` +
+            "or backup could go unnoticed."
+          : ci.reason === "unreadable"
+          ? "Ledger couldn't read its daily health check's last report, so a failed " +
+            "sync or backup could go unnoticed."
+          : "Ledger's daily health check isn't reporting to the app yet, so a failed " +
+            "sync or backup could go unnoticed.";
+        return {
+          opener,
+          context: `Ledger check-in: ${opener} The check runs on the Pi at 7 AM ` +
+            "(pifinance-ops.timer) and writes ops-status.json.",
+          chips: [
+            { label: "How do I fix it?", do: "ask",
+              text: "Ledger's daily health check isn't reporting. How do I get it running again on the Pi?" },
+            { label: "Remind me tomorrow", do: "snooze", days: 1 },
+          ],
+        };
+      }
+      const probs = ci.problems || [];
+      const first = probs.length ? probs[0].text : "something needs a look";
+      const extra = (ci.problem_count || probs.length) - 1;
+      const head = ci.level === "red"
+        ? "Ledger's daily health check found a problem that needs you"
+        : "Ledger's daily health check has a warning";
+      const opener = `${head}: ${first}` +
+        (extra > 0 ? ` (and ${extra} more).` : ".");
+      return {
+        opener,
+        context: `Ledger check-in: the Pi health check (${ci.level}) flagged: ` +
+          probs.map((p) => p.text).join("; ") + ".",
+        chips: [
+          { label: "What should I do?", do: "ask",
+            text: "What should I do about what Ledger's health check flagged?" },
+          { label: "See the full report", do: "nav", tab: "agents" },
+          { label: "Got it", do: "dismiss" },
         ],
       };
     }

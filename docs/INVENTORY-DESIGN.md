@@ -307,6 +307,10 @@ never count an inflow as a "matched purchase" (they bottom out in
   `pantry_pulse` derivation through the app's own API with a read token and
   files a GitHub issue over the existing alert bridge. Predicted-low this
   week, stale candidates, list rot, one new-staple suggestion.
+  *Retired Nov 5, 2026:* the issue job is gone (nobody read the issues);
+  restocks due and orders waiting are Ask check-ins, and stale staples, list
+  rot and suggestions stay on the Pantry tab. The `pantry_pulse` derivation
+  and route remain for the Ask/MCP read tool.
 - **Ask**: the new derivations and verbs join the read/write tool surface
   under the existing scopes — "what will the list cost?", "we got everything
   at Costco", "snooze the milk until the 30th".

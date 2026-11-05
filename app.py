@@ -456,6 +456,26 @@ def agents():
 
 OPS_STATUS_FILE = os.environ.get(
     "OPS_STATUS_FILE", os.path.expanduser("~/pifinance-ops/ops-status.txt"))
+# The same verdict as JSON (level, checked_at, problems), written beside the
+# text heartbeat by the guardian; the ops_health check-in reads this one.
+OPS_STATUS_JSON = os.environ.get("OPS_STATUS_JSON") or (
+    OPS_STATUS_FILE[:-len(".txt")] + ".json" if OPS_STATUS_FILE.endswith(".txt")
+    else OPS_STATUS_FILE + ".json")
+
+
+def read_ops_status(path=None):
+    """The guardian's ops-status.json as the dict ops_health_check_in takes:
+    the parsed file, {"missing": True} when there is none, or
+    {"unreadable": True} when it isn't a JSON object. Never raises."""
+    path = path or OPS_STATUS_JSON
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {"missing": True}
+    except (OSError, ValueError):
+        return {"unreadable": True}
+    return data if isinstance(data, dict) else {"unreadable": True}
 
 
 @app.get("/api/ops/health")
@@ -1073,8 +1093,8 @@ def inventory_badge():
 @app.get("/api/inventory/pulse")
 @login_required
 def inventory_pulse():
-    """The weekly pantry digest (pantry_pulse) — read by the Pi-side pulse job
-    (bearer read token) and the Ask/MCP tool; the same function, so they agree."""
+    """The weekly pantry digest (pantry_pulse) — read by the Ask and MCP tools
+    (bearer read token); the same function, so they agree."""
     return jsonify(_pulse_to_json(pantry_pulse(get_db())))
 
 
@@ -1914,7 +1934,9 @@ def check_ins_view():
     CHECK_IN_CAP, with this person's mutes applied. `today` is the viewer's
     local date (the SPA passes it; derivations stay clock-free). Also returns
     which kinds this person turned off and their open snoozes, so the Ask tab
-    can offer "turn back on". Read only."""
+    can offer "turn back on". Also raises the upkeep check-ins: proposals this
+    person can approve, and the Pi guardian's latest amber/red verdict (or its
+    silence) from ops-status.json. Read only."""
     db = get_db()
     today = request.args.get("today") or date.today().isoformat()
     try:
@@ -1923,7 +1945,9 @@ def check_ins_view():
         return bad_request(str(e))
     member_id = g.auth["user_id"]
     mutes = _check_in_mutes_for(db, member_id)
-    found = check_ins(db, today, mutes)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    found = check_ins(db, today, mutes, now=now, member_id=member_id,
+                      ops_status=read_ops_status())
     live = [dict(m) for m in mutes if m["until"] is None or m["until"] > today]
     off = {m["key"][len("kind:"):] for m in live if m["key"].startswith("kind:")}
     return jsonify({

@@ -1,5 +1,17 @@
 # Design: Change notifications & the activity digest
 
+> **Retired Nov 5, 2026 (the GitHub-issue delivery).** The three Pi jobs this
+> design shipped (`change_digest.py`, `notify_approvals.py`, and the pantry
+> pulse it reused) posted GitHub issues to a private alert repo that nobody
+> opened, so a failed sync or backup could go unseen. They are removed. What
+> they said now lives in the app as Ask **check-ins** (`derivations.check_ins`):
+> `approval_waiting` (a proposal this person can approve: kind, who proposed
+> it, expiry — the same terse rule as below) and `ops_health` (the 07:00
+> guardian's amber/red verdict from `ops-status.json`, or its silence past
+> 26h). The read side stays: `activity_digest` + `GET /api/activity/digest`
+> and `pantry_pulse` + `GET /api/inventory/pulse` still back the Ask and MCP
+> tools. The text below is the historical design.
+
 You should be *told* when the assistants change something — not have to open the
 app and notice. Today the visibility is entirely passive: F-1's **Pending
 approvals** card only appears when you happen to open Home, and the many

@@ -1904,6 +1904,15 @@ const CI = {
     interval_days: 10, days_late: 2, interval_source: "status" },
   order_waiting: { key: "order_waiting:6:2026-10-25", kind: "order_waiting", item_id: 6,
     name: "Paper towels", days_waiting: 10 },
+  approval_waiting: { key: "approval_waiting:4", kind: "approval_waiting", pending_id: 4,
+    action_type: "create_rule", proposed_by: "alta-claude", expires_in_hours: 20,
+    expires_at: "2026-11-05T12:00:00+00:00" },
+  ops_red: { key: "ops_health:red:2026-11-05", kind: "ops_health", level: "red",
+    checked_at: "2026-11-05T07:00:04-05:00", age_hours: 1, problem_count: 2,
+    problems: [{ severity: "crit", text: "last SimpleFIN sync FAILED (exit 1)" },
+               { severity: "warn", text: "disk 82% full" }] },
+  ops_stale: { key: "ops_health:stale:2026-11-05", kind: "ops_health", level: "stale",
+    reason: "old", checked_at: "2026-11-02T07:00:00-05:00", age_hours: 74, problems: [] },
 };
 
 check("checkInView gives every kind an opener, context and chips", () => {
@@ -1937,7 +1946,7 @@ check("checkInView never offers a money write", () => {
   // Bill chips only open the Calendar; the only writes are pantry statuses and mutes.
   for (const ci of Object.values(CI)) {
     for (const c of R.checkInView(ci).chips) {
-      if (c.do === "nav") assert.strictEqual(c.tab, "bills");
+      if (c.do === "nav") assert.ok(["bills", "dashboard", "agents"].includes(c.tab), c.tab);
       if (c.do === "item") {
         assert.ok(["low", "stocked", "out"].includes(c.status));
         assert.ok(["restock_due", "order_waiting"].includes(ci.kind));
@@ -1946,6 +1955,34 @@ check("checkInView never offers a money write", () => {
   }
   const restock = R.checkInView(CI.restock_due).chips;
   assert.deepStrictEqual(restock[0], { label: "Yes, add to the list", do: "item", item_id: 5, status: "low" });
+});
+
+check("checkInView words approvals and the health check plainly, without payloads", () => {
+  assert.strictEqual(R.checkInView(CI.approval_waiting).opener,
+    "A new auto-tagging rule is waiting for your okay. It was proposed by alta-claude. " +
+    "It expires in about 20 hours.");
+  assert.ok(R.checkInView({ ...CI.approval_waiting, proposed_by: "in the app",
+    action_type: "apply_rules", expires_in_hours: 0 }).opener ===
+    "A sweep that applies your rules to older deposits is waiting for your okay. " +
+    "It was proposed in the app. It expires within the hour.");
+  const appr = R.checkInView(CI.approval_waiting).chips;
+  assert.deepStrictEqual(appr[0], { label: "Review it on Home", do: "nav", tab: "dashboard" });
+  assert.ok(!appr.some((c) => c.do === "ask"), "approving stays a human tap on Home");
+  assert.strictEqual(R.checkInView(CI.ops_red).opener,
+    "Ledger's daily health check found a problem that needs you: " +
+    "last SimpleFIN sync FAILED (exit 1) (and 1 more).");
+  assert.ok(R.checkInView(CI.ops_red).context.includes("disk 82% full"));
+  assert.ok(R.checkInView({ ...CI.ops_red, level: "amber", problem_count: 1,
+    problems: [{ severity: "warn", text: "disk 82% full" }] }).opener ===
+    "Ledger's daily health check has a warning: disk 82% full.");
+  assert.ok(R.checkInView(CI.ops_stale).opener.startsWith(
+    "Ledger's daily health check last reported 3 days ago"));
+  assert.ok(R.checkInView({ ...CI.ops_stale, reason: "missing", age_hours: null })
+    .opener.includes("isn't reporting to the app yet"));
+  assert.ok(R.checkInView({ ...CI.ops_stale, reason: "unreadable", age_hours: null })
+    .opener.includes("couldn't read"));
+  assert.ok(R.checkInCardHTML(CI.ops_red, 0, 1).includes("Stop asking about Ledger&#39;s health check")
+    || R.checkInCardHTML(CI.ops_red, 0, 1).includes("Stop asking about Ledger's health check"));
 });
 
 check("checkInCardHTML shows the opener, chips, pager and mute", () => {

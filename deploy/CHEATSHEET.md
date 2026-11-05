@@ -52,6 +52,7 @@ curl -s localhost:8080/api/status
 Read the guardian's latest report:
 ```bash
 cat ~/pifinance-ops/ops-status.txt
+cat ~/pifinance-ops/ops-status.json   # what the app's health check-in reads
 ```
 Run the guardian check now:
 ```bash
