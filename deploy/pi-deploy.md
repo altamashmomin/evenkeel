@@ -18,7 +18,7 @@ account passwords) and are yours to run — I never handle those.
 runs the services as `User=altamash`. The repo's systemd unit *templates* ship
 with the Raspberry Pi OS placeholder `pi` (`User=pi`, `/home/pi/pifinance`), so
 every unit install below **sed-rewrites the placeholder to the real user** rather
-than a plain `cp` — the same pattern `deploy/change-digest.md` uses. If your Pi
+than a plain `cp` — the same pattern `deploy/ops-health.md` uses. If your Pi
 user isn't `altamash`, substitute it in the paths and in the `sed` below.
 
 ---

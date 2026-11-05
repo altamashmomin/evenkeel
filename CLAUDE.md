@@ -463,7 +463,12 @@ Pi-side script, no app/money code). On `rework` (unpushed, past the deployed
 announced-tokens state) + `PENDING_ACTION_TTL_SECONDS` 600→86400 (10min→24h, so a
 notification has time). Suite **711**, render **176**, GATE zero-diff by
 construction. **The change-notifications feature is complete** (inc 1 digest read
-+ route, inc 2 daily digest job, inc 3 approval alerts + TTL).
++ route, inc 2 daily digest job, inc 3 approval alerts + TTL). **Retired Nov 5,
+2026:** the three GitHub-issue Pi jobs (pantry pulse, change digest, approval
+alerts) were removed because nobody read the issues; approvals and the 07:00
+guardian's amber/red verdict (via `ops-status.json`) are now Ask check-ins
+(`approval_waiting`, `ops_health`). The `activity_digest`/`pantry_pulse` reads
+and their routes stay.
 
 **DEPLOYED (Sep 1, `main` `92264db`, tree `57688af`→`92264db`):** the
 notifications lane (inc 1–3) shipped alongside audit **Tier-2 #7**

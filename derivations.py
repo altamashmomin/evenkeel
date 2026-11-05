@@ -2,7 +2,7 @@
 
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 
 def round_ratio(numerator, denominator):
@@ -1711,7 +1711,7 @@ def pantry_pulse(db):
     what a periodic nudge should say — what's on the list (and what it costs),
     what's coming due, what's gone quiet (stale staples, list rot), one
     new-staple suggestion, and how many staples have never matched a purchase
-    — so the Pi-side pulse job, the Ask tool, and any future surface say the
+    — so the Ask/MCP tool and any future surface say the
     same thing. Purely a composition of the named derivations (nothing new is
     computed here); clock-free like all of them — the consumer applies its
     own "today" for horizons and graces. Never touches money.
@@ -1890,7 +1890,8 @@ def calendar_events(db, as_of=None, months_ahead=3):
 def activity_digest(db, since=None, now=None):
     """What changed — every executed write in [since, now) from audit_log,
     grouped, plus the count of proposals awaiting human approval right now. The
-    data behind the change-notification digest and the approvals alert
+    data behind the activity digest read (the Pi issue jobs that once consumed
+    it were retired Nov 5, 2026; approvals are now an Ask check-in)
     (NOTIFICATIONS-DESIGN). Reads audit_log + pending_actions, NEVER
     transactions, so it can't contaminate a money read (tripwire-safe) and moves
     no number. Clock-free: the caller passes `since`/`now` (ISO-8601); both
@@ -1898,7 +1899,7 @@ def activity_digest(db, since=None, now=None):
     can call it bare, the same convention as calendar_events. 'sync' rows (the
     routine bank feed) are counted but split out from the human/assistant writes
     the digest is really for; both actor and action are grouped for the renderer
-    (the Pi job) to phrase — the presentation stays at the edge, integer counts
+    (the caller) to phrase — the presentation stays at the edge, integer counts
     here."""
     if since is None or now is None:
         return {"since": since, "until": now, "total": 0,
@@ -2158,10 +2159,13 @@ def receipt_totals_check(lines, tax_cents=None, total_cents=None):
 # Every kind, in the order a settings list shows them. actions.py imports this
 # so a mute key can only name a real kind.
 CHECK_IN_KINDS = ("bill_due", "bill_looks_paid", "budget", "spend_spike",
-                  "unusual_charge", "restock_due", "order_waiting")
+                  "unusual_charge", "restock_due", "order_waiting",
+                  "approval_waiting", "ops_health")
 
 # Lower = more pressing. A missed bill outranks a coffee restock.
 _CHECK_IN_PRIORITY = {
+    ("ops_health", "red"): 5, ("approval_waiting", None): 12,
+    ("ops_health", "stale"): 18, ("ops_health", "amber"): 35,
     ("bill_due", "overdue"): 10, ("bill_looks_paid", None): 15,
     ("bill_due", "soon"): 20, ("budget", "over"): 25,
     ("unusual_charge", None): 30, ("restock_due", None): 40,
@@ -2174,6 +2178,8 @@ CHECK_IN_RESTOCK_AHEAD_DAYS = 2  # ask a little before the forecast date
 CHECK_IN_RESTOCK_MAX_LATE = 45   # past this it's list rot (stale_staples' job)
 CHECK_IN_ORDER_WAIT_DAYS = 7     # matches the Pantry's "still waiting?" nudge
 CHECK_IN_BUDGET_NEAR_PCT = 90
+CHECK_IN_OPS_STALE_HOURS = 26    # the guardian runs daily at 07:00; 2h slack
+CHECK_IN_OPS_MAX_PROBLEMS = 5    # lines carried on a health check-in
 
 UNUSUAL_WINDOW_DAYS = 7          # how recent a charge must be to ask about it
 UNUSUAL_HISTORY_DAYS = 365       # how far back "the usual" looks
@@ -2237,6 +2243,98 @@ def unusual_charges(db, as_of=None):
     return out
 
 
+def _iso_to_epoch(ts):
+    """Seconds since the epoch for an ISO-8601 timestamp with an offset, or
+    None when it can't be read. A naive timestamp is taken as UTC."""
+    try:
+        dt = datetime.fromisoformat(ts)
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
+
+
+def approvals_waiting(db, now=None, member_id=None):
+    """Two-phase proposals still waiting on a person's yes (pending_actions,
+    #007/#016) — the check-in that replaces the old Pi approval-alert job.
+    TERSE by the same rule that job kept (NOTIFICATIONS-DESIGN privacy): the
+    kind, who proposed it and when it expires, never the payload, the match
+    phrase, an amount or the confirmation token. Only rows `member_id` could
+    actually confirm (#016: a proposal bound to another member is theirs); a
+    bare member_id lists them all. Clock-free: `now` (ISO-8601) is required;
+    None returns []. Reads no money table."""
+    if now is None:
+        return []
+    now_epoch = _iso_to_epoch(now)
+    rows = db.execute(
+        "SELECT p.id, p.action_type, p.created_at, p.expires_at, "
+        "p.proposed_by_user, t.label AS proposer_label "
+        "FROM pending_actions p LEFT JOIN api_tokens t ON t.id = p.created_by "
+        "WHERE p.status = 'pending' ORDER BY p.created_at, p.id").fetchall()
+    out = []
+    for r in rows:
+        exp = _iso_to_epoch(r["expires_at"])
+        if exp is None or now_epoch is None or exp <= now_epoch:
+            continue
+        if member_id is not None and r["proposed_by_user"] is not None \
+                and r["proposed_by_user"] != member_id:
+            continue
+        out.append({"pending_id": r["id"], "action_type": r["action_type"],
+                    "proposed_by": r["proposer_label"] or "in the app",
+                    "proposed_at": r["created_at"], "expires_at": r["expires_at"],
+                    "expires_in_hours": max(0, (exp - now_epoch) // 3600)})
+    return out
+
+
+def ops_health_check_in(status, now=None):
+    """The Pi guardian's latest verdict as at most one check-in fact dict
+    (or None when there's nothing to say). `status` is what the app read from
+    the guardian's ops-status.json (deploy/ops-health-check.sh):
+      None                 — health isn't being checked here (no check-in)
+      {"missing": True}    — no status file (never ran, or not refreshed)
+      {"unreadable": True} — the file is there but isn't valid status JSON
+      otherwise the parsed file: {level: green|amber|red, checked_at,
+      checked_epoch, problems: [{severity, text}], ok_count}.
+    A green verdict says nothing. Amber/red carry the problem lines. A
+    missing, unreadable or older-than-CHECK_IN_OPS_STALE_HOURS file is
+    itself a check-in ('stale'), because a guardian that stopped reporting
+    is exactly the failure nobody would otherwise notice. Clock-free: `now`
+    (ISO-8601) is required for the age; None returns None. Pure: no db."""
+    if status is None or now is None:
+        return None
+    now_epoch = _iso_to_epoch(now)
+    if now_epoch is None:
+        return None
+    if status.get("missing") or status.get("unreadable"):
+        return {"level": "stale",
+                "reason": "missing" if status.get("missing") else "unreadable",
+                "checked_at": None, "age_hours": None, "problems": []}
+    checked_epoch = status.get("checked_epoch")
+    if not isinstance(checked_epoch, int):
+        checked_epoch = _iso_to_epoch(status.get("checked_at"))
+    if checked_epoch is None:
+        return {"level": "stale", "reason": "unreadable", "checked_at": None,
+                "age_hours": None, "problems": []}
+    age_h = max(0, (now_epoch - checked_epoch) // 3600)
+    if age_h > CHECK_IN_OPS_STALE_HOURS:
+        return {"level": "stale", "reason": "old",
+                "checked_at": status.get("checked_at"), "age_hours": age_h,
+                "problems": []}
+    level = status.get("level")
+    if level not in ("amber", "red"):
+        return None
+    problems = [{"severity": p.get("severity"), "text": p.get("text", "")}
+                for p in status.get("problems") or ()
+                if isinstance(p, dict) and p.get("text")]
+    # Critical lines first, then warnings, in the guardian's own order.
+    problems.sort(key=lambda p: p["severity"] != "crit")
+    return {"level": level, "reason": None,
+            "checked_at": status.get("checked_at"), "age_hours": age_h,
+            "problems": problems[:CHECK_IN_OPS_MAX_PROBLEMS],
+            "problem_count": len(problems)}
+
+
 def check_in_is_muted(key, kind, mutes, as_of):
     """True when this person's mutes silence the check-in: a whole-kind mute
     ('kind:<kind>') or this exact key, either with no end date or ending
@@ -2258,7 +2356,8 @@ def _next_period(period):
     return f"{year + (month == 12):04d}-{month % 12 + 1:02d}"
 
 
-def check_ins(db, as_of=None, mutes=None):
+def check_ins(db, as_of=None, mutes=None, now=None, member_id=None,
+              ops_status=None):
     """The things worth asking a person about today, most pressing first —
     the data behind the Ask tab's check-in pop-up. Each is
     {key, kind, level, priority, ...facts}; `key` names the INSTANCE (a bill
@@ -2281,6 +2380,11 @@ def check_ins(db, as_of=None, mutes=None):
                       date is within CHECK_IN_RESTOCK_AHEAD_DAYS (or past, up
                       to CHECK_IN_RESTOCK_MAX_LATE), not snoozed on the item.
       order_waiting   on_the_way rows ordered >= CHECK_IN_ORDER_WAIT_DAYS ago.
+      approval_waiting approvals_waiting — a proposal this person can confirm
+                      (needs `now`; `member_id` scopes it to their own).
+      ops_health      ops_health_check_in — the Pi guardian found amber/red
+                      problems, or stopped reporting (needs `now` and the
+                      `ops_status` the caller read; None skips it).
 
     Clock-free: `as_of` (ISO date, the viewer's today) is required; None
     returns [] so the tripwire can call it bare. Reads only; never touches
@@ -2383,6 +2487,20 @@ def check_ins(db, as_of=None, mutes=None):
             item_id=it["id"], name=it["name"], store=it["store"],
             ordered_on=ordered_on,
             days_waiting=(today - date.fromisoformat(ordered_on)).days)
+
+    # Upkeep: the approvals queue and the Pi's own health (both replace Pi
+    # jobs that filed GitHub issues nobody read).
+    for a in approvals_waiting(db, now, member_id):
+        add("approval_waiting", None, f"approval_waiting:{a['pending_id']}", **a)
+    h = ops_health_check_in(ops_status, now)
+    if h is not None:
+        # Keyed by the verdict's day, so dismissing today's report doesn't
+        # silence tomorrow's if it's still broken; a stale guardian asks again
+        # each day until it reports.
+        day = (h["checked_at"] or "")[:10] if h["level"] != "stale" else as_of
+        facts = {k: v for k, v in h.items() if k != "level"}
+        add("ops_health", h["level"], f"ops_health:{h['level']}:{day or as_of}",
+            **facts)
 
     out = [c for c in out
            if not check_in_is_muted(c["key"], c["kind"], mutes, as_of)]
