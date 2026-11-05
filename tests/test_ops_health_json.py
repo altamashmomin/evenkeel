@@ -86,5 +86,25 @@ class OpsHealthJsonTests(unittest.TestCase):
         self.assertNotIn("GitHub issue", r.stdout)
 
 
+class OpsStatusPathContractTests(unittest.TestCase):
+    """The tracked unit and the app must agree on where the verdict lives, or a
+    healthy guardian shows up in the app as "not reporting" forever."""
+
+    def test_unit_pins_the_folder_the_app_reads(self):
+        import re
+        unit = (REPO / "deploy" / "pifinance-ops.service").read_text(encoding="utf-8")
+        env = re.findall(r"^Environment=OPS_STATUS_FILE=(\S+)$", unit, re.M)
+        self.assertEqual(len(env), 1, "unit should pin OPS_STATUS_FILE once")
+        unit_path = env[0]
+        self.assertTrue(unit_path.startswith("/home/pi/"), unit_path)
+        app_src = (REPO / "app.py").read_text(encoding="utf-8")
+        m = re.search(r'"OPS_STATUS_FILE", os\.path\.expanduser\("~/([^"]+)"\)', app_src)
+        self.assertIsNotNone(m, "app.py's OPS_STATUS_FILE default moved; update this test")
+        self.assertEqual(unit_path, "/home/pi/" + m.group(1))
+        # The folder has to exist before the script writes into it.
+        folder = unit_path.rsplit("/", 1)[0]
+        self.assertIn(f"ExecStartPre=/bin/mkdir -p {folder}\n", unit)
+
+
 if __name__ == "__main__":
     unittest.main()

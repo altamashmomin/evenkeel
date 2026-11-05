@@ -20,6 +20,11 @@ User=pi
 WorkingDirectory=/home/pi/pifinance
 EnvironmentFile=/home/pi/pifinance/.env
 Environment=APP_DIR=/home/pi/pifinance
+# Heartbeat + JSON verdict go beside the out-of-tree install, where the app
+# looks by default (~/pifinance-ops/ops-status.json). Keep these two in step;
+# a value in .env overrides this line (and the app reads .env too).
+Environment=OPS_STATUS_FILE=/home/pi/pifinance-ops/ops-status.txt
+ExecStartPre=/bin/mkdir -p /home/pi/pifinance-ops
 ExecStart=/home/pi/pifinance/deploy/ops-health-check.sh
 # A non-zero exit means amber/red; keep it out of systemd's "failed" state so
 # the timer stays clean — the report (journal + ops-status.txt + issue) is the

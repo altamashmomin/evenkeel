@@ -37,7 +37,9 @@
 #                       below, also files a GitHub issue on amber/red. Leave both
 #                       unset to keep alerts in the app only (the default now).
 #   OPS_ALERT_GH_TOKEN  a fine-grained PAT (that repo, issues:write) for the POST
-#   OPS_STATUS_FILE     heartbeat path         (default: $APP_DIR/ops-status.txt)
+#   OPS_STATUS_FILE     heartbeat path         (default: $APP_DIR/ops-status.txt;
+#                       pifinance-ops.service pins ~/pifinance-ops/ops-status.txt,
+#                       the folder the app reads by default)
 #   OPS_STATUS_JSON     JSON verdict the app reads (default: OPS_STATUS_FILE with
 #                       .txt swapped for .json). Keep it where the app looks —
 #                       the app derives the same default from OPS_STATUS_FILE.
