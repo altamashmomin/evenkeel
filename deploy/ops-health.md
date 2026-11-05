@@ -59,7 +59,8 @@ sudo systemctl enable --now pifinance-ops.timer
 # Prove it: run once now and read the verdict.
 sudo systemctl start pifinance-ops.service
 systemctl status pifinance-ops.service --no-pager
-cat ops-status.txt
+cat ~/pifinance-ops/ops-status.txt
+cat ~/pifinance-ops/ops-status.json   # what the app reads
 systemctl list-timers pifinance-ops.timer --no-pager
 ```
 
@@ -75,8 +76,11 @@ ASK_KEY_EXPIRES=2026-08-30
 # leave these unset. Set BOTH to turn it on.
 # OPS_ALERT_GH_REPO=altamashmomin/evenkeel
 # OPS_ALERT_GH_TOKEN=github_pat_xxx   # fine-grained PAT, that repo, issues:write
-# Where the JSON verdict goes (default: ops-status.txt's path with .json). The
-# app looks in the same place unless you set OPS_STATUS_JSON in .env for both.
+# Where the heartbeat and JSON verdict go. The unit pins OPS_STATUS_FILE to
+# ~/pifinance-ops/ops-status.txt (the JSON sits beside it as .json), which is
+# where the app looks by default. Move both only by setting them here in .env,
+# which the app and the guardian both load.
+# OPS_STATUS_FILE=/home/altamash/pifinance-ops/ops-status.txt
 # OPS_STATUS_JSON=/home/altamash/pifinance-ops/ops-status.json
 # Threshold overrides (defaults shown):
 # DISK_WARN_PCT=80  DISK_CRIT_PCT=90  MAX_SYNC_AGE_H=26  MAX_BACKUP_AGE_H=168
