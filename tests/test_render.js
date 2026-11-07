@@ -518,14 +518,17 @@ check("itemIcon maps known keywords and falls back to a basket", () => {
 });
 
 // ---- inventoryHTML ----
-check("inventoryHTML renders staples with a tap-to-cycle status chip", () => {
+check("inventoryHTML renders staples with a stocked/low/out status drop-down", () => {
   const html = R.inventoryHTML({
     items: [{ id: 1, name: "Coffee", category: null, kind: "staple", status: "low", note: "the dark roast" }],
     shopping: [], low_count: 1,
   });
-  assert.ok(html.includes('data-item-cycle="1"'), "chip carries the id");
-  assert.ok(html.includes('data-status="low"'), "chip carries current status");
-  assert.ok(html.includes('status-chip low'), "chip coloured by status");
+  assert.ok(html.includes('data-item-status="1"'), "select carries the id");
+  assert.ok(html.includes('status-select low'), "select coloured by status");
+  assert.ok(html.includes('<option value="low" selected>Low</option>'), "current status selected");
+  assert.ok(html.includes('<option value="stocked">Stocked</option>') &&
+            html.includes('<option value="out">Out</option>'), "the other two offered");
+  assert.ok(!html.includes("data-item-cycle"), "the old tap-to-cycle chip is gone");
   assert.ok(html.includes("the dark roast"), "note shown as sub");
   assert.ok(html.includes('data-item-remove="1"'), "remove control present");
   assert.ok(html.includes("1 running low"), "low_count badge");
@@ -621,7 +624,7 @@ check("inventoryHTML: ordered items sit in an On-the-way drawer with Arrived / D
   assert.ok(html.includes('data-item-arrived="7"') && html.includes('data-item-missed="7"'), "both actions");
   assert.ok(html.includes("still waiting? (11 days)"), "old order gets the nudge");
   assert.ok(!html.includes("still waiting? (1 days)"), "fresh order does not");
-  assert.ok(html.includes('data-item-ordered="2"'), "list rows can be marked ordered");
+  assert.ok(!html.includes('data-item-ordered="2"'), "📦 mark-ordered is parked (hidden)");
 });
 check("inventoryHTML offers Got-everything only for 2+ shopping items", () => {
   const two = R.inventoryHTML({
@@ -680,11 +683,11 @@ check("inventoryHTML shows no restock card when there are no suggestions", () =>
   });
   assert.ok(!html.includes("Looks like you restocked?"), "no nudge card at zero suggestions");
 });
-check("inventoryHTML gives each staple a match-editor button; shows the phrase when set", () => {
+check("inventoryHTML gives each staple a match-editor button when unparked; shows the phrase", () => {
   const html = R.inventoryHTML({
     items: [{ id: 3, name: "Coffee", kind: "staple", status: "low", note: null, restock_match: "blue bottle" }],
     shopping: [], low_count: 1,
-  });
+  }, undefined, { parked: { ordered: false, store: false, reminder: false, match: false } });
   assert.ok(html.includes('data-item-match="3"'), "match-editor hooked to the item id");
   assert.ok(html.includes("matches") && html.includes("blue bottle"), "current match phrase shown");
 });
@@ -2270,6 +2273,87 @@ check("listSheetHTML escapes item names", () => {
   check("billsMonthGridHTML: empty bills still draws the month", () => {
     const h = R.billsMonthGridHTML([], "2026-11", "2026-11-07");
     assert.ok(h.includes("No recurring bills yet.") && h.includes(">30</span>"));
+  });
+}
+
+// ---- Pantry tidy (Nov 7): drop-downs, status select, parked controls ----
+{
+  const ITEMS = [
+    { id: 1, name: "Coffee", kind: "staple", status: "stocked", store: "Costco",
+      restock_interval_days: 14, restock_match: "blue bottle" },
+    { id: 2, name: "Milk", kind: "staple", status: "low" },
+    { id: 3, name: "Eggs", kind: "staple", status: "out" },
+  ];
+  const SHOP = [{ id: 2, name: "Milk", kind: "staple", status: "low" }];
+  const SUGG = [{ merchant: "Chewy", purchases_seen: 4, last_purchase: "2026-08-01",
+                  total_spent: { cents: 8400, display: "$84.00" }, suggested_match: "chewy" },
+                { merchant: "Wawa", purchases_seen: 9, last_purchase: "2026-08-03" }];
+  const UNPARKED = { ordered: false, store: false, reminder: false, match: false };
+  const data = () => ({ items: ITEMS, shopping: SHOP, low_count: 2,
+    new_staple_suggestions: SUGG,
+    unmatched_staples: [{ item_id: 1, name: "Coffee", matched_by: "phrase",
+      restock_match: "blue bottle", tracked_since: "2026-06-01" }] });
+
+  check("Pantry: Staples is a drop-down, closed by default, with counts in its summary", () => {
+    const html = R.inventoryHTML(data(), "2026-11-07");
+    assert.ok(/<details class="card cal-fold inv-fold" data-fold="pantry-staples">/.test(html), "closed details");
+    assert.ok(html.includes('<span class="cal-fold-t">Staples</span>'), "summary names it");
+    assert.ok(html.includes('<span class="group-count">3</span>'), "summary counts staples");
+    assert.ok(html.includes("1 low · 1 out"), "summary says what's low/out");
+    const open = R.inventoryHTML(data(), "2026-11-07", { open: new Set(["pantry-staples"]) });
+    assert.ok(open.includes('data-fold="pantry-staples" open>'), "remembered open state honoured");
+  });
+  check("Pantry: Staples summary reads all stocked; empty Staples starts open", () => {
+    const html = R.inventoryHTML({ items: [ITEMS[0]], shopping: [], low_count: 0 }, "2026-11-07");
+    assert.ok(html.includes("all stocked"));
+    const empty = R.inventoryHTML({ items: [], shopping: [], low_count: 0 }, "2026-11-07");
+    assert.ok(empty.includes('data-fold="pantry-staples" open>') && empty.includes("none yet"),
+      "no staples → open so the add field shows");
+  });
+  check("Pantry: 'Bought a lot — track it?' is a drop-down with a count, closed by default", () => {
+    const html = R.inventoryHTML(data(), "2026-11-07");
+    assert.ok(html.includes('data-fold="pantry-track">'), "closed details");
+    assert.ok(/Bought a lot — track it\?<\/span>\s*<span class="group-count">2<\/span>/.test(html), "count in summary");
+    assert.ok(html.includes('data-track-staple="1"'), "Track buttons still inside");
+    const open = R.inventoryHTML(data(), "2026-11-07", { open: new Set(["pantry-track"]) });
+    assert.ok(open.includes('data-fold="pantry-track" open>'));
+  });
+  check("Pantry: Need to buy stays a plain card (not a drop-down)", () => {
+    const html = R.inventoryHTML(data(), "2026-11-07");
+    assert.ok(/<div class="card">\s*<p class="eyebrow">Need to buy<\/p>/.test(html));
+    assert.ok(html.includes('data-item-got="2"') && html.includes('data-item-needby="2"') &&
+              html.includes('data-item-snooze="2"'), "Got it / 📅 / 💤 unchanged");
+  });
+  check("Pantry: box, building, clock and magnifier controls are parked by default", () => {
+    const html = R.inventoryHTML(data(), "2026-11-07");
+    for (const hook of ["data-item-ordered", "data-item-store", "data-item-interval", "data-item-match"])
+      assert.ok(!html.includes(hook), hook + " hidden");
+    assert.ok(!html.includes("remind every") && !html.includes("matches “") && !html.includes("🏬 Costco"),
+      "their hint lines hidden too");
+    assert.ok(!html.includes("Check the match?"), "match-fix card hidden with the match editor");
+    assert.ok(html.includes('data-item-remove="1"'), "stop-tracking ✕ stays");
+    assert.ok(R.PANTRY_PARKED.ordered && R.PANTRY_PARKED.store &&
+              R.PANTRY_PARKED.reminder && R.PANTRY_PARKED.match, "flags exported, all parked");
+    assert.ok(Object.isFrozen(R.PANTRY_PARKED), "flags can't be flipped at runtime");
+  });
+  check("Pantry: unparking brings every control back (nothing deleted)", () => {
+    const html = R.inventoryHTML(data(), "2026-11-07", { parked: UNPARKED });
+    assert.ok(html.includes('data-item-ordered="2"'), "📦 back");
+    assert.ok(html.includes('data-item-store="1"') && html.includes('data-item-interval="1"') &&
+              html.includes('data-item-match="1"'), "🏬 ⏰ 🔎 back");
+    assert.ok(html.includes("remind every 14 days") && html.includes("blue bottle") &&
+              html.includes("🏬 Costco"), "hints back");
+    assert.ok(html.includes("Check the match?"), "match card back");
+  });
+  check("Pantry: a staple already 'ordered' shows On the way as a disabled choice", () => {
+    const h = R.statusSelectHTML({ id: 9, name: "Dog food", status: "ordered" });
+    assert.ok(h.includes('<option value="ordered" selected disabled>On the way</option>'));
+    assert.ok(!/value="(stocked|low|out)" selected/.test(h), "no other option claims selected");
+    assert.ok(h.includes('<option value="stocked">Stocked</option>'), "can still move it to stocked");
+  });
+  check("Pantry: the status select escapes name and status", () => {
+    const h = R.statusSelectHTML({ id: 9, name: 'X" onfocus=alert(1) "', status: 'low" onclick="x' });
+    assert.ok(!/"\s+on(focus|click)=/.test(h), "no attribute breakout");
   });
 }
 
