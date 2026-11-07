@@ -2129,6 +2129,96 @@
       </div>`;
   }
 
+  // The Calendar tab's month grid: a Sun–Sat wall calendar of one month with
+  // every active bill pinned to its due day (due_day clamped to the month's
+  // last day, same rule as the agenda). Pure: app.js fetches /api/bills for
+  // `monthISO` (the route takes ?period=, so paid state is that month's own)
+  // and passes the rows. Presentation only — no money math: a cell shows the
+  // bill's amount rounded to whole dollars for space, the day detail shows it
+  // exact via fmt(). State per bill: paid (green), overdue (only this month,
+  // past its date, unpaid), due (today or later), or "open" for an unpaid bill
+  // in an earlier month — those predate the bills being tracked as often as
+  // not, so they are not painted red. `selectedDay` (optional) opens a detail
+  // list of that day's bills under the grid.
+  function billsMonthGridHTML(bills, monthISO, todayISO, selectedDay) {
+    const [y, mo] = monthISO.split("-").map(Number);
+    const lastDay = new Date(y, mo, 0).getDate();
+    const lead = new Date(y, mo - 1, 1).getDay();       // 0 = Sunday
+    const thisMonth = todayISO.slice(0, 7);
+    const byDay = {};
+    (bills || []).forEach((b) => {
+      const day = Math.min(b.due_day, lastDay);
+      (byDay[day] = byDay[day] || []).push(b);
+    });
+    Object.values(byDay).forEach((list) =>
+      list.sort((p, q) => String(p.name).localeCompare(String(q.name))));
+    const stateOf = (b, dISO) => {
+      if (b.paid_this_period) return "paid";
+      if (monthISO < thisMonth) return "open";
+      if (monthISO === thisMonth && dISO < todayISO) return "overdue";
+      return "due";
+    };
+    const whole = (n) => "$" + Math.round(Math.abs(Number(n))).toLocaleString("en-US");
+    const WD = ["S", "M", "T", "W", "T", "F", "S"];
+    const cells = [];
+    for (let i = 0; i < lead; i++) cells.push(`<div class="mg-cell mg-pad" aria-hidden="true"></div>`);
+    for (let day = 1; day <= lastDay; day++) {
+      const dISO = `${monthISO}-${String(day).padStart(2, "0")}`;
+      const list = byDay[day] || [];
+      const cls = "mg-cell" + (dISO === todayISO ? " mg-today" : "")
+        + (list.length ? " mg-has" : "") + (selectedDay === day ? " mg-sel" : "");
+      if (!list.length) {
+        cells.push(`<div class="${cls}"><span class="mg-num">${day}</span></div>`);
+        continue;
+      }
+      const pills = list.slice(0, 2).map((b) =>
+        `<span class="mg-pill ${stateOf(b, dISO)}">${whole(b.amount)}</span>`).join("");
+      const more = list.length > 2 ? `<span class="mg-more">+${list.length - 2}</span>` : "";
+      const label = `${monthName(monthISO).split(" ")[0]} ${day}: ` +
+        list.map((b) => `${b.name} ${fmt(b.amount)} ${stateOf(b, dISO)}`).join(", ");
+      cells.push(`<button type="button" class="${cls}" data-cal-day="${day}" ` +
+        `aria-label="${esc(label)}"><span class="mg-num">${day}</span>${pills}${more}</button>`);
+    }
+    let detail = "";
+    const sel = selectedDay && byDay[selectedDay];
+    if (sel) {
+      const dISO = `${monthISO}-${String(selectedDay).padStart(2, "0")}`;
+      const when = new Date(y, mo - 1, selectedDay).toLocaleDateString(
+        "en-US", { weekday: "long", month: "long", day: "numeric" });
+      detail = `
+        <div class="mg-detail">
+          <p class="lbl">${esc(when)}</p>
+          <ul class="list">${sel.map((b) => {
+            const st = stateOf(b, dISO);
+            return `
+            <li>
+              <span class="ic">${catEmoji(b.category || b.name)}</span>
+              <div class="grow"><div class="title">${esc(b.name)}</div>
+                <div class="sub">${esc(b.category || "")}</div></div>
+              <span class="amt amount">${fmt(b.amount)}</span>
+              <span class="badge ${st === "open" ? "" : st}">${st === "open" ? "not marked" : st}</span>
+            </li>`;
+          }).join("")}</ul>
+        </div>`;
+    }
+    const empty = !(bills && bills.length)
+      ? `<p class="empty">No recurring bills yet.</p>` : "";
+    return `
+      <div class="card mg">
+        <div class="mg-head">
+          <button type="button" class="btn small ghost" data-cal-nav="-1" aria-label="Previous month">‹</button>
+          <p class="mg-title">${esc(monthName(monthISO))}</p>
+          <button type="button" class="btn small ghost" data-cal-nav="1" aria-label="Next month">›</button>
+        </div>
+        <div class="mg-grid">
+          ${WD.map((w) => `<div class="mg-wd" aria-hidden="true">${w}</div>`).join("")}
+          ${cells.join("")}
+        </div>
+        ${empty}${detail}
+        <p class="mg-key"><span class="mg-pill paid">paid</span><span class="mg-pill due">due</span><span class="mg-pill overdue">overdue</span>${monthISO !== thisMonth ? `<button type="button" class="linkish" data-cal-nav="0">Back to this month</button>` : ""}</p>
+      </div>`;
+  }
+
   // The Home "Pending approvals" card: two-phase changes an assistant PROPOSED
   // that a person must approve (MIRAGE F-1 — an automation proposes, a human
   // confirms). Pure: app.js fetches /api/actions/pending and passes the rows;
@@ -2491,7 +2581,7 @@
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            ruleBreadthWarning,
-           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, payDetailHTML, payLinkOptionsHTML, billRowHTML,
+           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, billsMonthGridHTML, payDetailHTML, payLinkOptionsHTML, billRowHTML,
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,

@@ -1125,3 +1125,41 @@ details.key-group[open] summary.key-h::after { transform: rotate(180deg); }
 .acct-list .acct { display: block; padding: 12px 0; }
 .acct-seg { margin-top: 8px; }
 .acct-note { margin-top: 8px; }
+
+/* ---------- Calendar tab: the bills month grid ---------- */
+.card.mg { padding: 12px 10px; }
+.mg-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.mg-title { margin: 0; font-weight: 700; font-size: 15px; }
+.mg-head .btn { min-width: 36px; font-size: 18px; line-height: 1; }
+.mg-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.mg-wd {
+  text-align: center; font-family: var(--mono); font-size: 10.5px;
+  color: var(--muted); padding-bottom: 2px;
+}
+.mg-cell {
+  min-height: 52px; min-width: 0; padding: 4px 2px; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid transparent;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font: inherit; color: inherit; overflow: hidden;
+}
+.mg-cell.mg-pad { background: none; }
+button.mg-cell { cursor: pointer; }
+.mg-cell.mg-has { background: color-mix(in srgb, var(--brass) 8%, var(--surface-2)); }
+.mg-cell.mg-today { border-color: var(--brass); }
+.mg-cell.mg-today .mg-num { color: var(--brass-dim); font-weight: 700; }
+.mg-cell.mg-sel { border-color: var(--text); }
+.mg-num { font-size: 12px; font-variant-numeric: tabular-nums; }
+.mg-pill {
+  display: block; max-width: 100%; font-family: var(--mono); font-size: 9.5px;
+  font-weight: 700; padding: 1px 3px; border-radius: 5px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  color: var(--muted); background: var(--surface);
+}
+.mg-pill.due { color: var(--brass-dim); background: color-mix(in srgb, var(--brass) 18%, transparent); }
+.mg-pill.overdue { color: var(--danger); background: color-mix(in srgb, var(--danger) 18%, transparent); }
+.mg-pill.paid { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.mg-more { font-size: 9.5px; color: var(--muted); }
+.mg-key { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 0; }
+.mg-key .linkish { margin-left: auto; font-size: 12.5px; }
+.mg-detail { margin-top: 10px; }
+.mg-detail .lbl { margin: 0 0 4px; }
