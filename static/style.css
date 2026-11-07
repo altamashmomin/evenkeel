@@ -875,9 +875,12 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .status-chip:active { transform: translateY(1px); }
 /* The staple status drop-down (Pantry, Nov 7) wears the chip's colours: a
    native <select> so phones show their own picker, styled like the chip,
-   with a small chevron drawn from two gradients. */
+   with a small chevron drawn from two gradients. width / margin-top undo the
+   global `input, select` form rule (width: 100%), which otherwise stretched
+   the select across the row and squeezed each staple's name out of view. */
 .status-select {
-  flex: none; appearance: none; -webkit-appearance: none; cursor: pointer;
+  flex: none; width: auto; max-width: 130px; margin-top: 0;
+  appearance: none; -webkit-appearance: none; cursor: pointer;
   font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
   font-weight: 700; text-transform: uppercase;
   padding: 5px 24px 5px 12px; border-radius: 999px; border: 1px solid transparent;

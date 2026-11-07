@@ -2351,6 +2351,17 @@ check("listSheetHTML escapes item names", () => {
     assert.ok(!/value="(stocked|low|out)" selected/.test(h), "no other option claims selected");
     assert.ok(h.includes('<option value="stocked">Stocked</option>'), "can still move it to stocked");
   });
+  check("Pantry: the status select's CSS undoes the global full-width select rule", () => {
+    // Regression (PR 75, Nov 7): style.css has `input, select { width: 100% }`
+    // for forms. Without an override the staple select filled the whole row,
+    // squeezing each staple's name (.grow, min-width: 0) to nothing.
+    const css = require("fs").readFileSync(require("path").join(__dirname, "../static/style.css"), "utf8");
+    const m = css.match(/\n\.status-select \{([^}]*)\}/);
+    assert.ok(m, ".status-select rule exists");
+    assert.ok(/width:\s*auto/.test(m[1]), "width: auto overrides the form rule");
+    assert.ok(/margin-top:\s*0/.test(m[1]), "margin-top: 0 overrides the form rule");
+    assert.ok(/flex:\s*none/.test(m[1]), "does not grow into the name column");
+  });
   check("Pantry: the status select escapes name and status", () => {
     const h = R.statusSelectHTML({ id: 9, name: 'X" onfocus=alert(1) "', status: 'low" onclick="x' });
     assert.ok(!/"\s+on(focus|click)=/.test(h), "no attribute breakout");
