@@ -15,7 +15,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         greetKickerHTML, listSheetHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
-        beamHTML, txnRow, calendarAgendaHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
+        beamHTML, txnRow, calendarAgendaHTML, billsMonthGridHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
         pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
         receiptSavedText, checkInView, checkInCardHTML, checkInsListHTML } = window.Render;
 
@@ -34,6 +34,8 @@ const state = {
   tab: "dashboard",
   month: thisMonthISO(),
   activityFilter: "all",   // all | spending | income
+  calMonth: thisMonthISO(),  // Calendar tab month grid: which month it shows
+  calDay: null,              // ...and which day's bills are opened under it
 
   editingTxn: null,
   editingBill: null,
@@ -756,6 +758,10 @@ async function renderCalendar() {
   const candidates = cands
     ? Object.fromEntries(cands.candidates.map((c) => [c.bill_id, c])) : null;
   window._billCandidates = candidates || {};
+  // The month grid sits above the agenda. It shows state.calMonth; for this
+  // month it reuses the rows above, for another month it reads that month's
+  // own paid state via /api/bills?period= (a read; no new route).
+  const gridHTML = await calendarGridHTML(bills);
   const manageRows = bills.length
     ? `<ul class="list">${bills.map(billRowHTML).join("")}</ul>`
     : `<p class="empty">No recurring bills yet.</p>`;
@@ -764,9 +770,39 @@ async function renderCalendar() {
       <p class="eyebrow" style="margin:0">Calendar — ${monthName(thisMonthISO())}</p>
       <button class="btn small" id="btn-add-bill">Add bill</button>
     </div>
+    <div id="cal-grid">${gridHTML}</div>
     ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details, actuals, candidates)}
     <p class="eyebrow cal-manage-head">Your bills</p>
     <div class="card">${manageRows}</div>`;
+}
+
+async function calendarGridHTML(thisMonthBills) {
+  const m = state.calMonth;
+  const bills = m === thisMonthISO()
+    ? thisMonthBills
+    : await api(`/api/bills?period=${encodeURIComponent(m)}`);
+  return billsMonthGridHTML(bills, m, todayISO(), state.calDay);
+}
+
+// Month arrows and day taps re-draw only the grid, so the agenda and the
+// bills list below (and their wiring) stay exactly as rendered.
+async function onCalGridClick(e) {
+  const nav = e.target.closest("[data-cal-nav]");
+  const day = e.target.closest("[data-cal-day]");
+  if (!nav && !day) return;
+  if (nav) {
+    const step = Number(nav.dataset.calNav);
+    state.calMonth = step === 0 ? thisMonthISO() : window.Render.addMonths(state.calMonth, step);
+    state.calDay = null;
+  } else {
+    const d = Number(day.dataset.calDay);
+    state.calDay = state.calDay === d ? null : d;
+  }
+  const want = `${state.calMonth}/${state.calDay}`;
+  const html = await calendarGridHTML(window._bills);
+  // A quicker later tap wins: drop a slower fetch that finished after it.
+  const holder = $("#cal-grid");
+  if (holder && want === `${state.calMonth}/${state.calDay}`) holder.innerHTML = html;
 }
 
 /* ================= goals ================= */
@@ -1215,6 +1251,7 @@ function wireMain() {
       render();
     }));
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
+  $("#cal-grid")?.addEventListener("click", onCalGridClick);
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
   // Home "Spent" rows → the recategorize sheet for that category this month.
   $$("[data-spent-cat]").forEach((el) =>

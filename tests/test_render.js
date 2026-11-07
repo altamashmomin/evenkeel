@@ -2169,4 +2169,63 @@ check("listSheetHTML escapes item names", () => {
   assert.ok(!html.includes("<img"));
 });
 
+// ---- billsMonthGridHTML: the Calendar tab's month grid ----
+{
+  const B = [
+    { id: 1, name: "Rent", category: "Housing", due_day: 1, amount: 2655, paid_this_period: true },
+    { id: 2, name: "Phone", category: "Utilities", due_day: 5, amount: 45.5, paid_this_period: false },
+    { id: 3, name: "Upgrade Loan", category: "Debt", due_day: 27, amount: 310, paid_this_period: false },
+    { id: 4, name: "Gym", category: "Health", due_day: 31, amount: 30, paid_this_period: false },
+  ];
+  check("billsMonthGridHTML: Sunday-first layout with leading blanks", () => {
+    // Nov 1 2026 is a Sunday -> no pad; Feb 1 2026 is a Sunday too; Sep 1 2026 is a Tuesday -> 2 pads.
+    const nov = R.billsMonthGridHTML(B, "2026-11", "2026-11-07");
+    assert.strictEqual((nov.match(/mg-pad/g) || []).length, 0);
+    const sep = R.billsMonthGridHTML(B, "2026-09", "2026-11-07");
+    assert.strictEqual((sep.match(/mg-pad/g) || []).length, 2);
+    assert.ok(nov.includes(">30</span>") && !nov.includes(">31</span>"), "November has 30 days");
+  });
+  check("billsMonthGridHTML: states this month — paid, overdue, due; today marked", () => {
+    const h = R.billsMonthGridHTML(B, "2026-11", "2026-11-07");
+    assert.ok(/mg-pill paid">\$2,655</.test(h), "rent paid, whole dollars");
+    assert.ok(/mg-pill overdue">\$46</.test(h), "phone past its date, unpaid -> overdue");
+    assert.ok(/mg-pill due">\$310</.test(h), "loan later this month -> due");
+    assert.ok(/mg-cell mg-today[^"]*"><span class="mg-num">7</.test(h), "today highlighted");
+  });
+  check("billsMonthGridHTML: due_day 31 clamps to the month's last day", () => {
+    const h = R.billsMonthGridHTML(B, "2026-11", "2026-11-07");
+    assert.ok(/data-cal-day="30"[^>]*Gym/.test(h), "Gym on the 30th in November");
+  });
+  check("billsMonthGridHTML: an earlier month never paints unpaid bills red", () => {
+    const h = R.billsMonthGridHTML(B.map((b) => ({ ...b, paid_this_period: false })), "2026-10", "2026-11-07");
+    assert.ok(!h.includes("mg-pill overdue\">$"), "no overdue pills in a past month");
+    assert.ok(h.includes("mg-pill open"));
+    assert.ok(h.includes('data-cal-nav="0"'), "offers a way back to this month");
+  });
+  check("billsMonthGridHTML: a later month shows everything as due", () => {
+    const h = R.billsMonthGridHTML(B.map((b) => ({ ...b, paid_this_period: false })), "2026-12", "2026-11-07");
+    assert.strictEqual((h.match(/mg-pill due">\$/g) || []).length, 4);
+  });
+  check("billsMonthGridHTML: more than two bills on a day collapse to +N", () => {
+    const many = [1, 2, 3, 4].map((i) => ({ id: i, name: "B" + i, category: "", due_day: 10, amount: 1, paid_this_period: false }));
+    const h = R.billsMonthGridHTML(many, "2026-11", "2026-11-07");
+    assert.ok(h.includes('class="mg-more">+2<'));
+  });
+  check("billsMonthGridHTML: selected day lists its bills with exact amounts", () => {
+    const h = R.billsMonthGridHTML(B, "2026-11", "2026-11-07", 5);
+    assert.ok(h.includes("mg-detail") && h.includes("Thursday, November 5"));
+    assert.ok(h.includes("$45.50") && h.includes("badge overdue"));
+    assert.ok(!R.billsMonthGridHTML(B, "2026-11", "2026-11-07", 6).includes("mg-detail"), "a day with no bills opens nothing");
+  });
+  check("billsMonthGridHTML: escapes bill names in labels and detail", () => {
+    const evil = [{ id: 1, name: '"><img src=x onerror=alert(1)>', category: "", due_day: 3, amount: 1, paid_this_period: false }];
+    const h = R.billsMonthGridHTML(evil, "2026-11", "2026-11-07", 3);
+    assert.ok(!h.includes("<img"));
+  });
+  check("billsMonthGridHTML: empty bills still draws the month", () => {
+    const h = R.billsMonthGridHTML([], "2026-11", "2026-11-07");
+    assert.ok(h.includes("No recurring bills yet.") && h.includes(">30</span>"));
+  });
+}
+
 console.log(`render tests passed (${passed} checks)`);
