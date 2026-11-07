@@ -385,6 +385,8 @@ main {
 /* The agenda and "Your bills" are drop-downs: a tappable summary line that
    still reads when closed (name, counts), a chevron that flips when open. */
 details.cal-fold { margin-top: 12px; }
+/* The Pantry drop-downs (Staples, "Bought a lot") reuse the Calendar fold look. */
+details.inv-fold > .list { margin-top: 2px; }
 summary.cal-fold-h {
   cursor: pointer; list-style: none; user-select: none;
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
@@ -871,6 +873,27 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
 .status-chip.out { color: var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); }
 .status-chip.ordered { color: var(--p2); background: color-mix(in srgb, var(--p2) 15%, transparent); }
 .status-chip:active { transform: translateY(1px); }
+/* The staple status drop-down (Pantry, Nov 7) wears the chip's colours: a
+   native <select> so phones show their own picker, styled like the chip,
+   with a small chevron drawn from two gradients. */
+.status-select {
+  flex: none; appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+  font-weight: 700; text-transform: uppercase;
+  padding: 5px 24px 5px 12px; border-radius: 999px; border: 1px solid transparent;
+  color: var(--muted); background-color: var(--surface-2);
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(-45deg, transparent 50%, currentColor 50%);
+  background-size: 4px 4px, 4px 4px;
+  background-position: right 13px center, right 9px center;
+  background-repeat: no-repeat;
+}
+.status-select.stocked { color: var(--ok); background-color: color-mix(in srgb, var(--ok) 15%, transparent); }
+.status-select.low { color: var(--brass); background-color: color-mix(in srgb, var(--brass) 15%, transparent); }
+.status-select.out { color: var(--danger); background-color: color-mix(in srgb, var(--danger) 15%, transparent); }
+.status-select.ordered { color: var(--p2); background-color: color-mix(in srgb, var(--p2) 15%, transparent); }
+.status-select option { color: var(--text); background-color: var(--surface); text-transform: none; }
+.status-select:disabled { opacity: 0.6; }
 /* faint remove control on a staple row */
 .item-x {
   flex: none; width: 26px; height: 26px; border-radius: 8px; cursor: pointer;

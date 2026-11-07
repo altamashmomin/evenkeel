@@ -12,7 +12,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText,
-        askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
+        askThreadHTML, inventoryHTML, PANTRY_PARKED, agentsHTML, opsPanelHTML,
         greetKickerHTML, listSheetHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
         beamHTML, txnRow, calendarAgendaHTML, billsManageHTML, billsMonthGridHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
@@ -762,7 +762,7 @@ async function renderCalendar() {
   // month it reuses the rows above, for another month it reads that month's
   // own paid state via /api/bills?period= (a read; no new route).
   const gridHTML = await calendarGridHTML(bills);
-  const open = calFoldsOpen();
+  const open = foldsOpen();
   return `
     <div class="section-head">
       <p class="eyebrow" style="margin:0">Calendar — ${monthName(thisMonthISO())}</p>
@@ -773,20 +773,23 @@ async function renderCalendar() {
     ${billsManageHTML(bills, open.has("manage"))}`;
 }
 
-// The two lists under the grid are drop-downs (native <details>), closed until
-// tapped so the tab stays short. Which ones are open is remembered on this
-// device only (a view preference, like the theme), so marking a bill paid
-// re-renders the tab without snapping a list shut. Nothing goes to the server.
-const CAL_FOLDS_KEY = "ledger-cal-open";
-function calFoldsOpen() {
-  try { return new Set(JSON.parse(localStorage.getItem(CAL_FOLDS_KEY) || "[]")); }
+// Drop-downs (native <details data-fold="...">), closed until tapped so a tab
+// stays short: the Calendar's two lists under the grid, and the Pantry's
+// Staples and "Bought a lot" cards. Which ones are open is remembered on this
+// device only (a view preference, like the theme), so marking a bill paid or
+// changing a staple's status re-renders without snapping a list shut. Nothing
+// goes to the server. One set for every tab (fold names are unique); the key
+// keeps its Calendar-era name so already-open Calendar lists stay open.
+const FOLDS_KEY = "ledger-cal-open";
+function foldsOpen() {
+  try { return new Set(JSON.parse(localStorage.getItem(FOLDS_KEY) || "[]")); }
   catch (e) { return new Set(); }
 }
-function onCalFoldToggle(e) {
+function onFoldToggle(e) {
   const el = e.currentTarget;
-  const open = calFoldsOpen();
+  const open = foldsOpen();
   if (el.open) open.add(el.dataset.fold); else open.delete(el.dataset.fold);
-  try { localStorage.setItem(CAL_FOLDS_KEY, JSON.stringify([...open])); }
+  try { localStorage.setItem(FOLDS_KEY, JSON.stringify([...open])); }
   catch (err) { /* private mode: still opens and closes, just not remembered */ }
 }
 
@@ -937,17 +940,13 @@ async function removeBudget(idx) {
 
 /* ================= inventory ("the pantry") ================= */
 
-// The status a tap cycles to: stocked → low → out → stocked. One tap walks the
-// staple down as it's used, and back up once restocked.
-const NEXT_STATUS = { stocked: "low", low: "out", out: "stocked", ordered: "stocked" };
-
 async function renderInventory() {
   const data = await api("/api/inventory");
   window._inv = data;  // stashed so the match editor can pre-fill the current phrase
   // today (local ISO date) drives the forecast's "due in N days / overdue"
   // framing — the derivation is clock-free, so "now" enters at the view layer.
   const today = new Date().toLocaleDateString("en-CA");  // YYYY-MM-DD, local
-  return inventoryHTML(data, today);
+  return inventoryHTML(data, today, { open: foldsOpen() });
 }
 
 async function setItemStatus(id, status) {
@@ -1266,7 +1265,7 @@ function wireMain() {
     }));
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
   $("#cal-grid")?.addEventListener("click", onCalGridClick);
-  $$("details[data-fold]").forEach((el) => el.addEventListener("toggle", onCalFoldToggle));
+  $$("details[data-fold]").forEach((el) => el.addEventListener("toggle", onFoldToggle));
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
   // Home "Spent" rows → the recategorize sheet for that category this month.
   $$("[data-spent-cat]").forEach((el) =>
@@ -1347,16 +1346,22 @@ function wireMain() {
       render();
     }));
 
-  // Inventory: tap a status chip to cycle it; check items off the shopping
-  // list ("Got it" = bought = stocked); remove a staple; quick-add either kind.
-  $$("[data-item-cycle]").forEach((el) =>
-    el.addEventListener("click", () =>
-      setItemStatus(+el.dataset.itemCycle, NEXT_STATUS[el.dataset.status] || "stocked")));
+  // Inventory: pick a staple's status from its drop-down (stocked / low /
+  // out, the same set_item_status verb the old tap-to-cycle chip used); check
+  // items off the shopping list ("Got it" = bought = stocked); remove a staple;
+  // quick-add either kind.
+  $$("[data-item-status]").forEach((el) =>
+    el.addEventListener("change", () => {
+      if (!el.value) return;
+      el.disabled = true;
+      setItemStatus(+el.dataset.itemStatus, el.value);
+    }));
   $$("[data-item-got]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemGot, "stocked")));
   // #015 'ordered': bought online, not here yet. Ordered leaves the list;
   // Arrived = stocked (a one-off then archives as bought); Didn't come = out.
-  $$("[data-item-ordered]").forEach((el) =>
+  // Parked controls (PANTRY_PARKED in render.js) are neither drawn nor wired.
+  if (!PANTRY_PARKED.ordered) $$("[data-item-ordered]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemOrdered, "ordered")));
   $$("[data-item-arrived]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.itemArrived, "stocked")));
@@ -1395,12 +1400,12 @@ function wireMain() {
   // flips it to low, dropping it into "Need to buy". Same verb as the chip cycle.
   $$("[data-mark-low]").forEach((el) =>
     el.addEventListener("click", () => setItemStatus(+el.dataset.markLow, "low")));
-  $$("[data-item-match]").forEach((el) =>
+  if (!PANTRY_PARKED.match) $$("[data-item-match]").forEach((el) =>
     el.addEventListener("click", () => setItemMatch(+el.dataset.itemMatch)));
-  $$("[data-item-interval]").forEach((el) =>
+  if (!PANTRY_PARKED.reminder) $$("[data-item-interval]").forEach((el) =>
     el.addEventListener("click", () => setItemInterval(+el.dataset.itemInterval)));
   // #014 metadata setters (store / deadline / snooze) + one-tap wake.
-  $$("[data-item-store]").forEach((el) =>
+  if (!PANTRY_PARKED.store) $$("[data-item-store]").forEach((el) =>
     el.addEventListener("click", () => setItemStore(+el.dataset.itemStore)));
   $$("[data-item-needby]").forEach((el) =>
     el.addEventListener("click", () => setItemNeedBy(+el.dataset.itemNeedby)));

@@ -876,7 +876,7 @@
      the row out of window._inv to POST add_item with the merchant name +
      suggested_match (no user content in an attribute — esc doesn't escape
      quotes). Suggest, never auto-add. */
-  function newStapleSuggestionsHTML(suggestions) {
+  function newStapleSuggestionsHTML(suggestions, open) {
     if (!suggestions || !suggestions.length) return "";
     const li = suggestions.map((s, i) => {
       const spent = s.total_spent ? " · " + esc(s.total_spent.display) : "";
@@ -889,10 +889,15 @@
         <button class="btn small primary" data-track-staple="${i}">Track</button>
       </li>`;
     }).join("");
-    return `<div class="card suggest-card">
-        <p class="eyebrow">Bought a lot — track it?</p>
+    // A drop-down (Pantry, Nov 7): closed it is one line, the heading and how
+    // many places are on offer; `open` is app.js's remembered choice.
+    return `<details class="card suggest-card cal-fold inv-fold" data-fold="pantry-track"${open ? " open" : ""}>
+        <summary class="cal-fold-h">
+          <span class="cal-fold-t">Bought a lot — track it?</span>
+          <span class="group-count">${suggestions.length}</span>
+        </summary>
         <ul class="list">${li}</ul>
-      </div>`;
+      </details>`;
   }
 
   /* ===== "Check the match?" — broken-match detector (step 5 sibling) =====
@@ -1143,15 +1148,50 @@
      one-tap confirm that marks the staple stocked, showing the evidence
      purchase — INVENTORY-DESIGN step 5), a derived "Need to buy" list (check
      items off as bought; 2+ items also get a one-tap "Got everything" batch —
-     Pantry v2 inc 1), and the staples tracker (a tap-to-cycle
-     stocked→low→out chip + a 🔎 to set the item's optional purchase-match
-     phrase). Each add/track card ends in a quick-add field. Interaction wiring
+     Pantry v2 inc 1), and the staples tracker (a stocked / low / out
+     drop-down per staple; the 🔎 / ⏰ / 🏬 setters are parked, see
+     PANTRY_PARKED). Each add/track card ends in a quick-add field. Interaction wiring
      lives in app.js; this only builds the markup + its data-* hooks. A staple
      that's low/out shows in both the nudge and shopping cards on purpose —
      they're views over the same items. */
-  function inventoryHTML(data, todayISO) {
+  /* Pantry controls that are parked: hidden AND switched off, not deleted.
+     Alta wants to rethink the pantry plan before these come back, so the
+     routes, verbs, columns and setter code all stay; flip a flag to false to
+     bring that control back (render shows it, app.js wires it again).
+       ordered  — the 📦 "mark as ordered" button on Need-to-buy rows (#015).
+                  The "On the way" drawer still shows anything already ordered
+                  so it can be resolved (Arrived / Didn't come).
+       store    — the 🏬 "where is this bought" setter + hint on staples (#014).
+                  Need to buy still groups by any store already set.
+       reminder — the ⏰ restock-interval setter + hint on staples.
+       match    — the 🔎 purchase-match setter + hint on staples, and the
+                  "Check the match?" card (its only action is that editor). */
+  const PANTRY_PARKED = Object.freeze({ ordered: true, store: true, reminder: true, match: true });
+
+  // The three statuses a staple's drop-down offers. 'ordered' (#015) is set by
+  // the 📦 flow, not picked here; a staple already in it shows it as a
+  // disabled, selected option so the control never lies about the row.
+  const STAPLE_STATUS_CHOICES = [["stocked", "Stocked"], ["low", "Low"], ["out", "Out"]];
+  const STATUS_LABEL = { stocked: "Stocked", low: "Low", out: "Out", ordered: "On the way" };
+  function statusSelectHTML(it) {
+    const cur = String(it.status == null ? "" : it.status);
+    const known = STAPLE_STATUS_CHOICES.some(([v]) => v === cur);
+    const extra = known ? ""
+      : `<option value="${esc(cur)}" selected disabled>${esc(STATUS_LABEL[cur] || cur)}</option>`;
+    const opts = STAPLE_STATUS_CHOICES.map(([v, label]) =>
+      `<option value="${v}"${v === cur ? " selected" : ""}>${label}</option>`).join("");
+    return `<select class="status-select ${esc(cur)}" data-item-status="${it.id}"
+                    aria-label="${esc(it.name)} is ${esc(STATUS_LABEL[cur] || cur)}; choose a status">${extra}${opts}</select>`;
+  }
+
+  function inventoryHTML(data, todayISO, opts) {
     const items = data.items || [];
     const shopping = data.shopping || [];
+    // opts.open: the Set of drop-downs open on this device (app.js remembers
+    // it, like the Calendar tab's). opts.parked overrides PANTRY_PARKED (tests).
+    const o = opts || {};
+    const open = o.open || new Set();
+    const parked = o.parked || PANTRY_PARKED;
     // #014 snooze is view-layer: the derivations are clock-free, so "snoozed
     // right now" means snoozed_until is strictly after the client's today.
     // A snoozed item leaves the active list AND its restock nudges.
@@ -1168,8 +1208,8 @@
     const due = tripDueHTML(data.trip_plan, todayISO);
     const forecastCard = restockForecastHTML(
       (data.restock_forecast || []).filter((f) => !isSnoozed(f)), todayISO);
-    const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions);
-    const matchCard = unmatchedStaplesHTML(data.unmatched_staples, todayISO);
+    const trackCard = newStapleSuggestionsHTML(data.new_staple_suggestions, open.has("pantry-track"));
+    const matchCard = parked.match ? "" : unmatchedStaplesHTML(data.unmatched_staples, todayISO);
     const staleCard = staleShoppingHTML(data.stale_shopping_items, todayISO);
     const curationCard = staleStaplesHTML(data.stale_staples, todayISO);
     const spendCard = stapleSpendHTML(data.staple_spend);
@@ -1215,8 +1255,8 @@
         ${needBy}
         ${tag}
         <button class="btn small" data-item-got="${it.id}">Got it</button>
-        <button class="item-x item-match" data-item-ordered="${it.id}"
-                aria-label="Mark ${esc(it.name)} as ordered (on the way)">📦</button>
+        ${parked.ordered ? "" : `<button class="item-x item-match" data-item-ordered="${it.id}"
+                aria-label="Mark ${esc(it.name)} as ordered (on the way)">📦</button>`}
         <button class="item-x item-match" data-item-needby="${it.id}"
                 aria-label="Set a deadline for ${esc(it.name)}">📅</button>
         <button class="item-x item-match" data-item-snooze="${it.id}"
@@ -1290,23 +1330,31 @@
             <div class="grow">
               <div class="title">${esc(it.name)}</div>
               ${it.note ? `<div class="sub">${esc(it.note)}</div>` : ""}
-              ${it.restock_interval_days ? `<div class="sub match-hint">⏰ remind every ${it.restock_interval_days} days</div>` : ""}
-              ${it.restock_match ? `<div class="sub match-hint">🔎 matches “${esc(it.restock_match)}”</div>` : ""}
-              ${it.store ? `<div class="sub match-hint">🏬 ${esc(it.store)}</div>` : ""}
+              ${!parked.reminder && it.restock_interval_days ? `<div class="sub match-hint">⏰ remind every ${it.restock_interval_days} days</div>` : ""}
+              ${!parked.match && it.restock_match ? `<div class="sub match-hint">🔎 matches “${esc(it.restock_match)}”</div>` : ""}
+              ${!parked.store && it.store ? `<div class="sub match-hint">🏬 ${esc(it.store)}</div>` : ""}
             </div>
-            <button class="status-chip ${esc(it.status)}" data-item-cycle="${it.id}"
-                    data-status="${esc(it.status)}"
-                    aria-label="${esc(it.name)} is ${esc(it.status)}; tap to change">${esc(it.status)}</button>
-            <button class="item-x item-match" data-item-store="${it.id}"
-                    aria-label="Set where ${esc(it.name)} is bought">🏬</button>
-            <button class="item-x item-match" data-item-interval="${it.id}"
-                    aria-label="Set a restock reminder for ${esc(it.name)}">⏰</button>
-            <button class="item-x item-match" data-item-match="${it.id}"
-                    aria-label="Set a purchase match for ${esc(it.name)}">🔎</button>
+            ${statusSelectHTML(it)}
+            ${parked.store ? "" : `<button class="item-x item-match" data-item-store="${it.id}"
+                    aria-label="Set where ${esc(it.name)} is bought">🏬</button>`}
+            ${parked.reminder ? "" : `<button class="item-x item-match" data-item-interval="${it.id}"
+                    aria-label="Set a restock reminder for ${esc(it.name)}">⏰</button>`}
+            ${parked.match ? "" : `<button class="item-x item-match" data-item-match="${it.id}"
+                    aria-label="Set a purchase match for ${esc(it.name)}">🔎</button>`}
             <button class="item-x" data-item-remove="${it.id}"
                     aria-label="Stop tracking ${esc(it.name)}">✕</button>
           </li>`).join("")}</ul>`
       : `<p class="empty">No staples tracked yet. Add the things you'd hate to run out of.</p>`;
+    // The Staples summary still reads when closed: how many, and how many are
+    // low / out (counts only). Zero staples → it starts open, so the add field
+    // and the "add the things you'd hate to run out of" hint aren't buried.
+    const nLow = items.filter((it) => it.status === "low").length;
+    const nOut = items.filter((it) => it.status === "out").length;
+    const stapleMeta = !items.length ? "none yet"
+      : (nLow || nOut)
+        ? [nLow ? `${nLow} low` : "", nOut ? `${nOut} out` : ""].filter(Boolean).join(" · ")
+        : "all stocked";
+    const staplesOpen = open.has("pantry-staples") || !items.length;
 
     return `
       <div class="section-head">
@@ -1333,14 +1381,18 @@
       ${staleCard}
       ${forecastCard}
       ${curationCard}
-      <div class="card">
-        <p class="eyebrow">Staples</p>
+      <details class="card cal-fold inv-fold" data-fold="pantry-staples"${staplesOpen ? " open" : ""}>
+        <summary class="cal-fold-h">
+          <span class="cal-fold-t">Staples</span>
+          ${items.length ? `<span class="group-count">${items.length}</span>` : ""}
+          <span class="cal-sum">${stapleMeta}</span>
+        </summary>
         ${stapleRows}
         <form class="inv-add" id="inv-add-staple" autocomplete="off">
           <input name="name" maxlength="100" placeholder="Track a staple…">
           <button class="btn small primary" type="submit">Add</button>
         </form>
-      </div>
+      </details>
       ${spendCard}
       ${trackCard}
       ${matchCard}`;
@@ -2625,7 +2677,7 @@
            staleStaplesHTML,
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
-           postShoppingHTML, inventoryHTML,
+           postShoppingHTML, inventoryHTML, PANTRY_PARKED, statusSelectHTML,
            receiptReviewHTML, receiptCheckText, receiptTallyText, receiptSavedText,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,
