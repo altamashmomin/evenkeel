@@ -150,7 +150,34 @@ class InventoryRouteTests(unittest.TestCase):
         # the Garden line's source: its own tiny endpoint (the dashboard payload
         # is frozen byte-identical to v1 — test_api_parity)
         self.assertEqual(401, anon.get("/api/inventory/badge").status_code)
-        self.assertEqual({"list_count": 1}, c.get("/api/inventory/badge").get_json())
+        badge = c.get("/api/inventory/badge").get_json()
+        self.assertEqual(1, badge["list_count"])
+        self.assertEqual(["Cake"], [i["name"] for i in badge["items"]])
+
+    def test_badge_items_are_exactly_what_the_count_counts(self):
+        # The greeting's "N things on the list" opens a sheet built from
+        # badge["items"]; the count must be the length of that same list,
+        # in shopping_list's order, and nothing off the list may appear.
+        c = self.client()
+        c.post("/api/inventory", json={"name": "Candles", "kind": "oneoff"})
+        milk = c.post("/api/inventory", json={"name": "Milk"}).get_json()   # stocked staple
+        eggs = c.post("/api/inventory", json={"name": "Eggs"}).get_json()
+        c.put(f"/api/inventory/{eggs['id']}", json={"status": "out"})
+        badge = c.get("/api/inventory/badge").get_json()
+        names = [i["name"] for i in badge["items"]]
+        self.assertEqual(len(badge["items"]), badge["list_count"])
+        self.assertNotIn("Milk", names)            # stocked: not on the list
+        self.assertEqual({"Candles", "Eggs"}, set(names))
+        self.assertEqual(
+            {"id", "name", "kind", "status", "store", "need_by", "snoozed_until"},
+            set(badge["items"][0]))
+        # the same rows, same order, as the shopping list itself
+        conn = sqlite3.connect(self.db_path); conn.row_factory = sqlite3.Row
+        import derivations
+        self.assertEqual([r["id"] for r in derivations.shopping_list(conn)],
+                         [i["id"] for i in badge["items"]])
+        conn.close()
+        self.assertNotIn(milk["id"], [i["id"] for i in badge["items"]])
 
     def test_requires_auth_and_write_scope(self):
         anon = self.app_module.app.test_client()

@@ -1086,8 +1086,16 @@ def inventory_badge():
     """The Garden's one ambient pantry fact (Pantry v2 inc 6): how many things
     are on the shopping list. Its own tiny endpoint because /api/dashboard is
     frozen byte-identical to v1 (test_api_parity) — the frontend fetches this
-    alongside the dashboard. One read of shopping_list; never touches money."""
-    return jsonify({"list_count": len(shopping_list(get_db()))})
+    alongside the dashboard. One read of shopping_list; never touches money.
+
+    `items` is that same list, trimmed to what the greeting's tap-to-open
+    sheet shows, so the count and the list can never disagree: list_count is
+    len(items), from one read."""
+    rows = shopping_list(get_db())
+    items = [{k: r.get(k) for k in
+              ("id", "name", "kind", "status", "store", "need_by", "snoozed_until")}
+             for r in rows]
+    return jsonify({"list_count": len(items), "items": items})
 
 
 @app.get("/api/inventory/pulse")

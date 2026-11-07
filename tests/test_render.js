@@ -2135,4 +2135,38 @@ check("accounts sheet: new charges start as the owner's own unless set shared", 
   assert.ok(!joint.includes("data-acct-shared"), "a joint account has no start choice");
 });
 
+// ---- greeting list line + sheet: the count opens exactly its own rows ----
+check("greetKickerHTML: no line at 0, a button with the count otherwise", () => {
+  assert.strictEqual(R.greetKickerHTML("Good morning", 0), "Good morning 🌿");
+  const one = R.greetKickerHTML("Good evening", 1);
+  assert.ok(one.includes("1 thing on the list"), "singular");
+  assert.ok(/<button type="button" class="greet-link" data-greet-list/.test(one));
+  assert.ok(R.greetKickerHTML("Hi", 3).includes("3 things on the list"), "plural");
+});
+check("listSheetHTML: one row per item, count in the title, links to Pantry", () => {
+  const items = [
+    { id: 1, name: "Eggs", kind: "staple", status: "out", store: "Costco", need_by: null, snoozed_until: null },
+    { id: 2, name: "Candles", kind: "oneoff", status: "stocked", store: null, need_by: "2026-11-20", snoozed_until: null },
+    { id: 3, name: "Rice", kind: "staple", status: "low", store: null, need_by: null, snoozed_until: "2026-11-30" },
+  ];
+  const html = R.listSheetHTML(items, "2026-11-07");
+  assert.strictEqual((html.match(/class="list-row"/g) || []).length, 3);
+  assert.ok(html.includes("On the shopping list (3)"));
+  assert.ok(html.includes("Costco"));
+  assert.ok(html.includes("by Nov 20"), html);
+  assert.ok(html.includes("snoozed till Nov 30"), "a snoozed row still shows, marked");
+  assert.ok(/badge overdue">out/.test(html) && html.includes(">need</span>"));
+  assert.strictEqual((html.match(/data-tab="inventory"/g) || []).length, 4, "3 rows + Open Pantry");
+});
+check("listSheetHTML: a past snooze isn't labelled; empty list says so", () => {
+  const html = R.listSheetHTML([{ id: 1, name: "Rice", kind: "staple", status: "low",
+    snoozed_until: "2026-11-01" }], "2026-11-07");
+  assert.ok(!html.includes("snoozed"));
+  assert.ok(R.listSheetHTML([], "2026-11-07").includes("Nothing on the list"));
+});
+check("listSheetHTML escapes item names", () => {
+  const html = R.listSheetHTML([{ id: 1, name: '<img src=x onerror=alert(1)>', kind: "oneoff" }], "2026-11-07");
+  assert.ok(!html.includes("<img"));
+});
+
 console.log(`render tests passed (${passed} checks)`);
