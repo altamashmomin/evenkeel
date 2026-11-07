@@ -1508,6 +1508,51 @@ check("calendarAgendaHTML escapes a hostile bill name (no breakout)", () => {
   assert.ok(h.includes("&lt;b&gt;") && h.includes("&amp;"));
 });
 
+// ---- Calendar drop-downs: the agenda and "Your bills" fold shut ----
+const FOLD_BILLS = [
+  { id: 1, name: "Rent",     category: "Housing",   due_day: 1,  amount: 1800, paid_this_period: true },
+  { id: 2, name: "Electric", category: "Utilities", due_day: 5,  amount: 60,   paid_this_period: false },
+  { id: 3, name: "Phone",    category: "Utilities", due_day: 20, amount: 45,   paid_this_period: false },
+];
+check("calendarAgendaHTML is a closed drop-down by default, open when asked", () => {
+  const shut = R.calendarAgendaHTML(FOLD_BILLS, "2026-09-15", "2026-09");
+  assert.ok(shut.includes('<details class="card cal-agenda cal-fold" data-fold="agenda">'),
+    "closed: no open attribute");
+  const open = R.calendarAgendaHTML(FOLD_BILLS, "2026-09-15", "2026-09",
+    undefined, undefined, undefined, true);
+  assert.ok(open.includes('data-fold="agenda" open>'), "open when the remembered state says so");
+  // The rows are inside either way; only the open attribute differs.
+  assert.strictEqual(open.replace(" open>", ">"), shut);
+});
+check("calendarAgendaHTML summary reads closed: paid count + overdue count", () => {
+  const h = R.calendarAgendaHTML(FOLD_BILLS, "2026-09-15", "2026-09");
+  const summary = h.slice(h.indexOf("<summary"), h.indexOf("</summary>"));
+  assert.ok(summary.includes("This month"));
+  assert.ok(summary.includes("1 of 3 paid"), "paid count sits in the summary");
+  assert.ok(summary.includes('cal-fold-late">1 overdue'), "Electric (5th, unpaid) is overdue");
+  const none = R.calendarAgendaHTML(FOLD_BILLS, "2026-09-02", "2026-09");
+  assert.ok(!none.includes("cal-fold-late"), "no overdue chip when nothing is late");
+});
+check("billsManageHTML: closed drop-down with count and unpaid count", () => {
+  const h = R.billsManageHTML(FOLD_BILLS, false);
+  assert.ok(h.includes('<details class="card cal-manage cal-fold" data-fold="manage">'));
+  const summary = h.slice(h.indexOf("<summary"), h.indexOf("</summary>"));
+  assert.ok(summary.includes("Your bills") && summary.includes('group-count">3<'));
+  assert.ok(summary.includes("2 unpaid"));
+  assert.ok(R.billsManageHTML(FOLD_BILLS, true).includes('data-fold="manage" open>'));
+});
+check("billsManageHTML keeps every billRowHTML row (pay/undo/edit wiring intact)", () => {
+  const h = R.billsManageHTML(FOLD_BILLS, false);
+  FOLD_BILLS.forEach((b) => assert.ok(h.includes(R.billRowHTML(b)), `row for ${b.name}`));
+  assert.ok(h.includes('data-bill-pay="2"') && h.includes('data-bill-unpay="1"'));
+});
+check("billsManageHTML says all paid, and keeps the plain empty state", () => {
+  const paid = FOLD_BILLS.map((b) => ({ ...b, paid_this_period: true }));
+  assert.ok(R.billsManageHTML(paid, false).includes("all paid"));
+  const empty = R.billsManageHTML([], false);
+  assert.ok(empty.includes("No recurring bills yet.") && !empty.includes("<details"));
+});
+
 // ---- calendarAgendaHTML + payDetailHTML: where to pay / autopay (#017) ----
 check("calendarAgendaHTML without details renders exactly as before", () => {
   const bills = [{ id: 1, name: "Rent", category: "Housing", due_day: 1, amount: 2400, paid_this_period: false }];

@@ -15,7 +15,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
         greetKickerHTML, listSheetHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
-        beamHTML, txnRow, calendarAgendaHTML, billsMonthGridHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
+        beamHTML, txnRow, calendarAgendaHTML, billsManageHTML, billsMonthGridHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
         pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
         receiptSavedText, checkInView, checkInCardHTML, checkInsListHTML } = window.Render;
 
@@ -762,18 +762,32 @@ async function renderCalendar() {
   // month it reuses the rows above, for another month it reads that month's
   // own paid state via /api/bills?period= (a read; no new route).
   const gridHTML = await calendarGridHTML(bills);
-  const manageRows = bills.length
-    ? `<ul class="list">${bills.map(billRowHTML).join("")}</ul>`
-    : `<p class="empty">No recurring bills yet.</p>`;
+  const open = calFoldsOpen();
   return `
     <div class="section-head">
       <p class="eyebrow" style="margin:0">Calendar — ${monthName(thisMonthISO())}</p>
       <button class="btn small" id="btn-add-bill">Add bill</button>
     </div>
     <div id="cal-grid">${gridHTML}</div>
-    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details, actuals, candidates)}
-    <p class="eyebrow cal-manage-head">Your bills</p>
-    <div class="card">${manageRows}</div>`;
+    ${calendarAgendaHTML(bills, todayISO(), thisMonthISO(), details, actuals, candidates, open.has("agenda"))}
+    ${billsManageHTML(bills, open.has("manage"))}`;
+}
+
+// The two lists under the grid are drop-downs (native <details>), closed until
+// tapped so the tab stays short. Which ones are open is remembered on this
+// device only (a view preference, like the theme), so marking a bill paid
+// re-renders the tab without snapping a list shut. Nothing goes to the server.
+const CAL_FOLDS_KEY = "ledger-cal-open";
+function calFoldsOpen() {
+  try { return new Set(JSON.parse(localStorage.getItem(CAL_FOLDS_KEY) || "[]")); }
+  catch (e) { return new Set(); }
+}
+function onCalFoldToggle(e) {
+  const el = e.currentTarget;
+  const open = calFoldsOpen();
+  if (el.open) open.add(el.dataset.fold); else open.delete(el.dataset.fold);
+  try { localStorage.setItem(CAL_FOLDS_KEY, JSON.stringify([...open])); }
+  catch (err) { /* private mode: still opens and closes, just not remembered */ }
 }
 
 async function calendarGridHTML(thisMonthBills) {
@@ -1252,6 +1266,7 @@ function wireMain() {
     }));
   $("#btn-add-bill")?.addEventListener("click", () => openBillDialog(null));
   $("#cal-grid")?.addEventListener("click", onCalGridClick);
+  $$("details[data-fold]").forEach((el) => el.addEventListener("toggle", onCalFoldToggle));
   $("#btn-add-goal")?.addEventListener("click", openGoalDialog);
   // Home "Spent" rows → the recategorize sheet for that category this month.
   $$("[data-spent-cat]").forEach((el) =>
