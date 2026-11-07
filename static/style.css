@@ -379,9 +379,30 @@ main {
 .badge.untagged { color: var(--brass); background: color-mix(in srgb, var(--brass) 15%, transparent); }
 
 /* ---------- Calendar tab: the bills agenda ---------- */
-.cal-agenda .cal-sum {
+.cal-fold .cal-sum {
   font-family: var(--mono); font-size: 12.5px; color: var(--muted);
-  margin: 0 0 6px;
+}
+/* The agenda and "Your bills" are drop-downs: a tappable summary line that
+   still reads when closed (name, counts), a chevron that flips when open. */
+details.cal-fold { margin-top: 12px; }
+summary.cal-fold-h {
+  cursor: pointer; list-style: none; user-select: none;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  min-height: 28px;
+}
+summary.cal-fold-h::-webkit-details-marker { display: none; }
+summary.cal-fold-h::after {
+  content: "⌄"; margin-left: auto; font-size: 16px; line-height: 1;
+  color: var(--muted); transition: transform 0.15s ease;
+}
+details.cal-fold[open] > summary.cal-fold-h::after { transform: rotate(180deg); }
+details.cal-fold[open] > summary.cal-fold-h { margin-bottom: 6px; }
+.cal-fold-t {
+  font-size: 13px; font-weight: 700; color: var(--text);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+.cal-fold-late {
+  font-family: var(--mono); font-size: 12.5px; font-weight: 700; color: var(--danger);
 }
 .cal-row .cal-day {
   flex: none; width: 38px; line-height: 1;
@@ -397,7 +418,7 @@ main {
   border-radius: 10px; padding-left: 8px; padding-right: 8px; margin: 0 -6px;
 }
 .cal-row.cal-today .cal-day b { color: var(--brass-dim); }
-.cal-manage-head { margin: 18px 0 8px; }
+.cal-manage-head { margin: 18px 0 8px; }   /* "Your bills" empty state */
 /* where a bill is paid + autopay (migration #017) */
 .cal-row .cal-paywhere { margin-top: 2px; }
 .cal-row .cal-autopay { color: var(--ok); }

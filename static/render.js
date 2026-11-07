@@ -2081,7 +2081,11 @@
   // `candidates` (optional): bill id -> the /api/bills/candidates row, the
   // synced charge that looks like it paid an unpaid bill. Renders a one-tap
   // "Looks paid … Link it?" chip; app.js confirms, then links. Never auto-links.
-  function calendarAgendaHTML(bills, todayISO, monthISO, details, actuals, candidates) {
+  //
+  // `open` (optional): whether the agenda's drop-down starts open. The agenda
+  // is a native <details> whose summary carries the paid/overdue counts, so a
+  // closed one still says where the month stands; app.js remembers the choice.
+  function calendarAgendaHTML(bills, todayISO, monthISO, details, actuals, candidates, open) {
     if (!bills || !bills.length)
       return `<div class="card cal-agenda"><p class="empty">No bills this month.</p></div>`;
     const [y, mo] = monthISO.split("-").map(Number);
@@ -2122,11 +2126,40 @@
       ? `All ${bills.length} paid 🎉`
       : `${paidCount} of ${bills.length} paid`)
       + (autoCount ? ` · ${autoCount} on autopay` : "");
+    const overdueCount = dated.filter(({ b, dISO }) =>
+      !b.paid_this_period && dISO < todayISO).length;
+    const late = overdueCount
+      ? `<span class="cal-fold-late">${overdueCount} overdue</span>` : "";
     return `
-      <div class="card cal-agenda">
-        <p class="cal-sum">${sum}</p>
+      <details class="card cal-agenda cal-fold" data-fold="agenda"${open ? " open" : ""}>
+        <summary class="cal-fold-h">
+          <span class="cal-fold-t">This month</span>
+          <span class="cal-sum">${sum}</span>${late}
+        </summary>
         <ul class="list">${rows.join("")}</ul>
-      </div>`;
+      </details>`;
+  }
+
+  // The Calendar tab's "Your bills" manage list as a drop-down: the summary
+  // names the list and counts it (and how many are still unpaid), so a closed
+  // one still reads. The rows inside are billRowHTML, the same [data-bill-*]
+  // surface wireMain has always wired. `open` is app.js's remembered choice.
+  // Counts only, no money math.
+  function billsManageHTML(bills, open) {
+    if (!bills || !bills.length)
+      return `<p class="eyebrow cal-manage-head">Your bills</p>
+    <div class="card"><p class="empty">No recurring bills yet.</p></div>`;
+    const unpaid = bills.filter((b) => !b.paid_this_period).length;
+    const meta = unpaid ? `${unpaid} unpaid` : "all paid";
+    return `
+      <details class="card cal-manage cal-fold" data-fold="manage"${open ? " open" : ""}>
+        <summary class="cal-fold-h">
+          <span class="cal-fold-t">Your bills</span>
+          <span class="group-count">${bills.length}</span>
+          <span class="cal-sum">${meta}</span>
+        </summary>
+        <ul class="list">${bills.map(billRowHTML).join("")}</ul>
+      </details>`;
   }
 
   // The Calendar tab's month grid: a Sun–Sat wall calendar of one month with
@@ -2581,7 +2614,7 @@
 
   return { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleText,
            ruleBreadthWarning,
-           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, billsMonthGridHTML, payDetailHTML, payLinkOptionsHTML, billRowHTML,
+           userById, userColor, beamHTML, txnRow, calendarAgendaHTML, billsManageHTML, billsMonthGridHTML, payDetailHTML, payLinkOptionsHTML, billRowHTML,
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
