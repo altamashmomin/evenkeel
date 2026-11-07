@@ -13,6 +13,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText,
         askThreadHTML, inventoryHTML, agentsHTML, opsPanelHTML,
+        greetKickerHTML, listSheetHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
         beamHTML, txnRow, calendarAgendaHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
         pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
@@ -101,9 +102,11 @@ function renderHeader() {
   // The Garden's one ambient pantry line (Pantry v2 inc 6): the list count
   // from /api/inventory/badge (fetched with the dashboard; /api/dashboard
   // itself is frozen byte-identical to v1). Nothing shows when it's empty.
+  // Tapping it opens the list itself (openListSheet), drawn from the same
+  // badge payload, so the count and the rows always match.
   const n = window._pantryBadge ? window._pantryBadge.list_count : 0;
-  const pantry = n ? ` · ${n} thing${n === 1 ? "" : "s"} on the list` : "";
-  $("#greet-kicker").textContent = `${part} 🌿${pantry}`;
+  $("#greet-kicker").innerHTML = greetKickerHTML(part, n);
+  $("#greet-kicker [data-greet-list]")?.addEventListener("click", openListSheet);
   $("#avatars").innerHTML = state.users.map((u, i) => {
     const color = i === 0 ? "var(--p1)" : "var(--p2)";
     const initial = (u.display_name || "?").trim().charAt(0).toUpperCase();
@@ -327,6 +330,20 @@ function openMoreSheet() {
 }
 // Tap the backdrop (outside the sheet body) to dismiss.
 dlgMore?.addEventListener("click", (e) => { if (e.target === dlgMore) dlgMore.close(); });
+
+// The greeting's list sheet: the shopping-list rows behind "N things on the
+// list". Rows come from the badge payload the count came from (no second
+// fetch, so they can't drift apart). Any row, or Open Pantry, goes to the
+// Pantry tab, where items are bought, snoozed or dated.
+const dlgList = $("#dlg-list");
+function openListSheet() {
+  const items = window._pantryBadge ? window._pantryBadge.items : [];
+  $("#list-body").innerHTML = listSheetHTML(items, todayISO());
+  $$("#list-body [data-tab]").forEach((b) =>
+    b.addEventListener("click", () => { dlgList.close(); setTab(b.dataset.tab); }));
+  dlgList.showModal();
+}
+dlgList?.addEventListener("click", (e) => { if (e.target === dlgList) dlgList.close(); });
 
 // The Help sheet: the in-app "how this works" guide. Opened from the header
 // "?" and from the Ask empty state. Reads nothing; every tab row (and the

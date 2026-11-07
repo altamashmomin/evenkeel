@@ -1565,6 +1565,50 @@
   // The "More" bottom sheet: every tab as a tile, so all tabs are reachable
   // from any page (the mobile bar only pins Home/Activity/Ask + Add). `items`
   // is [[key, label, glyph], ...]; the active tab is highlighted.
+  // The greeting kicker: the time-of-day hello, plus the pantry line as a
+  // button when the shopping list has anything on it (tap opens the list
+  // sheet below). n is list_count from /api/inventory/badge; 0 shows no line.
+  function greetKickerHTML(part, n) {
+    const head = `${esc(part)} 🌿`;
+    if (!n) return head;
+    const label = `${n} thing${n === 1 ? "" : "s"} on the list`;
+    return `${head} · <button type="button" class="greet-link" data-greet-list ` +
+      `aria-haspopup="dialog" aria-label="${esc(label)}, show them">${esc(label)} ›</button>`;
+  }
+
+  // The sheet the greeting's "N things on the list" opens: exactly the rows
+  // the count counts (the badge's items, one read of shopping_list), so the
+  // two never disagree. A snoozed row is still on the list, so it shows,
+  // marked snoozed. Each row and the footer button open the Pantry tab, where
+  // the list is handled. Pure; nothing here writes.
+  function listSheetHTML(items, todayISO) {
+    const list = items || [];
+    const open = `<button type="button" class="btn primary list-open" data-tab="inventory">Open Pantry</button>`;
+    if (!list.length) {
+      return `<p class="sheet-title">On the shopping list</p>` +
+        `<p class="empty">Nothing on the list right now 🌿</p>` + open;
+    }
+    const rows = list.map((it) => {
+      const tag = it.kind === "oneoff"
+        ? `<span class="badge due">need</span>`
+        : `<span class="badge ${it.status === "out" ? "overdue" : "due"}">${esc(it.status)}</span>`;
+      const bits = [];
+      if (it.store) bits.push(esc(it.store));
+      if (it.need_by) bits.push(`by ${esc(shortDate(it.need_by))}`);
+      if (it.snoozed_until && todayISO && it.snoozed_until > todayISO) {
+        bits.push(`snoozed till ${esc(shortDate(it.snoozed_until))}`);
+      }
+      const sub = bits.length ? bits.join(" · ") : (it.kind === "oneoff" ? "one-off" : "staple");
+      return `<li><button type="button" class="list-row" data-tab="inventory">
+        <span class="ic">${itemIcon(it)}</span>
+        <span class="grow"><span class="title">${esc(it.name)}</span>
+          <span class="sub">${sub}</span></span>
+        ${tag}</button></li>`;
+    }).join("");
+    return `<p class="sheet-title">On the shopping list (${list.length})</p>` +
+      `<ul class="list-sheet">${rows}</ul>` + open;
+  }
+
   function moreSheetHTML(items, active) {
     const tiles = items.map(([key, label, glyph]) =>
       `<button class="more-tile${key === active ? " on" : ""}" data-tab="${esc(key)}" type="button">` +
@@ -2451,6 +2495,7 @@
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
+           greetKickerHTML, listSheetHTML,
            moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
            listEstimateHTML, priceTrendBadge,
            tripDueHTML, tripClosureHTML,
