@@ -903,6 +903,16 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   background: none; border: none; color: var(--muted); font-size: 13px;
 }
 .item-x:hover { color: var(--danger); background: var(--surface-2); }
+/* the inline staple rename editor (the pencil). The field fills the row but
+   sits level with its buttons (the global `input, select` rule adds
+   margin-top), and is 16px so iPhone Safari doesn't zoom in when it's focused. */
+.item-rename {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%;
+}
+.item-rename input {
+  flex: 1 1 140px; min-width: 0; width: auto; margin-top: 0; font-size: 16px;
+}
+.item-rename .rename-error { flex-basis: 100%; color: var(--danger); }
 /* the 🔎 match-editor shares the faint control look but is not destructive, so
    it must not pick up .item-x's red hover */
 .item-match:hover { color: var(--text); background: var(--surface-2); }

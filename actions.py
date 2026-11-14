@@ -2312,6 +2312,52 @@ def _set_item_meta(db, actor, verb, item_id, column, value):
     return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
 
 
+ITEM_NAME_MAX = 100   # the same cap add_item and record_receipt apply
+
+
+def rename_item(db, actor, item_id, name):
+    """Rename a pantry item — fix a typo, or "Milk" → "Oat milk" (the Staples
+    drop-down's ✎). The row keeps its id, so everything that points at the
+    item follows the new name with no rewrite: receipt_lines.item_id (the
+    receipt review sheet's mapping memory), audit_log's item:<id> history,
+    status, store, cadence and the shopping list (a derivation read live).
+    The one name-keyed behaviour is restock_suggestions' fallback: with no
+    restock_match override it matches purchases on the item's name, so after a
+    rename it matches on the new one. Never touches money.
+
+    validate — the item exists and is active (NotFound otherwise); name is
+    text, trimmed, non-empty, ≤ 100 chars (longer is cut, as add_item does);
+    no OTHER active item already has the name, ignoring case (record_receipt
+    resolves new lines by case-folded name, so twins would be ambiguous). A
+    case-only change to the item's own name is allowed.
+    edit — one transaction: name + an audit row with before/after. Like the
+    #014 metadata setters it does NOT bump updated_at (restock inference's
+    since-bound; a rename is not a stock event). Renaming to the exact same
+    text is a no-op (no audit row). Returns the row.
+    """
+    if name is not None and not isinstance(name, str):
+        raise ActionError("name must be text")
+    clean = (name or "").strip()[:ITEM_NAME_MAX].strip()
+    if not clean:
+        raise ActionError("name can't be empty")
+    with action_transaction(db):
+        existing = db.execute(
+            "SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if existing is None or not existing["active"]:
+            raise NotFound("not found")
+        if clean == existing["name"]:
+            return existing
+        for other in db.execute(
+                "SELECT id, name FROM items WHERE active = 1 AND id != ?",
+                (item_id,)):
+            if other["name"].casefold() == clean.casefold():
+                raise ActionError(f"you already have an item called {other['name']}")
+        db.execute("UPDATE items SET name = ? WHERE id = ?", (clean, item_id))
+        _write_audit(db, actor, "rename_item", f"item:{item_id}",
+                     {"before": existing["name"], "after": clean})
+    return db.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+
+
 def set_item_store(db, actor, item_id, store):
     """Set or clear where an item is bought (Pantry v2 inc 2) — powers the
     store-grouped shopping list ("at Costco — what do we need here?"). Set

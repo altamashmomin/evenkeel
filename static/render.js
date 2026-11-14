@@ -1184,6 +1184,20 @@
                     aria-label="${esc(it.name)} is ${esc(STATUS_LABEL[cur] || cur)}; choose a status">${extra}${opts}</select>`;
   }
 
+  // The inline rename editor a staple row turns into when its ✎ is tapped
+  // (app.js swaps it into the <li> and wires Save / Cancel). One text field
+  // pre-filled with the current name, 16px so iPhone Safari doesn't zoom in.
+  // `error` (optional) is the server's refusal, shown under the field.
+  function stapleRenameFormHTML(it, error) {
+    return `<form class="item-rename" data-rename-form="${it.id}" autocomplete="off">
+        <input name="name" maxlength="100" value="${esc(it.name)}"
+               aria-label="New name for ${esc(it.name)}" enterkeyhint="done">
+        <button class="btn small primary" type="submit">Save</button>
+        <button class="btn small" type="button" data-rename-cancel>Cancel</button>
+        ${error ? `<div class="sub rename-error" role="alert">${esc(error)}</div>` : ""}
+      </form>`;
+  }
+
   function inventoryHTML(data, todayISO, opts) {
     const items = data.items || [];
     const shopping = data.shopping || [];
@@ -1341,6 +1355,8 @@
                     aria-label="Set a restock reminder for ${esc(it.name)}">⏰</button>`}
             ${parked.match ? "" : `<button class="item-x item-match" data-item-match="${it.id}"
                     aria-label="Set a purchase match for ${esc(it.name)}">🔎</button>`}
+            <button class="item-x item-match" data-item-rename="${it.id}"
+                    aria-label="Rename ${esc(it.name)}">✎</button>
             <button class="item-x" data-item-remove="${it.id}"
                     aria-label="Stop tracking ${esc(it.name)}">✕</button>
           </li>`).join("")}</ul>`
@@ -2678,6 +2694,7 @@
            shortDate, daysBetween, restockForecastHTML, newStapleSuggestionsHTML,
            unmatchedStaplesHTML, staleShoppingHTML, stapleSpendHTML,
            postShoppingHTML, inventoryHTML, PANTRY_PARKED, statusSelectHTML,
+           stapleRenameFormHTML,
            receiptReviewHTML, receiptCheckText, receiptTallyText, receiptSavedText,
            vsLastMonth, incomeCardHTML, shortMonth, trendSummary, trendBars, incomeTrendChartHTML,
            spendingCompositionHTML, memberBreakdownHTML, billVarianceHTML,

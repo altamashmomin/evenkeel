@@ -12,7 +12,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         categoryTrendHTML, cashFlowForecastHTML, anomaliesHTML,
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText,
-        askThreadHTML, inventoryHTML, PANTRY_PARKED, agentsHTML, opsPanelHTML,
+        askThreadHTML, inventoryHTML, PANTRY_PARKED, stapleRenameFormHTML, agentsHTML, opsPanelHTML,
         greetKickerHTML, listSheetHTML,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
         beamHTML, txnRow, calendarAgendaHTML, billsManageHTML, billsMonthGridHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
@@ -1025,6 +1025,41 @@ async function setItemInterval(id) {
   render();
 }
 
+// Rename a staple inline: its row turns into a one-field form (Save / Cancel,
+// Enter saves, Esc cancels). The rename_item verb refuses a blank name or one
+// another item already has; that message shows under the field and the row
+// stays open so it can be fixed. Unchanged text just closes the editor.
+function openStapleRename(li, id, error, draft) {
+  const item = invItem(id);
+  if (!li || !item) return;
+  li.classList.add("renaming");
+  li.innerHTML = stapleRenameFormHTML(item, error);
+  const form = $("form", li);
+  const input = $("input", form);
+  if (draft != null) input.value = draft;
+  input.focus();
+  input.select();
+  $("[data-rename-cancel]", form).addEventListener("click", () => render());
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); render(); }
+  });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    // (An input named "name" is shadowed by form.name, so read it directly.)
+    const next = input.value.trim();
+    if (next === item.name) { render(); return; }
+    if (!next) { openStapleRename(li, id, "The name can't be empty.", ""); return; }
+    $$("button", form).forEach((b) => { b.disabled = true; });
+    try {
+      await api(`/api/inventory/${id}`, { method: "PUT", body: { name: next } });
+    } catch (err) {
+      openStapleRename(li, id, err.message, next);
+      return;
+    }
+    render();
+  });
+}
+
 async function addItem(name, kind) {
   name = (name || "").trim();
   if (!name) return;
@@ -1420,6 +1455,9 @@ function wireMain() {
   // New-staple suggestion: "Track" starts tracking that merchant as a staple.
   $$("[data-track-staple]").forEach((el) =>
     el.addEventListener("click", () => trackSuggestedStaple(+el.dataset.trackStaple)));
+  $$("[data-item-rename]").forEach((el) =>
+    el.addEventListener("click", () =>
+      openStapleRename(el.closest("li"), +el.dataset.itemRename)));
   $$("[data-item-remove]").forEach((el) =>
     el.addEventListener("click", async () => {
       if (!confirm("Stop tracking this item? Its history stays in the log.")) return;

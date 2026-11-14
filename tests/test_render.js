@@ -2366,6 +2366,31 @@ check("listSheetHTML escapes item names", () => {
     const h = R.statusSelectHTML({ id: 9, name: 'X" onfocus=alert(1) "', status: 'low" onclick="x' });
     assert.ok(!/"\s+on(focus|click)=/.test(h), "no attribute breakout");
   });
+  check("Pantry: every staple has a rename button (not parked)", () => {
+    const html = R.inventoryHTML(data(), "2026-11-07");
+    for (const it of ITEMS) {
+      assert.ok(html.includes(`data-item-rename="${it.id}"`), `rename button for staple ${it.id}`);
+    }
+    assert.ok(html.includes('aria-label="Rename Coffee"'), "labelled for screen readers");
+  });
+  check("Pantry: the rename form pre-fills the name, escapes it, and shows a refusal", () => {
+    const h = R.stapleRenameFormHTML({ id: 4, name: 'Oat "milk" <b>' });
+    assert.ok(h.includes('data-rename-form="4"'), "form tied to the item");
+    assert.ok(h.includes('value="Oat &quot;milk&quot; &lt;b&gt;"'), "current name, escaped");
+    assert.ok(h.includes('maxlength="100"'), "same cap as add");
+    assert.ok(h.includes("data-rename-cancel") && h.includes(">Save<"), "save + cancel");
+    assert.ok(!h.includes("rename-error"), "no error line until there is one");
+    const err = R.stapleRenameFormHTML({ id: 4, name: "Tea" }, "you already have an item called <Coffee>");
+    assert.ok(err.includes('role="alert"') && err.includes("&lt;Coffee&gt;"), "refusal shown, escaped");
+  });
+  check("Pantry: the rename field undoes the full-width form rule and won't zoom iPhone", () => {
+    const css = require("fs").readFileSync(require("path").join(__dirname, "../static/style.css"), "utf8");
+    const m = css.match(/\n\.item-rename input \{([^}]*)\}/);
+    assert.ok(m, ".item-rename input rule exists");
+    assert.ok(/margin-top:\s*0/.test(m[1]), "level with its buttons");
+    assert.ok(/font-size:\s*16px/.test(m[1]), "16px stops Safari's focus zoom");
+    assert.ok(/min-width:\s*0/.test(m[1]), "can shrink on a narrow phone");
+  });
 }
 
 console.log(`render tests passed (${passed} checks)`);

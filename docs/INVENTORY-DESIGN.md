@@ -259,6 +259,7 @@ household saying "running down").
 |---|---|---|
 | `restock_items` | UI, Ask | **The trip verb**: one action marks a bought set stocked (each item validated + audited individually inside the verb). Kills the worst daily friction — five taps after one grocery run |
 | `set_item_store` / `set_item_need_by` / `set_item_snooze` | UI, Ask | Small setters, `set_item_interval`'s exact pattern; NULL-in clears |
+| `rename_item` | UI | Rename from the Staples ✎ (inline field). Blank or a twin of another active item is refused; the id is the key everywhere, so receipts, history and the list follow. Audited before/after; `updated_at` untouched |
 
 No new auth, no two-phase — nothing touches money.
 
