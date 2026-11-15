@@ -206,8 +206,8 @@ class ManifestEdgeTests(unittest.TestCase):
         self.assertEqual(["add_item", "archive_item", "classify_inflow",
                           "confirm_action", "create_bill", "create_goal",
                           "propose_action",
-                          "recategorize_transaction", "restock_items",
-                          "set_budget",
+                          "recategorize_transaction", "rename_item",
+                          "restock_items", "set_budget",
                           "set_item_interval", "set_item_match",
                           "set_item_need_by", "set_item_snooze",
                           "set_item_status", "set_item_store"], c["ask"])

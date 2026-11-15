@@ -1122,8 +1122,9 @@ def add_inventory_item():
 @app.put("/api/inventory/<int:item_id>")
 @login_required
 def update_inventory_item(item_id):
-    """Thin caller: set the item's status, its restock-match phrase, and/or its
-    manual restock cadence (each its own verb). Pass 'status' (mark
+    """Thin caller: rename the item, set its status, its restock-match phrase,
+    and/or its manual restock cadence (each its own verb). Pass 'name' (rename;
+    blank or a twin of another active item is refused), 'status' (mark
     stocked/low/out), 'restock_match' (the optional purchase-feed override; blank
     clears it), and/or 'restock_interval_days' (remind every N days; null/blank
     clears it → back to the inferred cadence)."""
@@ -1131,6 +1132,8 @@ def update_inventory_item(item_id):
     data = request.get_json(silent=True) or {}
     row = None
     try:
+        if "name" in data:
+            row = actions.rename_item(db, ui_actor(db), item_id, data.get("name"))
         if "status" in data:
             row = actions.set_item_status(db, ui_actor(db), item_id, data.get("status"))
         if "restock_match" in data:
@@ -1151,7 +1154,7 @@ def update_inventory_item(item_id):
         return bad_request(str(e))
     if row is None:
         return bad_request(
-            "nothing to change: pass 'status', 'restock_match', "
+            "nothing to change: pass 'name', 'status', 'restock_match', "
             "'restock_interval_days', 'store', 'need_by', and/or 'snoozed_until'")
     return jsonify(item_to_json(row))
 
