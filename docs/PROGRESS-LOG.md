@@ -4650,3 +4650,21 @@ PASS on synthetic seed-42 dev.db at v21: exactly schema 21→22
 (`notes/022-gate-expectation.seed.json`); `verify_live_migration` from v21:
 balance and monthly totals unchanged. Not browser-smoked. Awaits Alta's review
 and merge.
+
+**Nov 20, 2026 — Pantry: "Bought a lot — track it?" offers pantry merchants
+only (on `claude/pantry-staple-categories`, NOT deployed).** The card offered
+every merchant bought on 3+ days, so it suggested gas stations, restaurants,
+transit and record shops as staples (13 on the synthetic dev.db). Alta's call:
+only Groceries, Household and Pets. `derivations.new_staple_suggestions` now
+counts only outflows whose category is in the new `PANTRY_CATEGORIES`
+(groceries/grocery, household, pets/pet; compared with `lower(trim())`, since
+categories are free-form tags), so a merchant's purchases in other categories
+don't count toward its 3 days. Every caller reads the same function: the Pantry
+card, the pantry pulse, the Ask and MCP inventory tools. On the dev.db the card
+drops to 5 (a pet store, a household supplier, a hardware store, two grocery
+stores). The grocery stores themselves still appear, since Groceries was
+chosen; the existing exclusions (already tracked, subscriptions, settlements,
+transfers, inflows) are unchanged. Read-only derivation, no schema/verb/money
+path. Tests: +3 in `test_item_verbs.py`, each proven to fail on the old code
+first; suite **919** OK, render **244**. GATE PASS zero-diff (40 values) on
+synthetic seed-42 dev.db. Browser-checked the card at 375px.
