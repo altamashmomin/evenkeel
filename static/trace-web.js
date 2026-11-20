@@ -204,6 +204,25 @@ function buildColumns() {
   MODEL.doors.forEach(dr => $('col-doors').appendChild(nodeEl('s:' + dr.id, dr.id)));
 }
 
+// ── fit: a column too long for the default canvas height gets tighter rows ──
+// The base height is the canvas's min-height less its top padding and the
+// column header. Re-run whenever metrics can change (fonts load); it clears
+// first, so it measures each column at normal spacing every time.
+function fitColumns() {
+  const cs = getComputedStyle(canvas);
+  const head = canvas.querySelector('.col-head');
+  const room = parseFloat(cs.minHeight) - parseFloat(cs.paddingTop) -
+    (head ? head.offsetHeight : 0);
+  canvas.querySelectorAll('.col-body').forEach(body => {
+    body.classList.remove('dense');
+    const kids = body.children;
+    if (!kids.length) return;
+    const need = kids[kids.length - 1].getBoundingClientRect().bottom -
+      kids[0].getBoundingClientRect().top;
+    if (need > room) body.classList.add('dense');
+  });
+}
+
 // ── node styling per render ──
 function styleNode(id, active) {
   const el = nodeEls[id];
@@ -410,11 +429,13 @@ async function boot() {
     MODEL.tables.length + MODEL.derivs.length + MODEL.doors.length;
 
   buildColumns();
+  fitColumns();
   initLegend();
   fillProvenance();
   render();
-  // fonts can shift metrics; re-measure once they load and on resize
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+  // fonts can shift metrics; re-fit and re-measure once they load, and on resize
+  if (document.fonts && document.fonts.ready)
+    document.fonts.ready.then(() => { fitColumns(); render(); });
   window.addEventListener('resize', render);
   new ResizeObserver(render).observe(canvas);
   window.addEventListener('load', render);

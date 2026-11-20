@@ -4695,3 +4695,18 @@ transfers, inflows) are unchanged. Read-only derivation, no schema/verb/money
 path. Tests: +3 in `test_item_verbs.py`, each proven to fail on the old code
 first; suite **919** OK, render **244**. GATE PASS zero-diff (40 values) on
 synthetic seed-42 dev.db. Browser-checked the card at 375px.
+
+**Nov 20, 2026 — Architecture Map: long columns no longer overlap the detail
+row (on `claude/trace-map-fit`, NOT deployed).** Alta's report: on the Agents
+tab's Architecture Map (`/trace`), the Write verbs ran into the "Widest write
+surface" row. Cause: `#canvas` was a fixed 1060px while the verb list (46) ran
+to 1327px and the derivation list (48) to 1396px; the column headers were also
+allowed to shrink, which squashed them. Fix: the canvas is now
+`min-height: 1060px` and grows with its tallest column; `.col-head` is
+`flex: none`; and `fitColumns()` gives any column too long for the base height
+tighter rows (`.col-body.dense`: 1px gap, 2px padding), re-run when fonts
+load. Today that fits both long columns with the canvas only 53px taller
+(1113px). Stress-tested in the browser with 40 extra verbs (86): the canvas
+grew to 1949px and no node crossed its header or the detail row. Tracing still
+works. Frontend only (`static/trace-web.html`, `static/trace-web.js`); suite
+**916** OK, render **244**, GATE PASS zero-diff.
