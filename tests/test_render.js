@@ -531,7 +531,8 @@ check("inventoryHTML renders staples with a stocked/low/out status drop-down", (
   assert.ok(!html.includes("data-item-cycle"), "the old tap-to-cycle chip is gone");
   assert.ok(html.includes("the dark roast"), "note shown as sub");
   assert.ok(html.includes('data-item-remove="1"'), "remove control present");
-  assert.ok(html.includes("1 running low"), "low_count badge");
+  assert.ok(!html.includes("running low"), "the old low_count pill is gone");
+  assert.ok(!html.includes("to buy</span>"), "nothing on the list → no count pill");
 });
 check("inventoryHTML offers an ask-from-pantry entry point (A4)", () => {
   const html = R.inventoryHTML({ items: [], shopping: [], low_count: 0 });
@@ -548,8 +549,10 @@ check("inventoryHTML shopping list shows staple status and one-off need", () => 
     low_count: 1,
   });
   assert.ok(html.includes('data-item-got="2"') && html.includes('data-item-got="3"'), "each row checkable");
-  assert.ok(html.includes('badge overdue">out'), "out staple badged as urgent");
-  assert.ok(html.includes('badge due">need'), "one-off shows 'need'");
+  assert.ok(html.includes('<span class="shop-why out">Out</span>'), "out staple says so, in red, under the name");
+  assert.ok(html.includes('<span class="shop-why">One-off</span>'), "a one-off says it's a one-off");
+  assert.ok(!/badge (due|overdue)">(out|need)/.test(html), "no status badge beside the name any more");
+  assert.ok(html.includes('<span class="badge due">2 to buy</span>'), "header pill counts the list");
 });
 check("recatSheetHTML offers the delete-category zone only when rows exist", () => {
   const withRows = R.recatSheetHTML("Doomed", "August 2026",
@@ -589,8 +592,9 @@ check("inventoryHTML shows need-by badges framed against today", () => {
     ],
     low_count: 0,
   }, "2026-08-20");
-  assert.ok(/badge due">by /.test(html), "future deadline badged due");
-  assert.ok(/badge overdue">by /.test(html), "past deadline badged overdue");
+  assert.ok(html.includes('One-off</span> · <span class="shop-by">by Aug 22</span>'), "future deadline under the name");
+  assert.ok(html.includes('<span class="shop-by late">by Aug 10</span>'), "past deadline marked late");
+  assert.ok(html.includes("📅 Change deadline"), "a dated row offers to change it");
 });
 check("inventoryHTML snoozed items leave the active list, nudges, and got-all", () => {
   const html = R.inventoryHTML({
@@ -609,6 +613,38 @@ check("inventoryHTML snoozed items leave the active list, nudges, and got-all", 
   assert.ok(html.includes('data-item-wake="2"'), "wake control");
   assert.ok(html.includes('data-got-all="3,4"'), "got-all covers only awake rows");
   assert.ok(!html.includes("Yes, restocked"), "snoozed item's restock nudge suppressed");
+  assert.ok(html.includes('<span class="badge due">2 to buy</span>'), "header pill leaves the snoozed one out");
+  assert.ok(html.indexOf('id="inv-got-all"') < html.indexOf("💤 Snoozed (1)"),
+    "Got everything sits under the active rows, ahead of the Snoozed drawer");
+});
+check("Need to buy: name · Got it · ⋯, with the rare actions inside the menu", () => {
+  const html = R.inventoryHTML({
+    items: [],
+    shopping: [
+      { id: 2, name: "Paper towels", kind: "staple", status: "low", note: "the big pack" },
+      { id: 3, name: "AA batteries", kind: "oneoff", status: "out" },
+    ],
+  }, "2026-08-20");
+  const rows = html.split('<li class="shop-row">').slice(1);
+  assert.strictEqual(rows.length, 2, "one shop-row per item");
+  for (const r of rows) {
+    const menuAt = r.indexOf('<details class="row-more">');
+    assert.ok(menuAt > r.indexOf("data-item-got="), "⋯ follows Got it");
+    assert.ok(r.indexOf("data-item-needby=") > menuAt && r.indexOf("data-item-snooze=") > menuAt,
+      "📅 and 💤 live inside the menu, not beside the name");
+  }
+  assert.ok(rows[0].includes('<span class="shop-why low">Low</span> · the big pack'), "status then note");
+  assert.ok(rows[0].includes("📅 Need it by…"), "undated row offers a deadline");
+  assert.ok(!rows[0].includes("data-item-drop"), "a staple can't be dropped from here (✕ in Staples stops tracking)");
+  assert.ok(rows[1].includes('data-item-drop="3"') && rows[1].includes("Don't need it"),
+    "a one-off can come off the list without counting as bought");
+  assert.ok(html.includes('aria-label="More for Paper towels"'), "the ⋯ is labelled per item");
+});
+check("activeListCount leaves snoozed items out, by the client's today", () => {
+  const items = [{ id: 1 }, { id: 2, snoozed_until: "2026-12-05" }, { id: 3, snoozed_until: "2026-11-01" }];
+  assert.strictEqual(R.activeListCount(items, "2026-11-20"), 2, "future snooze out, past snooze back in");
+  assert.strictEqual(R.activeListCount(items, null), 3, "no today → nothing counts as snoozed");
+  assert.strictEqual(R.activeListCount(null, "2026-11-20"), 0);
 });
 check("inventoryHTML: ordered items sit in an On-the-way drawer with Arrived / Didn't come", () => {
   const html = R.inventoryHTML({
@@ -2199,10 +2235,11 @@ check("listSheetHTML: one row per item, count in the title, links to Pantry", ()
   ];
   const html = R.listSheetHTML(items, "2026-11-07");
   assert.strictEqual((html.match(/class="list-row"/g) || []).length, 3);
-  assert.ok(html.includes("On the shopping list (3)"));
+  assert.ok(html.includes("On the shopping list (2)"), "the title counts what's not snoozed");
   assert.ok(html.includes("Costco"));
   assert.ok(html.includes("by Nov 20"), html);
   assert.ok(html.includes("snoozed till Nov 30"), "a snoozed row still shows, marked");
+  assert.ok(html.indexOf("💤 Snoozed (1)") > html.indexOf(">Candles<"), "…under its own heading after the rest");
   assert.ok(/badge overdue">out/.test(html) && html.includes(">need</span>"));
   assert.strictEqual((html.match(/data-tab="inventory"/g) || []).length, 4, "3 rows + Open Pantry");
 });
@@ -2322,7 +2359,7 @@ check("listSheetHTML escapes item names", () => {
     const html = R.inventoryHTML(data(), "2026-11-07");
     assert.ok(/<div class="card">\s*<p class="eyebrow">Need to buy<\/p>/.test(html));
     assert.ok(html.includes('data-item-got="2"') && html.includes('data-item-needby="2"') &&
-              html.includes('data-item-snooze="2"'), "Got it / 📅 / 💤 unchanged");
+              html.includes('data-item-snooze="2"'), "Got it / 📅 / 💤 still there (📅 / 💤 in the ⋯ menu)");
   });
   check("Pantry: box, building, clock and magnifier controls are parked by default", () => {
     const html = R.inventoryHTML(data(), "2026-11-07");

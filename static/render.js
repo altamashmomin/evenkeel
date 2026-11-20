@@ -1209,8 +1209,7 @@
     // #014 snooze is view-layer: the derivations are clock-free, so "snoozed
     // right now" means snoozed_until is strictly after the client's today.
     // A snoozed item leaves the active list AND its restock nudges.
-    const isSnoozed = (x) =>
-      !!(x.snoozed_until && todayISO && x.snoozed_until > todayISO);
+    const isSnoozed = (x) => isSnoozedNow(x, todayISO);
     const closure = (data.trip_closure || []).map((g) => ({
       ...g, items: (g.items || []).filter((i) => !isSnoozed(i)) }))
       .filter((g) => g.items.length >= 2)
@@ -1251,30 +1250,38 @@
 
     const activeShopping = shopping.filter((it) => !isSnoozed(it));
     const snoozedShopping = shopping.filter(isSnoozed);
+    // A Need-to-buy row fits a phone (Nov 20): icon, the name, one line under
+    // it saying why it's here (Out / Low / One-off, then the deadline and any
+    // note), Got it, and a ⋯ menu holding the less frequent actions (deadline,
+    // snooze, and for a one-off "Don't need it"). Before, a status badge, a
+    // deadline badge and three icon buttons sat beside the name and cut it
+    // down to "AA b…" at 375px.
     const shopRow = (it) => {
-      const tag = it.kind === "oneoff"
-        ? `<span class="badge due">need</span>`
-        : `<span class="badge ${it.status === "out" ? "overdue" : "due"}">${esc(it.status)}</span>`;
-      // A deadline badge frames urgency against the client's today (#014).
+      const why = it.kind === "oneoff"
+        ? `<span class="shop-why">One-off</span>`
+        : `<span class="shop-why ${it.status === "out" ? "out" : "low"}">${esc(STATUS_LABEL[it.status] || it.status)}</span>`;
+      // The deadline reads against the client's today (#014): past → red.
       const needBy = it.need_by
-        ? `<span class="badge ${todayISO && it.need_by < todayISO ? "overdue" : "due"}">by ${esc(shortDate(it.need_by))}</span>`
+        ? ` · <span class="shop-by${todayISO && it.need_by < todayISO ? " late" : ""}">by ${esc(shortDate(it.need_by))}</span>`
         : "";
-      const sub = it.note ? esc(it.note) : (it.kind === "oneoff" ? "one-off" : "staple");
-      return `<li>
+      const note = it.note ? ` · ${esc(it.note)}` : "";
+      const name = esc(it.name);
+      return `<li class="shop-row">
         <span class="ic">${itemIcon(it)}</span>
         <div class="grow">
-          <div class="title">${esc(it.name)}</div>
-          <div class="sub">${sub}</div>
+          <div class="title">${name}</div>
+          <div class="sub">${why}${needBy}${note}</div>
         </div>
-        ${needBy}
-        ${tag}
         <button class="btn small" data-item-got="${it.id}">Got it</button>
-        ${parked.ordered ? "" : `<button class="item-x item-match" data-item-ordered="${it.id}"
-                aria-label="Mark ${esc(it.name)} as ordered (on the way)">📦</button>`}
-        <button class="item-x item-match" data-item-needby="${it.id}"
-                aria-label="Set a deadline for ${esc(it.name)}">📅</button>
-        <button class="item-x item-match" data-item-snooze="${it.id}"
-                aria-label="Snooze ${esc(it.name)}">💤</button>
+        <details class="row-more">
+          <summary class="item-x item-match" aria-label="More for ${name}">⋯</summary>
+          <div class="row-menu">
+            ${parked.ordered ? "" : `<button type="button" data-item-ordered="${it.id}">📦 Ordered it</button>`}
+            <button type="button" data-item-needby="${it.id}">📅 ${it.need_by ? "Change deadline" : "Need it by…"}</button>
+            <button type="button" data-item-snooze="${it.id}">💤 Snooze</button>
+            ${it.kind === "oneoff" ? `<button type="button" class="danger" data-item-drop="${it.id}">✕ Don't need it</button>` : ""}
+          </div>
+        </details>
       </li>`;
     };
     // Grouped by store when any active row has one (#014): stores A→Z, the
@@ -1331,11 +1338,18 @@
           }).join("")}</ul>
         </details>`
       : "";
+    // "Got everything" sits right under the rows it checks off, ahead of the
+    // On-the-way / Snoozed drawers (it never touches those).
+    const gotAll = activeShopping.length > 1
+      ? `<button class="btn small inv-got-all" id="inv-got-all"
+          data-got-all="${activeShopping.map((it) => it.id).join(",")}">Got everything (${activeShopping.length})</button>`
+      : "";
     const shopRows = (activeShopping.length
-      ? shopList
+      ? shopList + gotAll
       : `<p class="empty">${snoozedShopping.length
           ? "Nothing needed right now — some items are snoozed below."
-          : "Nothing to buy — you're all stocked 🌿"}</p>`) + orderedRows + snoozedRows;
+          : "Nothing to buy — you're all stocked 🌿"}</p>`);
+    const drawers = orderedRows + snoozedRows;
 
     const stapleRows = items.length
       ? `<ul class="list">${items.map((it) => `
@@ -1375,7 +1389,7 @@
     return `
       <div class="section-head">
         <p class="eyebrow" style="margin:0">The pantry</p>
-        ${data.low_count > 0 ? `<span class="badge due">${data.low_count} running low</span>` : ""}
+        ${activeShopping.length ? `<span class="badge due">${activeShopping.length} to buy</span>` : ""}
         <button type="button" class="btn small inv-scan" id="inv-scan">📷 Scan a receipt</button>
       </div>
       ${closureCard}
@@ -1386,8 +1400,7 @@
         ${listEstimateHTML(data.list_estimate, due.total_cents, due.count)}
         ${shopRows}
         ${due.html}
-        ${activeShopping.length > 1 ? `<button class="btn small" id="inv-got-all"
-          data-got-all="${activeShopping.map((it) => it.id).join(",")}">Got everything (${activeShopping.length})</button>` : ""}
+        ${drawers}
         <form class="inv-add" id="inv-add-oneoff" autocomplete="off">
           <input name="name" maxlength="100" placeholder="Add something to buy…">
           <button class="btn small primary" type="submit">Add</button>
@@ -1644,19 +1657,32 @@
       `aria-haspopup="dialog" aria-label="${esc(label)}, show them">${esc(label)} ›</button>`;
   }
 
-  // The sheet the greeting's "N things on the list" opens: exactly the rows
-  // the count counts (the badge's items, one read of shopping_list), so the
-  // two never disagree. A snoozed row is still on the list, so it shows,
-  // marked snoozed. Each row and the footer button open the Pantry tab, where
-  // the list is handled. Pure; nothing here writes.
+  // Snooze is view-layer (#014: the derivations are clock-free), so "snoozed
+  // right now" means snoozed_until is after the client's today. The greeting's
+  // count and the Pantry tab's "N to buy" both count only the rest, so the two
+  // say the same number (Nov 20: the greeting used to count snoozed items too).
+  function isSnoozedNow(it, todayISO) {
+    return !!(it && it.snoozed_until && todayISO && it.snoozed_until > todayISO);
+  }
+  function activeListCount(items, todayISO) {
+    return (items || []).filter((it) => !isSnoozedNow(it, todayISO)).length;
+  }
+
+  // The sheet the greeting's "N things on the list" opens: the rows the count
+  // counts (the badge's items, one read of shopping_list), so the two never
+  // disagree; snoozed rows follow under their own heading, outside the count.
+  // Each row and the footer button open the Pantry tab, where the list is
+  // handled. Pure; nothing here writes.
   function listSheetHTML(items, todayISO) {
-    const list = items || [];
+    const all = items || [];
     const open = `<button type="button" class="btn primary list-open" data-tab="inventory">Open Pantry</button>`;
-    if (!list.length) {
+    const list = all.filter((it) => !isSnoozedNow(it, todayISO));
+    const snoozed = all.filter((it) => isSnoozedNow(it, todayISO));
+    if (!all.length) {
       return `<p class="sheet-title">On the shopping list</p>` +
         `<p class="empty">Nothing on the list right now 🌿</p>` + open;
     }
-    const rows = list.map((it) => {
+    const row = (it) => {
       const tag = it.kind === "oneoff"
         ? `<span class="badge due">need</span>`
         : `<span class="badge ${it.status === "out" ? "overdue" : "due"}">${esc(it.status)}</span>`;
@@ -1672,9 +1698,15 @@
         <span class="grow"><span class="title">${esc(it.name)}</span>
           <span class="sub">${sub}</span></span>
         ${tag}</button></li>`;
-    }).join("");
+    };
+    const rows = list.length ? `<ul class="list-sheet">${list.map(row).join("")}</ul>`
+      : `<p class="empty">Nothing to buy right now — it's all snoozed.</p>`;
+    const later = snoozed.length
+      ? `<p class="sub list-sheet-h">💤 Snoozed (${snoozed.length})</p>` +
+        `<ul class="list-sheet">${snoozed.map(row).join("")}</ul>`
+      : "";
     return `<p class="sheet-title">On the shopping list (${list.length})</p>` +
-      `<ul class="list-sheet">${rows}</ul>` + open;
+      rows + later + open;
   }
 
   function moreSheetHTML(items, active) {
@@ -2686,7 +2718,7 @@
            pendingApprovalsHTML,
            contribLogHTML, goalCardHTML,
            catEmoji, itemIcon,
-           greetKickerHTML, listSheetHTML,
+           greetKickerHTML, listSheetHTML, activeListCount,
            moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
            listEstimateHTML, priceTrendBadge,
            tripDueHTML, tripClosureHTML,

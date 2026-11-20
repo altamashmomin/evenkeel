@@ -13,7 +13,7 @@ const { fmt, esc, ord, monthName, nudgeText, ruleSuggestionText, transferRuleTex
         recurringChargesHTML, goalPaceHTML,
         goalWhatIfText,
         askThreadHTML, inventoryHTML, PANTRY_PARKED, stapleRenameFormHTML, agentsHTML, opsPanelHTML,
-        greetKickerHTML, listSheetHTML,
+        greetKickerHTML, listSheetHTML, activeListCount,
         moreSheetHTML, helpSheetHTML, calendarLinkHTML, recatSheetHTML, settleBreakdownHTML, settleLastHTML, accountsSheetHTML,
         beamHTML, txnRow, calendarAgendaHTML, billsManageHTML, billsMonthGridHTML, payLinkOptionsHTML, billRowHTML, contribLogHTML, goalCardHTML,
         pendingApprovalsHTML, receiptReviewHTML, receiptTallyText,
@@ -106,7 +106,9 @@ function renderHeader() {
   // itself is frozen byte-identical to v1). Nothing shows when it's empty.
   // Tapping it opens the list itself (openListSheet), drawn from the same
   // badge payload, so the count and the rows always match.
-  const n = window._pantryBadge ? window._pantryBadge.list_count : 0;
+  // Snoozed items are left out of the count (activeListCount), matching the
+  // Pantry tab's "N to buy"; the sheet lists them separately.
+  const n = window._pantryBadge ? activeListCount(window._pantryBadge.items, todayISO()) : 0;
   $("#greet-kicker").innerHTML = greetKickerHTML(part, n);
   $("#greet-kicker [data-greet-list]")?.addEventListener("click", openListSheet);
   $("#avatars").innerHTML = state.users.map((u, i) => {
@@ -346,6 +348,15 @@ function openListSheet() {
   dlgList.showModal();
 }
 dlgList?.addEventListener("click", (e) => { if (e.target === dlgList) dlgList.close(); });
+
+// A Need-to-buy ⋯ menu (Pantry) closes on a tap outside it or on Escape.
+// Wired once here, not per render, since views are rebuilt on every render.
+document.addEventListener("click", (e) => {
+  $$("details.row-more[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; });
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $$("details.row-more[open]").forEach((d) => { d.open = false; });
+});
 
 // The Help sheet: the in-app "how this works" guide. Opened from the header
 // "?" and from the Ask empty state. Reads nothing; every tab row (and the
@@ -946,6 +957,10 @@ async function renderInventory() {
   // today (local ISO date) drives the forecast's "due in N days / overdue"
   // framing — the derivation is clock-free, so "now" enters at the view layer.
   const today = new Date().toLocaleDateString("en-CA");  // YYYY-MM-DD, local
+  // Keep the greeting's "N things on the list" in step with what's just been
+  // bought / snoozed / dropped here (it was only refreshed with Home before).
+  api("/api/inventory/badge").then((b) => { window._pantryBadge = b; renderHeader(); })
+    .catch(() => {});
   return inventoryHTML(data, today, { open: foldsOpen() });
 }
 
@@ -1446,6 +1461,20 @@ function wireMain() {
     el.addEventListener("click", () => setItemNeedBy(+el.dataset.itemNeedby)));
   $$("[data-item-snooze]").forEach((el) =>
     el.addEventListener("click", () => setItemSnooze(+el.dataset.itemSnooze)));
+  // A one-off you no longer need comes off the list without being "bought":
+  // the same archive_item route the staple ✕ uses (soft delete, logged).
+  $$("[data-item-drop]").forEach((el) =>
+    el.addEventListener("click", async () => {
+      const name = (invItem(+el.dataset.itemDrop) || {}).name || "this";
+      if (!confirm(`Take ${name} off the list? It won't count as bought.`)) return;
+      await api(`/api/inventory/${el.dataset.itemDrop}`, { method: "DELETE" });
+      render();
+    }));
+  // The Need-to-buy ⋯ menus: one open at a time.
+  $$("details.row-more").forEach((d) =>
+    d.addEventListener("toggle", () => {
+      if (d.open) $$("details.row-more[open]").forEach((o) => { if (o !== d) o.open = false; });
+    }));
   $$("[data-item-wake]").forEach((el) =>
     el.addEventListener("click", async () => {
       await api(`/api/inventory/${el.dataset.itemWake}`,

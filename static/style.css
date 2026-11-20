@@ -933,6 +933,36 @@ dialog h2 { margin: 0 0 6px; font-size: 17px; }
   flex: 1 1 0; min-width: 0; margin-top: 0; padding: 10px 14px; border-radius: 999px;
 }
 .inv-add .btn.primary { width: auto; flex: 0 0 auto; margin-top: 0; }
+/* A Need-to-buy row (Nov 20): the name gets the width; why it's on the list
+   (Out / Low / One-off, the deadline) rides the line under it; the rare
+   actions live in a ⋯ menu so the row is icon · name · Got it · ⋯. */
+.shop-row { position: relative; }
+.shop-row .btn.small { flex: none; white-space: nowrap; }
+.shop-why { font-weight: 600; }
+.shop-why.out { color: var(--danger); }
+.shop-why.low { color: var(--brass); }
+.shop-by.late { color: var(--danger); font-weight: 600; }
+.row-more { flex: none; position: static; }
+.row-more > summary {
+  list-style: none; display: grid; place-items: center;
+  font-size: 18px; line-height: 1; letter-spacing: 0;
+}
+.row-more > summary::-webkit-details-marker { display: none; }
+.row-more[open] > summary { color: var(--text); background: var(--surface-2); }
+.row-menu {
+  position: absolute; right: 0; top: calc(100% - 6px); z-index: 5;
+  display: flex; flex-direction: column; min-width: 180px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+.row-menu button {
+  text-align: left; padding: 10px 12px; border-radius: 8px; border: none;
+  background: none; color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+}
+.row-menu button:hover, .row-menu button:focus-visible { background: var(--surface-2); }
+.row-menu button.danger { color: var(--danger); }
+.inv-got-all { margin-top: 10px; }
+.list-sheet-h { margin: 4px 0 2px; }
 
 /* ---------- motion: growth on appearance ---------- */
 /* Registering --p lets the savings ring's conic fill be animated (older

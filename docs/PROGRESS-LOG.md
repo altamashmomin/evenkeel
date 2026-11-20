@@ -4650,3 +4650,30 @@ PASS on synthetic seed-42 dev.db at v21: exactly schema 21→22
 (`notes/022-gate-expectation.seed.json`); `verify_live_migration` from v21:
 balance and monthly totals unchanged. Not browser-smoked. Awaits Alta's review
 and merge.
+
+**Nov 20, 2026 — Pantry: "Need to buy" fits a phone (on
+`claude/ledger-pantry-refinement-fda8ff`, NOT deployed).** At 375px each
+Need-to-buy row carried a status badge, a deadline badge, Got it, 📅 and 💤,
+which cut names to "AA b…" / "Banan…" and hid a dated one-off's name entirely.
+Rows are now icon · name · Got it · ⋯: why it's on the list (Out / Low /
+One-off, then "by <date>", red when past, then any note) sits under the name,
+and 📅 / 💤 move into a ⋯ menu (a native `<details>`; one open at a time,
+closes on an outside tap or Escape). The menu also gives a one-off "Don't need
+it", which takes it off the list without counting as bought (the existing
+`DELETE /api/inventory/<id>` → `archive_item`; staples still stop tracking only
+from Staples). Counts now agree: the header pill was "N running low" (low/out
+staples) and the greeting's "N things on the list" included snoozed items, so
+the tab could say 5, the greeting 8 and the list 7. Both now count the
+not-snoozed list (`Render.activeListCount`, snooze judged against the client's
+today as the tab already did); the greeting's sheet lists snoozed rows under
+their own heading, outside the count, and the greeting refreshes after each
+Pantry render instead of only with Home. "Got everything (N)" moved directly
+under the rows it checks off, ahead of the On-the-way / Snoozed drawers.
+Frontend only: no route, verb, derivation or schema change. Render **246**
+(+3 checks, 6 updated), suite **916** OK. GATE PASS zero-diff (40 values) on
+synthetic seed-42 dev.db, origin/main vs this tree. Browser-smoked at 375px in
+dark and light: no name clipped (150px each, was ~50), menu opens/closes,
+Don't need it and Snooze work, greeting and pill both track Got it. Next
+candidate from the same review: "Bought a lot — track it?" offers any merchant
+(gas, dining, transit, the grocery store itself); it needs a pantry-category
+filter, which needs Alta's call on which categories count.
