@@ -525,11 +525,11 @@ class ItemVerbTests(unittest.TestCase):
     # NOTE: this derivation scans ALL outflows, so the seed contributes its own
     # merchant clusters — these assertions target the merchants they inject and
     # never assume the seed produces none.
-    def _outflow(self, desc, when, amt=1500, source="simplefin"):
+    def _outflow(self, desc, when, amt=1500, source="simplefin", category="Pets"):
         self.db.execute(
             "INSERT INTO transactions (txn_date, amount_cents, description, "
             "category, paid_by, is_shared, source, direction) "
-            "VALUES (?, ?, ?, 'Pets', 1, 0, ?, 'out')", (when, amt, desc, source))
+            "VALUES (?, ?, ?, ?, 1, 0, ?, 'out')", (when, amt, desc, category, source))
         self.db.commit()
 
     def _find(self, sugg, merchant):
@@ -591,6 +591,45 @@ class ItemVerbTests(unittest.TestCase):
             self._purchase("CHEWY REFUND", day, direction="in", income_type="refund")
         sugg = derivations.new_staple_suggestions(self.db)
         self.assertTrue(all("CHEWY" not in s["merchant"].upper() for s in sugg))
+
+    def _three_buys(self, desc, category):
+        for day, amt in (("2026-01-01", 1500), ("2026-01-20", 1799),
+                         ("2026-02-10", 1299)):
+            self._outflow(desc, day, amt, category=category)
+
+    def test_new_staple_only_offers_pantry_category_merchants(self):
+        # Nov 20: the card offered gas stations, restaurants and transit. Only
+        # merchants bought under Groceries / Household / Pets are pantry-shaped.
+        self._three_buys("CITY FUEL 0042", "Transport")
+        self._three_buys("TAQUERIA SOL", "Dining")
+        self._three_buys("VINYL ALLEY", "Entertainment")
+        self._three_buys("SOAPBOX SUPPLIES", "Household")
+        self._three_buys("PETCO", "Pets")
+        self._three_buys("BEAN ROASTERS", "Groceries")
+        merchants = {s["merchant"] for s in derivations.new_staple_suggestions(self.db)}
+        for gone in ("City Fuel", "Taqueria Sol", "Vinyl Alley"):
+            self.assertNotIn(gone, merchants)
+        for kept in ("Soapbox Supplies", "Petco", "Bean Roasters"):
+            self.assertIn(kept, merchants)
+
+    def test_new_staple_category_match_ignores_case_and_singular(self):
+        # Categories are free-form tags, so "groceries" / "Pet" count too.
+        self._three_buys("BEAN ROASTERS", "groceries")
+        self._three_buys("PETCO", "Pet")
+        self._three_buys("TIRE PLACE", "Uncategorized")
+        merchants = {s["merchant"] for s in derivations.new_staple_suggestions(self.db)}
+        self.assertIn("Bean Roasters", merchants)
+        self.assertIn("Petco", merchants)
+        self.assertNotIn("Tire Place", merchants)
+
+    def test_new_staple_counts_only_pantry_category_days(self):
+        # Two grocery days + one dining day at the same merchant is 2 pantry
+        # purchases, under the 3-day bar: not offered.
+        self._outflow("CORNER MARKET", "2026-01-01", 1500, category="Groceries")
+        self._outflow("CORNER MARKET", "2026-01-20", 1799, category="Groceries")
+        self._outflow("CORNER MARKET", "2026-02-10", 1299, category="Dining")
+        merchants = {s["merchant"] for s in derivations.new_staple_suggestions(self.db)}
+        self.assertNotIn("Corner Market", merchants)
 
     def test_new_staple_sorted_most_bought_first(self):
         # Varied amounts so neither reads as a fixed-amount subscription.

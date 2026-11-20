@@ -1338,13 +1338,22 @@ def new_staple_suggestions(db, min_purchases=3):
     suggestion. Reads transactions + items; never touches money. Most-bought
     first, then most-recent.
 
+    Pantry categories only (Nov 20): a purchase counts only when its category
+    is one of PANTRY_CATEGORIES (Groceries / Household / Pets, case-insensitive,
+    singular accepted — categories are free-form tags). Before, every merchant
+    qualified, so the card offered gas stations, restaurants and transit. A
+    merchant's purchases in other categories don't count toward its 3 days.
+
     Honest caveat inherited from step 5: SimpleFIN gives the MERCHANT, not the
     product, so this finds merchant-identifiable habits (a pet store, a coffee
     shop) and can't isolate one grocery item inside a supermarket run.
     """
+    placeholders = ",".join("?" for _ in PANTRY_CATEGORIES)
     rows = db.execute(
         "SELECT txn_date, amount_cents, description FROM transactions "
-        "WHERE direction = 'out' AND is_transfer = 0 AND source != 'settlement'").fetchall()
+        "WHERE direction = 'out' AND is_transfer = 0 AND source != 'settlement' "
+        f"AND lower(trim(category)) IN ({placeholders})",
+        PANTRY_CATEGORIES).fetchall()
     buckets = {}
     for r in rows:
         key = _normalize_merchant(r["description"])
@@ -1737,6 +1746,11 @@ def pantry_pulse(db):
 # the pantry-supply subset of app.DEFAULT_CATEGORIES. Kept here (not imported
 # from app) so the derivation layer has no route dependency.
 SHOPPING_CATEGORIES = ("Groceries", "Household")
+
+# The categories whose merchants can become pantry staples
+# (new_staple_suggestions), lower-cased: the shopping categories plus pets,
+# with singular spellings, since categories are free-form transaction tags.
+PANTRY_CATEGORIES = ("groceries", "grocery", "household", "pets", "pet")
 
 
 def last_shopping_trip(db):

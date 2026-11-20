@@ -4651,6 +4651,51 @@ PASS on synthetic seed-42 dev.db at v21: exactly schema 21→22
 balance and monthly totals unchanged. Not browser-smoked. Awaits Alta's review
 and merge.
 
+**Nov 20, 2026 — Pantry: "Need to buy" fits a phone (on
+`claude/ledger-pantry-refinement-fda8ff`, NOT deployed).** At 375px each
+Need-to-buy row carried a status badge, a deadline badge, Got it, 📅 and 💤,
+which cut names to "AA b…" / "Banan…" and hid a dated one-off's name entirely.
+Rows are now icon · name · Got it · ⋯: why it's on the list (Out / Low /
+One-off, then "by <date>", red when past, then any note) sits under the name,
+and 📅 / 💤 move into a ⋯ menu (a native `<details>`; one open at a time,
+closes on an outside tap or Escape). The menu also gives a one-off "Don't need
+it", which takes it off the list without counting as bought (the existing
+`DELETE /api/inventory/<id>` → `archive_item`; staples still stop tracking only
+from Staples). Counts now agree: the header pill was "N running low" (low/out
+staples) and the greeting's "N things on the list" included snoozed items, so
+the tab could say 5, the greeting 8 and the list 7. Both now count the
+not-snoozed list (`Render.activeListCount`, snooze judged against the client's
+today as the tab already did); the greeting's sheet lists snoozed rows under
+their own heading, outside the count, and the greeting refreshes after each
+Pantry render instead of only with Home. "Got everything (N)" moved directly
+under the rows it checks off, ahead of the On-the-way / Snoozed drawers.
+Frontend only: no route, verb, derivation or schema change. Render **246**
+(+3 checks, 6 updated), suite **916** OK. GATE PASS zero-diff (40 values) on
+synthetic seed-42 dev.db, origin/main vs this tree. Browser-smoked at 375px in
+dark and light: no name clipped (150px each, was ~50), menu opens/closes,
+Don't need it and Snooze work, greeting and pill both track Got it. Next
+candidate from the same review: "Bought a lot — track it?" offers any merchant
+(gas, dining, transit, the grocery store itself); it needs a pantry-category
+filter, which needs Alta's call on which categories count.
+
+**Nov 20, 2026 — Pantry: "Bought a lot — track it?" offers pantry merchants
+only (on `claude/pantry-staple-categories`, NOT deployed).** The card offered
+every merchant bought on 3+ days, so it suggested gas stations, restaurants,
+transit and record shops as staples (13 on the synthetic dev.db). Alta's call:
+only Groceries, Household and Pets. `derivations.new_staple_suggestions` now
+counts only outflows whose category is in the new `PANTRY_CATEGORIES`
+(groceries/grocery, household, pets/pet; compared with `lower(trim())`, since
+categories are free-form tags), so a merchant's purchases in other categories
+don't count toward its 3 days. Every caller reads the same function: the Pantry
+card, the pantry pulse, the Ask and MCP inventory tools. On the dev.db the card
+drops to 5 (a pet store, a household supplier, a hardware store, two grocery
+stores). The grocery stores themselves still appear, since Groceries was
+chosen; the existing exclusions (already tracked, subscriptions, settlements,
+transfers, inflows) are unchanged. Read-only derivation, no schema/verb/money
+path. Tests: +3 in `test_item_verbs.py`, each proven to fail on the old code
+first; suite **919** OK, render **244**. GATE PASS zero-diff (40 values) on
+synthetic seed-42 dev.db. Browser-checked the card at 375px.
+
 **Nov 20, 2026 — Architecture Map: long columns no longer overlap the detail
 row (on `claude/trace-map-fit`, NOT deployed).** Alta's report: on the Agents
 tab's Architecture Map (`/trace`), the Write verbs ran into the "Widest write
