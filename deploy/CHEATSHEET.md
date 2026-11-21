@@ -15,6 +15,11 @@ Ship whatever's on `origin/main` — backs up, gates, migrates, restarts:
 ```bash
 deploy/deploy.sh origin/main
 ```
+"already deployed" means `origin/main` is the last deploy that finished (it's
+recorded in `.deployed-sha` after the smoke check passes); nothing to do. If a
+deploy dies partway (pip, migrate, restart), fix the cause and run the same
+command again: it finishes from the last completed deploy. Want a specific
+baseline instead? `deploy/deploy.sh origin/main <previous-sha>`.
 
 ## Banks & sync
 Connect a new bank (one-time, per bank):
