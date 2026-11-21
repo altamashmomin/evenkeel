@@ -4710,3 +4710,27 @@ load. Today that fits both long columns with the canvas only 53px taller
 grew to 1949px and no node crossed its header or the detail row. Tracing still
 works. Frontend only (`static/trace-web.html`, `static/trace-web.js`); suite
 **916** OK, render **244**, GATE PASS zero-diff.
+
+**Nov 21, 2026 — deploy.sh remembers the last completed deploy (on
+`claude/deploy-marker`, NOT deployed).** Alta hit "nothing to deploy" re-running
+`deploy/deploy.sh origin/main`. That time it was correct (the Pi was already on
+`b7a954f`, the #80–#82 merge, and serving it), but it exposed a real trap: the
+no-op guard compared the target with HEAD, so a deploy that died after its
+checkout (pip, migrate, restart) left HEAD on the new commit and a plain re-run
+refused. Now `.deployed-sha` (gitignored, `.deployed-sha*`) records the target
+only after the smoke check passes. With no explicit `<old_ref>`, the gate
+baseline is the marker, falling back to HEAD when there's none (or it names no
+commit, with a warning). Target == marker → "already deployed", exit 0, no
+backup, no service touched. HEAD past the marker → a note that an earlier run
+stopped partway, then the full backup → gate (from the marker) → apply → smoke
+→ marker. With no marker and HEAD at the target it still refuses, now naming
+the `deploy/deploy.sh origin/main <previous-sha>` way to finish. An explicit
+`<old_ref>` still wins. `deploy/CHEATSHEET.md` explains both messages. Tests:
+new `tests/test_deploy_marker.py` (7) runs the REAL script against a scratch
+Pi checkout (bare origin, stubbed sudo/systemctl/curl/sleep/pip/gate/migrate),
+6 of them failing on the old script first; suite **926** OK, render **246**,
+GATE PASS zero-diff. Bootstrap note: the deploy that ships this runs the OLD
+copy of deploy.sh (bash keeps reading the file it opened), so the marker first
+appears after the following deploy; until then the HEAD fallback is today's
+behaviour. Side finding, not changed: deploy.sh exits 2 silently if `.env` is
+missing (the `PORT=` grep under `pipefail`); the Pi always has `.env`.

@@ -16,12 +16,18 @@
 #              too. On success the matching local branch is fast-forwarded to the
 #              deployed commit, so a later `git checkout main` can't revert the
 #              tree to stale code (the schema-v3 footgun).
-#   <old_ref>  the currently-deployed ref; defaults to the current HEAD. Pass it
-#              explicitly to pin the gate baseline (e.g. `origin/main <deployed-sha>`).
-#              For the first go-live this is the v1.0 tag:
+#   <old_ref>  the currently-deployed ref, the gate's baseline. Defaults to the
+#              last COMPLETED deploy, recorded in `.deployed-sha` (gitignored)
+#              only after the smoke check passes; with no marker yet, the
+#              current HEAD. So if a run dies after its checkout (pip, migrate,
+#              restart), HEAD is already on the new commit but the marker isn't,
+#              and a plain re-run finishes that deploy instead of refusing.
+#              Pass it explicitly to pin the baseline (e.g.
+#              `origin/main <deployed-sha>`). For the first go-live this was:
 #                   deploy/deploy.sh rework v1.0
-#              If <new_ref> resolves to the SAME commit as <old_ref>, the deploy
-#              stops (nothing to ship) rather than printing a misleading PASS.
+#              If <new_ref> is the last completed deploy, it says "already
+#              deployed" and exits 0; with no marker and HEAD already at the
+#              target it stops (it can't tell finished from interrupted).
 #
 # What it does, in order:
 #   1. sanity-check the repo + a clean working tree
@@ -33,7 +39,8 @@
 #      moves money or errors; the live DB is still untouched here
 #   5. stop the service, checkout <new_ref>, pip install, migrate --live
 #   6. start the service and smoke-check it — a failed smoke check is FATAL
-#      (prints the rollback and exits non-zero), then heal the local branch
+#      (prints the rollback and exits non-zero), then record `.deployed-sha`
+#      and heal the local branch
 # On any failure after step 5 begins, it prints the exact rollback commands.
 set -euo pipefail
 
@@ -56,7 +63,23 @@ if [ -n "$(git status --porcelain)" ]; then
     die "working tree has local changes — commit/stash them so checkout is safe"
 fi
 
-OLD_REF="${2:-$(git rev-parse HEAD)}"
+# The gate baseline: an explicit <old_ref>, else the last completed deploy
+# (.deployed-sha, written only after a healthy smoke check), else HEAD.
+MARKER=".deployed-sha"
+HEAD_SHA="$(git rev-parse HEAD)"
+if [ $# -ge 2 ]; then
+    OLD_REF="$2"; OLD_SRC="arg"
+else
+    OLD_REF="$HEAD_SHA"; OLD_SRC="head"
+    if [ -f "$MARKER" ]; then
+        MARKED="$(tr -d '[:space:]' < "$MARKER")"
+        if git rev-parse --verify --quiet "$MARKED^{commit}" >/dev/null; then
+            OLD_REF="$MARKED"; OLD_SRC="marker"
+        else
+            echo "   WARNING — $MARKER names no commit here ('$MARKED'); using HEAD as the baseline"
+        fi
+    fi
+fi
 PORT="$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2)"; PORT="${PORT:-8080}"
 TS="$(date +%Y-%m-%d-%H%M%S)"
 BACKUP="finance.db.bak-$TS"
@@ -78,9 +101,19 @@ OLD_SHA="$(git rev-parse --verify --quiet "$OLD_REF^{commit}" || true)"
 # otherwise "deploy" the running code and print a misleading GATE PASS. Stop
 # instead of silently shipping nothing.
 if [ -n "$OLD_SHA" ] && [ "$TARGET_SHA" = "$OLD_SHA" ]; then
-    die "target $NEW_REF (${TARGET_SHA:0:9}) is identical to the currently-deployed $OLD_REF — nothing to deploy. If you just pushed, the fetch may have raced; wait a few seconds and re-run."
+    if [ "$OLD_SRC" = "marker" ]; then
+        # The marker proves that commit finished deploying: a true no-op.
+        echo "== already deployed: $NEW_REF (${TARGET_SHA:0:9}) is the last completed deploy — nothing to do."
+        echo "   If you just pushed, the fetch may have raced; wait a few seconds and re-run."
+        exit 0
+    fi
+    die "target $NEW_REF (${TARGET_SHA:0:9}) is identical to the currently-deployed $OLD_REF — nothing to deploy. If you just pushed, the fetch may have raced; wait a few seconds and re-run. If an earlier deploy stopped partway, finish it from the commit that was live before: deploy/deploy.sh $NEW_REF <previous-sha>"
 fi
 echo "   target ${TARGET_SHA:0:9}  (currently deployed: ${OLD_SHA:0:9})"
+if [ "$OLD_SRC" = "marker" ] && [ "$HEAD_SHA" != "$OLD_SHA" ]; then
+    echo "   note: the checkout is at ${HEAD_SHA:0:9} but the last completed deploy was"
+    echo "         ${OLD_SHA:0:9} — an earlier run stopped partway; this run finishes it"
+fi
 
 # --- 3. backup (hard rule 6) -------------------------------------------------
 echo "-> backing up finance.db -> $BACKUP"
@@ -199,6 +232,15 @@ else
     echo "   ERROR — /api/status did not respond; the deploy did NOT come up healthy." >&2
     rollback
     die "app not serving on :$PORT after deploy — roll back with the commands above (check: journalctl -u pifinance -e)"
+fi
+# Record the completed deploy: the next run's default gate baseline, and the
+# proof a re-run of the same target is a no-op. Written only here, after the
+# smoke check, so a deploy that dies earlier never advances it. Non-fatal: the
+# app is already up; a missing marker just means the next run uses HEAD.
+if printf '%s\n' "$TARGET_SHA" > "$MARKER.tmp" && mv -f "$MARKER.tmp" "$MARKER"; then
+    echo "-> recorded $MARKER = ${TARGET_SHA:0:9}"
+else
+    echo "   WARNING — could not write $MARKER; the next deploy will use HEAD as its baseline"
 fi
 # Heal the local branch so a later `git checkout <branch>` lands on what we just
 # deployed, not stale local code (the footgun that reverted the tree to an old

@@ -10,6 +10,8 @@
 *.db.nightly-*
 *.db.staged
 .last-sync
+# deploy.sh's record of the last completed deploy (+ its temp file)
+.deployed-sha*
 *.db-wal
 *.db-shm
 *.sqlite
